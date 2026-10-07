@@ -1,0 +1,4 @@
+# LF em todo sistema, inclusive no clone do host Windows; senão o Prettier reprova tudo.
+* text=auto eol=lf
+*.bat text eol=crlf
+*.cmd text eol=crlf

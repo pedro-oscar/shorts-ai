@@ -1,0 +1,35 @@
+{
+  "name": "shorts-ai",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.22.1"
+  },
+  "scripts": {
+    "prepare": "husky",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "eslint --max-warnings=0 .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests",
+    "secrets": "secretlint --maskSecrets \"**/*\"",
+    "check": "npm run secrets && npm run format:check && npm run lint && npm run typecheck && npm test",
+    "check:full": "npm run check && npm run sast && npm run e2e",
+    "sast": "node -e \"console.error('SAST ainda não configurado: adicione a ferramenta aqui.'); process.exit(1)\"",
+    "e2e": "node -e \"console.error('e2e ainda não configurado: adicione a suíte aqui.'); process.exit(1)\""
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@secretlint/secretlint-rule-pattern": "^13.0.5",
+    "@secretlint/secretlint-rule-preset-recommend": "^13.0.5",
+    "eslint": "^10.11.0",
+    "globals": "^17.12.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.5.1",
+    "prettier": "^3.9.8",
+    "secretlint": "^13.0.5",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.70.1",
+    "vitest": "^5.0.1"
+  }
+}

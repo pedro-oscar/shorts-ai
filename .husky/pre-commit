@@ -1,0 +1,7 @@
+# Portões do commit: segredos, formatação, lint, tipos e testes (ver lint-staged.config.js).
+# SAST e e2e ficam fora daqui, em `npm run check:full`.
+if [ ! -e node_modules/.bin/lint-staged ]; then
+  echo "pre-commit: dependências não instaladas. Rode 'npm ci' e tente de novo." >&2
+  exit 1
+fi
+lint-staged --concurrent false --hide-unstaged
