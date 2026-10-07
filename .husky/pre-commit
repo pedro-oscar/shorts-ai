@@ -4,4 +4,8 @@ if [ ! -e node_modules/.bin/lint-staged ]; then
   echo "pre-commit: dependências não instaladas. Rode 'npm ci' e tente de novo." >&2
   exit 1
 fi
+if ! command -v gitleaks >/dev/null 2>&1; then
+  echo "pre-commit: gitleaks não encontrado. Instale-o (ver AGENTS.md) e tente de novo." >&2
+  exit 1
+fi
 lint-staged --concurrent false --hide-unstaged

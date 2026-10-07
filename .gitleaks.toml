@@ -1,0 +1,26 @@
+# Regras do gitleaks: as padrão mais as senhas que elas não pegam.
+# Valores que começam com $, <, { ou % são placeholders (${SENHA}, <senha>, {{senha}}, %s) e passam.
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "uri-com-senha"
+description = "URI com usuário e senha"
+regex = '''(?i)\b[a-z][a-z0-9+.-]*://[^\s:@/'"\x60]+:([^\s@/'"\x60$<{%][^\s@/'"\x60]*)@[^\s/'"\x60]+'''
+secretGroup = 1
+keywords = ["://"]
+
+[[rules]]
+id = "connection-string-com-senha"
+description = "Senha em connection string chave=valor"
+regex = '''(?i)[;&?]\s*(?:password|pwd)\s*=\s*([^;&\s"'$<{%][^;&\s"']{3,})'''
+secretGroup = 1
+keywords = ["password", "pwd"]
+
+[[rules]]
+id = "connection-string-com-senha-no-inicio"
+description = "Senha no início de connection string chave=valor"
+regex = '''(?i)(?:^|[\s"'\x60])(?:password|pwd)=([^;&\s"'$<{%][^;&\s"']{3,});'''
+secretGroup = 1
+keywords = ["password", "pwd"]

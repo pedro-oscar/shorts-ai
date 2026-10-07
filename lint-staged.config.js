@@ -6,10 +6,11 @@ const code = "*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}";
 
 /** @type {import("lint-staged").Configuration} */
 export default {
-  // Segredos primeiro. --no-gitignore: sem ele, um `git add -f .env` passaria sem
-  // checagem. --maskSecrets tira o valor encontrado do log.
+  // Segredos primeiro, no índice inteiro: pega também um `git add -f .env`.
+  // --redact tira o valor encontrado do log.
   "*": [
-    "secretlint --maskSecrets --no-gitignore",
+    () =>
+      "gitleaks git --pre-commit --staged --redact --no-banner --verbose --log-level=warn",
     "prettier --check --ignore-unknown",
   ],
   [code]: "eslint --max-warnings=0 --no-warn-ignored",
