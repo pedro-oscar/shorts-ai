@@ -29,9 +29,11 @@
     "audit:rs": "node scripts/cargo.mjs audit",
     "sast": "node scripts/sast.mjs",
     "e2e": "node scripts/e2e.mjs",
-    "tickets": "node scripts/tickets.mjs"
+    "tickets": "node scripts/tickets.mjs",
+    "sandcastle": "tsx .sandcastle/main.ts"
   },
   "devDependencies": {
+    "@ai-hero/sandcastle": "^0.12.0",
     "@eslint/js": "^10.0.1",
     "@types/node": "^22.20.4",
     "eslint": "^10.11.0",
@@ -45,6 +47,7 @@
     "husky": "^9.1.7",
     "lint-staged": "^17.5.1",
     "prettier": "^3.9.8",
+    "tsx": "^4.23.15",
     "typescript": "~6.0.3",
     "typescript-eslint": "^8.71.1",
     "vitest": "^5.0.1"

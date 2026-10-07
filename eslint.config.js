@@ -10,7 +10,14 @@ import globals from "globals";
 import tseslint from "typescript-eslint";
 
 export default defineConfig([
-  globalIgnores([".claude/", "**/target/", "**/dist/"]),
+  // As worktrees do sandcastle são cópias do repositório, ignoradas pelo .gitignore dele.
+  globalIgnores([
+    ".claude/",
+    ".sandcastle/worktrees/",
+    ".sandcastle/logs/",
+    "**/target/",
+    "**/dist/",
+  ]),
   js.configs.recommended,
   // Com tipos: barra `any` vazando (no-unsafe-*), promessas soltas e eval implícito.
   tseslint.configs.strictTypeChecked,

@@ -1,3 +1,5 @@
 .claude/
+.sandcastle/worktrees/
+.sandcastle/logs/
 package-lock.json
 skills-lock.json
