@@ -1,5 +1,5 @@
 // Portões do pre-commit, sobre o conteúdo staged (o hook esconde as mudanças não staged).
-// `npm run check` roda os mesmos portões no repositório inteiro, exceto Rust por enquanto.
+// São os do `npm run check`, que roda no repositório inteiro e também audita as dependências.
 // Com --concurrent false, as entradas rodam na ordem abaixo e param no primeiro erro.
 
 const code = "*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}";
@@ -16,12 +16,12 @@ export default {
   [code]: "eslint --max-warnings=0 --no-warn-ignored",
   // Tipos e testes valem para o projeto todo, então rodam uma vez, sem a lista de arquivos.
   [`{${code},package.json,package-lock.json,tsconfig*.json}`]: () => [
-    "npm run typecheck",
-    "npm test",
+    "npm run typecheck:ts",
+    "npm run test:ts",
   ],
   "{*.rs,Cargo.toml,Cargo.lock}": () => [
-    "cargo fmt --all --check",
-    "cargo clippy --workspace --all-targets -- -D warnings",
-    "cargo test --workspace",
+    "npm run format:check:rs",
+    "npm run lint:rs",
+    "npm run test:rs",
   ],
 };
