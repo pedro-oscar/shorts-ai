@@ -18,6 +18,7 @@ export default {
   [`{${code},package.json,package-lock.json,tsconfig*.json}`]: () => [
     "npm run typecheck:ts",
     "npm run test:ts",
+    "npm run test:scripts",
   ],
   "{*.rs,Cargo.toml,Cargo.lock}": () => [
     "npm run format:check:rs",

@@ -19,15 +19,17 @@
     "typecheck": "npm run typecheck:ts && npm run typecheck:rs",
     "typecheck:ts": "tsc --noEmit",
     "typecheck:rs": "node scripts/cargo.mjs check --workspace --all-targets --locked",
-    "test": "npm run test:ts && npm run test:rs",
-    "test:ts": "vitest run --passWithNoTests",
+    "test": "npm run test:ts && npm run test:scripts && npm run test:rs",
+    "test:ts": "vitest run --passWithNoTests --exclude \"scripts/**\"",
+    "test:scripts": "node --test \"scripts/*.test.mjs\"",
     "test:rs": "node scripts/cargo.mjs test --workspace --locked",
     "secrets": "node scripts/secrets.mjs",
     "audit": "npm run audit:ts && npm run audit:rs",
     "audit:ts": "npm audit --audit-level=high",
     "audit:rs": "node scripts/cargo.mjs audit",
     "sast": "node scripts/sast.mjs",
-    "e2e": "node scripts/e2e.mjs"
+    "e2e": "node scripts/e2e.mjs",
+    "tickets": "node scripts/tickets.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

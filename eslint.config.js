@@ -33,6 +33,26 @@ export default defineConfig([
   },
   { files: ["**/*.{js,mjs,cjs}"], languageOptions: { globals: globals.node } },
   {
+    // Testes dos scripts, com node:test: o runner acompanha a promessa que o test() devolve,
+    // e os arquivos lidos e gravados ficam numa pasta temporária do próprio teste.
+    files: ["scripts/**/*.test.mjs"],
+    rules: {
+      "@typescript-eslint/no-floating-promises": [
+        "error",
+        {
+          allowForKnownSafeCalls: [
+            {
+              from: "package",
+              package: "node:test",
+              name: ["test", "describe", "it"],
+            },
+          ],
+        },
+      ],
+      "security/detect-non-literal-fs-filename": "off",
+    },
+  },
+  {
     files: ["**/*.{ts,tsx}"],
     extends: [
       reactX.configs["strict-type-checked"],
