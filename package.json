@@ -26,8 +26,8 @@
     "audit": "npm run audit:ts && npm run audit:rs",
     "audit:ts": "npm audit --audit-level=high",
     "audit:rs": "node scripts/cargo.mjs audit",
-    "sast": "node -e \"console.error('SAST ainda não configurado: adicione a ferramenta aqui.'); process.exit(1)\"",
-    "e2e": "node -e \"console.error('e2e ainda não configurado: adicione a suíte aqui.'); process.exit(1)\""
+    "sast": "node scripts/sast.mjs",
+    "e2e": "node scripts/e2e.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
