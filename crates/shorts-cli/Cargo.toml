@@ -1,0 +1,9 @@
+[package]
+name = "shorts-cli"
+description = "Ferramentas que o Claude roda nas sessões do Shorts AI."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]

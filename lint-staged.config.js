@@ -25,4 +25,8 @@ export default {
     "npm run lint:rs",
     "npm run test:rs",
   ],
+  // O tauri-build lê a config e as capacidades ao compilar a casca, e o toolchain muda o
+  // clippy: mexer neles também pede a compilação e os testes do Rust.
+  "{rust-toolchain.toml,src-tauri/tauri.conf.json,src-tauri/capabilities/**}":
+    () => ["npm run lint:rs", "npm run test:rs"],
 };

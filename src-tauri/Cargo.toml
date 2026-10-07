@@ -1,0 +1,20 @@
+[package]
+name = "shorts-ai"
+description = "Casca Tauri do Shorts AI: expõe os comandos do núcleo e repassa os eventos dele."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[build-dependencies]
+tauri-build = { version = "2.7", features = [] }
+
+[dependencies]
+nucleo.workspace = true
+serde.workspace = true
+specta.workspace = true
+specta-typescript.workspace = true
+sys-locale = "0.3"
+tauri = { version = "2.12", features = [] }
+tauri-plugin-single-instance = "2.5"
+tauri-specta.workspace = true

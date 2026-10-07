@@ -1,10 +1,20 @@
 FROM node:22-bookworm
 
-# Install system dependencies
+# Install system dependencies. The second group is what Tauri 2 needs to
+# compile on Linux (https://v2.tauri.app/start/prerequisites/#linux): `npm run
+# check` builds the Tauri shell for clippy and the tests.
 RUN apt-get update && apt-get install -y \
   git \
   curl \
   jq \
+  build-essential \
+  file \
+  libayatana-appindicator3-dev \
+  librsvg2-dev \
+  libssl-dev \
+  libwebkit2gtk-4.1-dev \
+  libxdo-dev \
+  wget \
   && rm -rf /var/lib/apt/lists/*
 
 # The issue tracker is local (.scratch/, read and closed by `npm run tickets`
@@ -38,6 +48,16 @@ RUN curl -fsSL https://claude.ai/install.sh | bash
 
 # Add Claude to PATH
 ENV PATH="/home/agent/.local/bin:$PATH"
+
+# Rust for the Cargo workspace, pinned to the version in rust-toolchain.toml
+# (keep both in sync), with the rustfmt and clippy that `npm run check` runs.
+# cargo-audit is the same version as the hosts (see AGENTS.md).
+RUN curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs \
+    | sh -s -- -y --profile minimal --default-toolchain 1.99.0 \
+      --component rustfmt --component clippy \
+  && /home/agent/.cargo/bin/cargo install cargo-audit --locked --version 0.22.2 \
+  && rm -rf /home/agent/.cargo/registry
+ENV PATH="/home/agent/.cargo/bin:$PATH"
 
 WORKDIR /home/agent
 

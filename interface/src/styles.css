@@ -1,0 +1,139 @@
+/* Tamanhos em rem, para seguir o tamanho de fonte do sistema; cores com contraste AA. */
+:root {
+  color-scheme: light dark;
+  --background: #ffffff;
+  --text: #1c1b22;
+  --muted: #55536a;
+  --border: #c9c7d6;
+  --accent: #c4161c;
+  --accent-text: #ffffff;
+  --error-background: #fdecec;
+  --error-text: #8a1015;
+  --focus: #3b5bdb;
+  font-family:
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    Ubuntu,
+    sans-serif;
+  line-height: 1.5;
+  background: var(--background);
+  color: var(--text);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #17151f;
+    --text: #ecebf3;
+    --muted: #b4b1c6;
+    --border: #4a4760;
+    --accent: #ff5a5f;
+    --accent-text: #17151f;
+    --error-background: #3a1a1d;
+    --error-text: #ffc9cb;
+    --focus: #8ea6ff;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+.top-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1.5rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.brand {
+  font-weight: 700;
+}
+
+.screen {
+  max-width: 44rem;
+  margin: 0 auto;
+  padding: 2rem 1.5rem 3rem;
+}
+
+h1:focus {
+  outline: none;
+}
+
+.notice-items li + li {
+  margin-top: 0.5rem;
+}
+
+.agree {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin: 1.5rem 0;
+  font-weight: 600;
+}
+
+.agree input {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+.actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: flex-end;
+  margin-top: 1.5rem;
+}
+
+button {
+  font: inherit;
+  padding: 0.5rem 1.25rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+button.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+button:focus-visible,
+input:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.muted,
+.error .detail {
+  color: var(--muted);
+}
+
+.error {
+  padding: 0.75rem 1rem;
+  border-radius: 0.5rem;
+  background: var(--error-background);
+  color: var(--error-text);
+}
+
+.error p {
+  margin: 0;
+}
+
+.error .detail {
+  color: inherit;
+  font-size: 0.875rem;
+}

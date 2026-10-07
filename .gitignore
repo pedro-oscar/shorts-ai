@@ -5,3 +5,6 @@ node_modules/
 target/
 # Ajustes pessoais do Claude Code; os do projeto ficam em .claude/settings.json.
 .claude/settings.local.json
+# A interface empacotada, que o Tauri embute no build; e os esquemas que ele gera.
+/dist/
+/src-tauri/gen/

@@ -132,6 +132,18 @@ _Evitar_: descrição, caption (no sentido de texto do post)
 O texto que o Claude escreve para cada corte, para a pessoa colar no post junto com o reel.
 _Evitar_: legenda, caption
 
+**Aviso de uso**:
+As regras do app e o que sai do computador, que a pessoa aceita na primeira execução antes de usá-lo.
+_Evitar_: termos de uso, disclaimer
+
+**Aceite**:
+O registro, com data, de que a pessoa aceitou o Aviso de uso.
+_Evitar_: consentimento, concordância
+
+**Idioma da interface**:
+O idioma dos textos do app, pt-BR ou inglês; segue o do sistema e independe do idioma do vídeo.
+_Evitar_: idioma (sozinho), locale
+
 ### Visual
 
 **Kit de marca**:

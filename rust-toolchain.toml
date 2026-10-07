@@ -1,0 +1,6 @@
+# A mesma versão no host e na imagem da fábrica (.sandcastle/Dockerfile): lints novos do
+# clippy, com -D warnings, não podem reprovar numa máquina e passar na outra.
+[toolchain]
+channel = "1.99.0"
+components = ["rustfmt", "clippy"]
+profile = "minimal"

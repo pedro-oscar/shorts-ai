@@ -15,7 +15,8 @@ O revisor carrega este arquivo (`review-prompt.md`). Ele não repete as regras q
 ## Testes
 
 - Comportamento novo ou alterado vem com teste, escrito antes (o implementador segue RGR).
-- O app testa com vitest; as ferramentas de `scripts/` testam com `node:test` (`npm run test:scripts`), pela linha de comando.
+- O app testa nos dois seams da spec: o núcleo (`crates/nucleo`) pela interface pública dele, com `cargo test`; a interface com vitest e Testing Library, contra o núcleo falso de `interface/src/test/fakeNucleo.ts`. A casca Tauri não tem seam próprio.
+- As ferramentas de `scripts/` testam com `node:test` (`npm run test:scripts`), pela linha de comando.
 
 ## Comentários
 

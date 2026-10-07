@@ -17,6 +17,9 @@ export default defineConfig([
     ".sandcastle/logs/",
     "**/target/",
     "**/dist/",
+    // Gerados: os bindings pelo tauri-specta, os esquemas pelo Tauri.
+    "interface/src/bindings.ts",
+    "src-tauri/gen/",
   ]),
   js.configs.recommended,
   // Com tipos: barra `any` vazando (no-unsafe-*), promessas soltas e eval implícito.
@@ -60,7 +63,14 @@ export default defineConfig([
     },
   },
   {
-    files: ["**/*.{ts,tsx}"],
+    // TypeScript de Node, fora da interface: vite.config.ts e a fábrica (.sandcastle/).
+    files: ["**/*.{ts,mts,cts}"],
+    ignores: ["interface/**"],
+    languageOptions: { globals: globals.node },
+  },
+  {
+    // A interface roda no webview, com o tsconfig dela (interface/tsconfig.json).
+    files: ["interface/**/*.{ts,tsx}"],
     extends: [
       reactX.configs["strict-type-checked"],
       reactDom.configs.strict,

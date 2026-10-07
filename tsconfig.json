@@ -22,6 +22,7 @@
     ".sandcastle/worktrees",
     ".sandcastle/logs",
     "**/target",
-    "**/dist"
+    "**/dist",
+    "interface"
   ]
 }
