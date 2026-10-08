@@ -4,8 +4,10 @@
 //! interface. O núcleo fala por códigos e parâmetros, nunca por frases prontas: quem
 //! escreve os textos, em pt-BR ou em inglês, é a interface.
 
+mod conta;
 mod preferencias;
 
+use std::ffi::OsString;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
@@ -13,11 +15,18 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 use time::OffsetDateTime;
 
+use crate::conta::Conta;
+pub use crate::conta::{Cobranca, EstadoDaConta, VERSAO_MINIMA_DO_CLAUDE_CODE};
 use crate::preferencias::{PreferencesFile, Preferencias};
 
 /// O que o núcleo recebe da casca: onde ficam os dados do app e o idioma do sistema.
+#[derive(Default)]
 pub struct Config {
     pub app_data_dir: PathBuf,
+    /// O `PATH` em que procurar o `claude`, antes dos locais de instalação conhecidos.
+    pub path_env: Option<OsString>,
+    /// A pasta pessoal, base dos locais de instalação conhecidos do `claude`.
+    pub home_dir: Option<PathBuf>,
     /// O idioma do sistema, como `pt-BR` ou `pt_BR.UTF-8`; `None` se não for possível lê-lo.
     pub system_locale: Option<String>,
 }
@@ -25,6 +34,7 @@ pub struct Config {
 pub struct Nucleo {
     idioma_da_interface: IdiomaDaInterface,
     preferencias: Mutex<PreferencesFile>,
+    conta: Conta,
     emit: Box<dyn Fn(Evento) + Send + Sync>,
 }
 
@@ -109,6 +119,10 @@ pub enum Erro {
     PreferenciasIlegiveis { caminho: String, detalhe: String },
     #[error("preferências não gravadas em {caminho}: {detalhe}")]
     PreferenciasNaoGravadas { caminho: String, detalhe: String },
+    #[error("login no Claude Code não concluído: {detalhe}")]
+    LoginNaoConcluido { detalhe: String },
+    #[error("o Claude não respondeu ao teste: {detalhe}")]
+    ClaudeNaoRespondeu { detalhe: String },
 }
 
 impl Nucleo {
@@ -116,6 +130,11 @@ impl Nucleo {
         Self {
             idioma_da_interface: IdiomaDaInterface::of_locale(config.system_locale.as_deref()),
             preferencias: Mutex::new(PreferencesFile::in_dir(&config.app_data_dir)),
+            conta: Conta::new(
+                config.path_env,
+                config.home_dir,
+                config.app_data_dir.join("claude"),
+            ),
             emit: Box::new(emit),
         }
     }
@@ -151,6 +170,23 @@ impl Nucleo {
             aceite: aceite.clone(),
         });
         Ok(aceite)
+    }
+
+    /// Procura o Claude Code e consulta o login na configuração própria do app.
+    pub fn verificar_conta(&self) -> EstadoDaConta {
+        self.conta.estado()
+    }
+
+    /// Abre o login da Anthropic pelo Claude Code e espera o status mudar. Devolve o estado
+    /// da conta sem esperar nada quando não há o que fazer (sem Claude Code, versão antiga
+    /// ou já logado).
+    pub fn entrar_no_claude_code(&self) -> Result<EstadoDaConta, Erro> {
+        self.conta.entrar()
+    }
+
+    /// Pergunta algo curto ao Claude para confirmar que ele responde.
+    pub fn testar_claude(&self) -> Result<(), Erro> {
+        self.conta.testar()
     }
 
     fn preferences_file(&self) -> std::sync::MutexGuard<'_, PreferencesFile> {

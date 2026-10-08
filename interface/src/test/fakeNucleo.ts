@@ -1,14 +1,33 @@
-import type { Aceite, Erro, EstadoInicial, Evento } from "../bindings";
+import type {
+  Aceite,
+  Erro,
+  EstadoDaConta,
+  EstadoInicial,
+  Evento,
+} from "../bindings";
 import type { Nucleo } from "../nucleo";
 
 /** A data que o núcleo falso grava no aceite: 7 de outubro de 2026, 18:30 em UTC. */
 export const ACCEPTED_AT = "2026-10-07T18:30:00Z";
 
+/** A conta que o núcleo falso tem por padrão: assinatura Max, com o Claude Code em dia. */
+export const LOGADO: EstadoDaConta = {
+  tipo: "logado",
+  versao: "2.1.300",
+  metodo: "claude.ai",
+  plano: "max",
+  email: "ana@example.com",
+  cobranca: "assinatura",
+};
+
 /**
  * Um núcleo falso, sem Tauri: responde aos comandos como o do Rust e emite os mesmos
  * eventos. `calls` conta os comandos sem resposta visível, como "Sair".
  */
-export function createFakeNucleo(initial: Partial<EstadoInicial> = {}) {
+export function createFakeNucleo(
+  initial: Partial<EstadoInicial> = {},
+  conta: EstadoDaConta = LOGADO,
+) {
   let state: EstadoInicial = {
     versao: "0.1.0",
     idiomaDaInterface: "pt-BR",
@@ -18,7 +37,10 @@ export function createFakeNucleo(initial: Partial<EstadoInicial> = {}) {
     ...initial,
   };
   const listeners = new Set<(evento: Evento) => void>();
-  const calls = { sair: 0 };
+  const calls = { sair: 0, entrar: 0, testar: 0 };
+  let loginResult: EstadoDaConta = LOGADO;
+  let loginError: Erro | null = null;
+  let testError: Erro | null = null;
   let acceptanceError: Erro | null = null;
 
   const emit = (evento: Evento) => {
@@ -34,6 +56,20 @@ export function createFakeNucleo(initial: Partial<EstadoInicial> = {}) {
       state = { ...state, aceite };
       emit({ tipo: "avisoAceito", aceite });
       return Promise.resolve({ status: "ok", data: aceite });
+    },
+    verificarConta: () => Promise.resolve(conta),
+    entrarNoClaudeCode: () => {
+      calls.entrar++;
+      if (loginError)
+        return Promise.resolve({ status: "error", error: loginError });
+      conta = loginResult;
+      return Promise.resolve({ status: "ok", data: conta });
+    },
+    testarClaude: () => {
+      calls.testar++;
+      if (testError)
+        return Promise.resolve({ status: "error", error: testError });
+      return Promise.resolve({ status: "ok", data: null });
     },
     sair: () => {
       calls.sair++;
@@ -51,6 +87,16 @@ export function createFakeNucleo(initial: Partial<EstadoInicial> = {}) {
     nucleo,
     calls,
     /** Os próximos aceites falham com este erro, como num disco sem permissão. */
+    /** O que o login concluído deixa na conta. */
+    loginLeva: (estado: EstadoDaConta) => {
+      loginResult = estado;
+    },
+    failLogin: (erro: Erro) => {
+      loginError = erro;
+    },
+    failTest: (erro: Erro) => {
+      testError = erro;
+    },
     failAcceptance: (erro: Erro) => {
       acceptanceError = erro;
     },

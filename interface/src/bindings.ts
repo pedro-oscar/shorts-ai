@@ -8,6 +8,10 @@ import * as __TAURI_EVENT from "@tauri-apps/api/event";
 export const commands = {
 	estadoInicial: () => __TAURI_INVOKE<EstadoInicial>("estado_inicial"),
 	aceitarAviso: () => typedError<Aceite, Erro>(__TAURI_INVOKE("aceitar_aviso")),
+	verificarConta: () => __TAURI_INVOKE<EstadoDaConta>("verificar_conta"),
+	/**  "Entrar no Claude Code": espera o login terminar, o que leva minutos. */
+	entrarNoClaudeCode: () => typedError<EstadoDaConta, Erro>(__TAURI_INVOKE("entrar_no_claude_code")),
+	testarClaude: () => typedError<null, Erro>(__TAURI_INVOKE("testar_claude")),
 	/**  "Sair" no Aviso de uso: fecha o app. */
 	sair: () => __TAURI_INVOKE<void>("sair"),
 };
@@ -29,11 +33,23 @@ export type Aceite = {
 	data: string,
 };
 
+/**  Como o uso do Claude é pago: pela cota da assinatura ou pelo preço de API. */
+export type Cobranca = "assinatura" | 
+/**  Conta do Console e plano Enterprise contam como preço de API. */
+"porUso";
+
 /**
  *  Os erros do núcleo, como código e parâmetros. `detalhe` é a mensagem do sistema, para
  *  diagnóstico.
  */
-export type Erro = { codigo: "preferenciasIlegiveis"; caminho: string; detalhe: string } | { codigo: "preferenciasNaoGravadas"; caminho: string; detalhe: string };
+export type Erro = { codigo: "preferenciasIlegiveis"; caminho: string; detalhe: string } | { codigo: "preferenciasNaoGravadas"; caminho: string; detalhe: string } | { codigo: "loginNaoConcluido"; detalhe: string } | { codigo: "claudeNaoRespondeu"; detalhe: string };
+
+/**  Em que pé está a conta Claude do app. */
+export type EstadoDaConta = { tipo: "naoInstalado" } | { tipo: "versaoAntiga"; versao: string; minima: string } | { tipo: "semLogin"; versao: string } | { tipo: "logado"; versao: string; 
+/**  O `authMethod` do Claude Code, como ele informa. */
+metodo: string; 
+/**  O `subscriptionType` (`pro`, `max`, `team`...); `None` na conta do Console. */
+plano: string | null; email: string | null; cobranca: Cobranca };
 
 /**  O que a interface precisa para abrir. */
 export type EstadoInicial = {

@@ -43,6 +43,28 @@ export const ptBR = {
   },
   conta: {
     titulo: "Conta",
+    verificando: "Procurando o Claude Code…",
+    versaoEncontrada: "Claude Code {{versao}}",
+    chip: { console: "Console" },
+    naoInstalado:
+      "O Claude Code não está instalado. Instale-o para continuar; o Shorts AI usa o Claude Code oficial para escrever os roteiros.",
+    versaoAntiga:
+      "O Claude Code {{versao}} é antigo demais: o Shorts AI precisa da versão {{minima}} ou mais nova. Atualize o Claude Code para continuar.",
+    semLogin:
+      "O Claude Code está instalado, mas você ainda não entrou com a sua conta Claude.",
+    logado: "Você entrou com a conta {{conta}}.",
+    entrar: "Entrar no Claude Code",
+    entrando:
+      "Conclua o login no navegador. O Shorts AI espera o Claude Code confirmar a entrada.",
+    loginSeparado:
+      "O Shorts AI usa uma configuração própria do Claude Code, isolada dos seus hooks, plugins e memórias; por isso o login é separado do Claude Code do terminal.",
+    testando: "Testando se o Claude responde…",
+    testeOk: "O Claude respondeu ao teste.",
+    testarDeNovo: "Testar de novo",
+    continuar: "Continuar",
+  },
+  videos: {
+    titulo: "Vídeos",
   },
   preferencias: {
     corrompidas:
@@ -53,6 +75,10 @@ export const ptBR = {
       "Não foi possível ler as preferências em {{caminho}}. Corrija ou apague o arquivo e abra o app de novo.",
     preferenciasNaoGravadas:
       "Não foi possível gravar as preferências em {{caminho}}. Confira se há espaço e permissão nessa pasta e tente de novo.",
+    loginNaoConcluido:
+      "O login no Claude Code não foi concluído. Tente entrar de novo.",
+    claudeNaoRespondeu:
+      "O Claude não respondeu ao teste. Confira a sua conta e o seu plano e tente de novo.",
     detalhe: "Detalhe técnico (do sistema): {{detalhe}}",
   },
 };

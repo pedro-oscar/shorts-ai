@@ -42,6 +42,28 @@ export const en: typeof ptBR = {
   },
   conta: {
     titulo: "Account",
+    verificando: "Looking for Claude Code…",
+    versaoEncontrada: "Claude Code {{versao}}",
+    chip: { console: "Console" },
+    naoInstalado:
+      "Claude Code is not installed. Install it to continue; Shorts AI uses the official Claude Code to write the scripts.",
+    versaoAntiga:
+      "Claude Code {{versao}} is too old: Shorts AI needs version {{minima}} or newer. Update Claude Code to continue.",
+    semLogin:
+      "Claude Code is installed, but you have not signed in with your Claude account yet.",
+    logado: "You signed in with the account {{conta}}.",
+    entrar: "Sign in to Claude Code",
+    entrando:
+      "Finish signing in in your browser. Shorts AI waits for Claude Code to confirm it.",
+    loginSeparado:
+      "Shorts AI uses its own Claude Code configuration, isolated from your hooks, plugins and memories; that is why this sign-in is separate from the Claude Code in your terminal.",
+    testando: "Testing that Claude responds…",
+    testeOk: "Claude responded to the test.",
+    testarDeNovo: "Test again",
+    continuar: "Continue",
+  },
+  videos: {
+    titulo: "Videos",
   },
   preferencias: {
     corrompidas:
@@ -52,6 +74,10 @@ export const en: typeof ptBR = {
       "Could not read the preferences at {{caminho}}. Fix or delete the file and open the app again.",
     preferenciasNaoGravadas:
       "Could not save the preferences at {{caminho}}. Check that the folder has free space and write permission, then try again.",
+    loginNaoConcluido:
+      "Signing in to Claude Code was not completed. Try signing in again.",
+    claudeNaoRespondeu:
+      "Claude did not respond to the test. Check your account and plan, then try again.",
     detalhe: "Technical details (from the system): {{detalhe}}",
   },
 };

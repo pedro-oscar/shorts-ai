@@ -4,7 +4,7 @@
 // Sem a janela de console no Windows, nas builds de release.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use nucleo::{Aceite, Config, Erro, EstadoInicial, Evento, Nucleo};
+use nucleo::{Aceite, Config, Erro, EstadoDaConta, EstadoInicial, Evento, Nucleo};
 use serde::Serialize;
 use specta::Type;
 use tauri::{AppHandle, Manager, State};
@@ -28,6 +28,36 @@ async fn aceitar_aviso(nucleo: State<'_, Nucleo>) -> Result<Aceite, Erro> {
     nucleo.aceitar_aviso()
 }
 
+#[tauri::command]
+#[specta::specta]
+async fn verificar_conta(app: AppHandle) -> EstadoDaConta {
+    // Roda o `claude` como processo filho: fora da thread do runtime async.
+    tauri::async_runtime::spawn_blocking(move || app.state::<Nucleo>().verificar_conta())
+        .await
+        .unwrap_or(EstadoDaConta::NaoInstalado)
+}
+
+/// "Entrar no Claude Code": espera o login terminar, o que leva minutos.
+#[tauri::command]
+#[specta::specta]
+async fn entrar_no_claude_code(app: AppHandle) -> Result<EstadoDaConta, Erro> {
+    tauri::async_runtime::spawn_blocking(move || app.state::<Nucleo>().entrar_no_claude_code())
+        .await
+        .map_err(|error| Erro::LoginNaoConcluido {
+            detalhe: error.to_string(),
+        })?
+}
+
+#[tauri::command]
+#[specta::specta]
+async fn testar_claude(app: AppHandle) -> Result<(), Erro> {
+    tauri::async_runtime::spawn_blocking(move || app.state::<Nucleo>().testar_claude())
+        .await
+        .map_err(|error| Erro::ClaudeNaoRespondeu {
+            detalhe: error.to_string(),
+        })?
+}
+
 /// "Sair" no Aviso de uso: fecha o app.
 #[tauri::command]
 #[specta::specta]
@@ -39,7 +69,14 @@ fn bindings() -> Builder<tauri::Wry> {
     Builder::new()
         // Os tipos têm o mesmo formato na ida e na volta: sem `Tipo_Serialize`/`_Deserialize`.
         .disable_serde_phases()
-        .commands(collect_commands![estado_inicial, aceitar_aviso, sair])
+        .commands(collect_commands![
+            estado_inicial,
+            aceitar_aviso,
+            verificar_conta,
+            entrar_no_claude_code,
+            testar_claude,
+            sair
+        ])
         .events(collect_events![EventoDoNucleo])
 }
 
@@ -62,6 +99,8 @@ fn main() {
                 Config {
                     app_data_dir: app.path().app_data_dir()?,
                     system_locale: sys_locale::get_locale(),
+                    path_env: std::env::var_os("PATH"),
+                    home_dir: app.path().home_dir().ok(),
                 },
                 move |evento| {
                     if let Err(error) = EventoDoNucleo(evento).emit(&handle) {

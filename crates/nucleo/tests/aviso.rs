@@ -13,6 +13,7 @@ fn config(dados: &Path, locale: Option<&str>) -> Config {
     Config {
         app_data_dir: dados.to_path_buf(),
         system_locale: locale.map(String::from),
+        ..Config::default()
     }
 }
 

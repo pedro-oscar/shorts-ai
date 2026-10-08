@@ -1,6 +1,7 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import type { Erro } from "../bindings";
+import { useAppStore } from "../context";
 
 /**
  * Uma tela com o título dela. O título recebe o foco ao abrir, para quem usa teclado ou
@@ -32,10 +33,28 @@ export function Topo({ onOpenSobre }: { onOpenSobre: () => void }) {
   return (
     <header className="top-bar">
       <span className="brand">{t("app.nome")}</span>
-      <button type="button" onClick={onOpenSobre}>
-        {t("sobre.abrir")}
-      </button>
+      <div className="top-actions">
+        <ContaChip />
+        <button type="button" onClick={onOpenSobre}>
+          {t("sobre.abrir")}
+        </button>
+      </div>
     </header>
+  );
+}
+
+/** A conta detectada e o plano dela, no topo, quando o Claude Code está logado. */
+function ContaChip() {
+  const { t } = useTranslation();
+  const conta = useAppStore((store) => store.conta);
+  if (conta?.tipo !== "logado") return null;
+  const plano = conta.plano
+    ? conta.plano.charAt(0).toUpperCase() + conta.plano.slice(1)
+    : t("conta.chip.console");
+  return (
+    <span className="chip">
+      {[conta.email, plano].filter(Boolean).join(" · ")}
+    </span>
   );
 }
 
@@ -61,9 +80,10 @@ export function TextoDoAviso({ headingLevel }: { headingLevel: 2 | 3 }) {
 
 export function ErrorMessage({ erro }: { erro: Erro }) {
   const { t } = useTranslation();
+  const caminho = "caminho" in erro ? erro.caminho : undefined;
   return (
     <div role="alert" className="error">
-      <p>{t(`erros.${erro.codigo}`, { caminho: erro.caminho })}</p>
+      <p>{t(`erros.${erro.codigo}`, { caminho })}</p>
       <p className="detail">{t("erros.detalhe", { detalhe: erro.detalhe })}</p>
     </div>
   );
