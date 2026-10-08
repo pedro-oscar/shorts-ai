@@ -20,6 +20,11 @@ export const events = {
 /* Types */
 /**  O aceite do Aviso de uso. */
 export type Aceite = {
+	/**
+	 *  A versão do Aviso aceita. Os aceites gravados antes dela não têm o campo e contam
+	 *  como da versão 0.
+	 */
+	versao?: number,
 	/**  Quando a pessoa aceitou, em RFC 3339 e UTC. */
 	data: string,
 };
@@ -34,10 +39,15 @@ export type Erro = { codigo: "preferenciasIlegiveis"; caminho: string; detalhe: 
 export type EstadoInicial = {
 	versao: string,
 	idiomaDaInterface: IdiomaDaInterface,
-	/**  `None` até a pessoa aceitar o Aviso de uso. */
+	/**  `None` até a pessoa aceitar a versão atual do Aviso de uso. */
 	aceite: Aceite | null,
 	/**  Por que as preferências não puderam ser lidas; o idioma da interface é o do sistema. */
 	erro: Erro | null,
+	/**
+	 *  Onde ficou, ao abrir, o `preferencias.json` que não era JSON válido. As preferências
+	 *  voltaram ao padrão e, sem o aceite, o Aviso de uso volta também.
+	 */
+	backupDasPreferencias: string | null,
 };
 
 /**  O que muda no núcleo e a interface acompanha. */

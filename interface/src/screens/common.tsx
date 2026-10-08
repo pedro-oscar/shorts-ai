@@ -49,6 +49,7 @@ export function TextoDoAviso({ headingLevel }: { headingLevel: 2 | 3 }) {
       <ul className="notice-items">
         <li>{t("aviso.itens.pessoal")}</li>
         <li>{t("aviso.itens.conta")}</li>
+        <li>{t("aviso.itens.cota")}</li>
         <li>{t("aviso.itens.direito")}</li>
         <li>{t("aviso.itens.remotion")}</li>
       </ul>

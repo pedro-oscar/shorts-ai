@@ -137,7 +137,7 @@ As regras do app e o que sai do computador, que a pessoa aceita na primeira exec
 _Evitar_: termos de uso, disclaimer
 
 **Aceite**:
-O registro, com data, de que a pessoa aceitou o Aviso de uso.
+O registro, com data e versão do Aviso, de que a pessoa aceitou o Aviso de uso; o aceite de uma versão anterior não vale.
 _Evitar_: consentimento, concordância
 
 **Idioma da interface**:

@@ -44,6 +44,21 @@ test("o Aviso se aceita só pelo teclado", async () => {
   expect(await screen.findByRole("heading", { name: "Conta" })).toHaveFocus();
 });
 
+test("Li e concordo continua marcado depois de ver o Sobre", async () => {
+  const { user } = renderApp();
+
+  await user.click(
+    await screen.findByRole("checkbox", { name: "Li e concordo" }),
+  );
+  await user.click(screen.getByRole("button", { name: "Sobre" }));
+  await user.click(await screen.findByRole("button", { name: "Voltar" }));
+
+  expect(
+    await screen.findByRole("checkbox", { name: "Li e concordo" }),
+  ).toBeChecked();
+  expect(screen.getByRole("button", { name: "Continuar" })).toBeEnabled();
+});
+
 test("Sair, no Aviso, fecha o app", async () => {
   const { user, calls } = renderApp();
 
@@ -66,7 +81,13 @@ test("o Aviso diz o que sai do computador", async () => {
   screen.getByText(
     "O vídeo e o áudio ficam no seu computador; vão para o Claude o texto da transcrição, o roteiro e imagens de alguns quadros dos reels, usadas na revisão.",
   );
+  screen.getByText(
+    "As sessões do Claude usam a cota do seu plano, junto com o resto do seu uso; com uma conta do Console, são cobradas pelos preços da API da Anthropic.",
+  );
   screen.getByText("Processe só vídeos que você tem direito de usar.");
+  screen.getByText(
+    "Os reels são renderizados com o Remotion, gratuito para pessoas físicas, organizações sem fins lucrativos e empresas de até 3 funcionários. Empresas maiores precisam de uma licença própria do Remotion.",
+  );
 });
 
 test("os textos aparecem em inglês quando o idioma da interface é en", async () => {
@@ -93,7 +114,7 @@ test("Sobre mostra a versão, o aviso e as licenças, e a data depois do aceite"
   screen.getByText("Versão 1.2.3");
   screen.getByText("Você ainda não aceitou o Aviso de uso.");
   screen.getByText("Processe só vídeos que você tem direito de usar.");
-  screen.getByText(/^Remotion:/);
+  screen.getByText(/^Remotion:.*organizações sem fins lucrativos/);
   screen.getByText(/SIL Open Font License/);
 
   await user.click(screen.getByRole("button", { name: "Voltar" }));
@@ -123,7 +144,9 @@ test("um aceite que não grava mostra o erro e fica no Aviso", async () => {
   expect(alert).toHaveTextContent(
     "Não foi possível gravar as preferências em /dados/preferencias.json.",
   );
-  expect(alert).toHaveTextContent("Permission denied (os error 13)");
+  expect(alert).toHaveTextContent(
+    "Detalhe técnico (do sistema): Permission denied (os error 13)",
+  );
   screen.getByRole("heading", { name: "Aviso de uso" });
 });
 
@@ -132,7 +155,7 @@ test("com as preferências ilegíveis, o app mostra o erro e não passa dele", a
     erro: {
       codigo: "preferenciasIlegiveis",
       caminho: "/dados/preferencias.json",
-      detalhe: "expected value at line 1 column 3",
+      detalhe: "Is a directory (os error 21)",
     },
   });
 
@@ -142,4 +165,19 @@ test("com as preferências ilegíveis, o app mostra o erro e não passa dele", a
   );
   expect(screen.queryByRole("heading", { name: "Aviso de uso" })).toBeNull();
   expect(screen.queryByRole("heading", { name: "Conta" })).toBeNull();
+});
+
+test("com as preferências corrompidas, o app diz onde ficou o backup e o Aviso segue", async () => {
+  const { user } = renderApp({
+    backupDasPreferencias:
+      "/dados/preferencias.corrompido-2026-10-08T14-30-05.json",
+  });
+
+  await screen.findByRole("heading", { name: "Aviso de uso" });
+  expect(screen.getByRole("status")).toHaveTextContent(
+    "O arquivo de preferências estava corrompido e foi guardado em /dados/preferencias.corrompido-2026-10-08T14-30-05.json. As preferências voltaram ao padrão, por isso o Aviso de uso aparece de novo.",
+  );
+  await user.click(screen.getByRole("checkbox", { name: "Li e concordo" }));
+  await user.click(screen.getByRole("button", { name: "Continuar" }));
+  await screen.findByRole("heading", { name: "Conta" });
 });

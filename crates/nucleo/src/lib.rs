@@ -34,10 +34,13 @@ pub struct Nucleo {
 pub struct EstadoInicial {
     pub versao: String,
     pub idioma_da_interface: IdiomaDaInterface,
-    /// `None` até a pessoa aceitar o Aviso de uso.
+    /// `None` até a pessoa aceitar a versão atual do Aviso de uso.
     pub aceite: Option<Aceite>,
     /// Por que as preferências não puderam ser lidas; o idioma da interface é o do sistema.
     pub erro: Option<Erro>,
+    /// Onde ficou, ao abrir, o `preferencias.json` que não era JSON válido. As preferências
+    /// voltaram ao padrão e, sem o aceite, o Aviso de uso volta também.
+    pub backup_das_preferencias: Option<String>,
 }
 
 /// O idioma dos textos do app, que segue o do sistema: `pt-*` vira pt-BR e o resto, inglês.
@@ -63,10 +66,19 @@ impl IdiomaDaInterface {
     }
 }
 
+/// A versão do texto do Aviso de uso. Mudou o conteúdo do Aviso (o que ele diz, não a forma)?
+/// Suba a versão: os aceites de versões anteriores deixam de valer, e o Aviso volta para quem
+/// já tinha aceitado.
+pub const VERSAO_DO_AVISO: u32 = 1;
+
 /// O aceite do Aviso de uso.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct Aceite {
+    /// A versão do Aviso aceita. Os aceites gravados antes dela não têm o campo e contam
+    /// como da versão 0.
+    #[serde(default)]
+    pub versao: u32,
     /// Quando a pessoa aceitou, em RFC 3339 e UTC.
     #[serde(with = "time::serde::rfc3339")]
     #[specta(type = String)]
@@ -109,23 +121,28 @@ impl Nucleo {
     }
 
     pub fn estado_inicial(&self) -> EstadoInicial {
-        let (preferencias, erro) = match self.preferences_file().read() {
+        let mut file = self.preferences_file();
+        let (preferencias, erro) = match file.read() {
             Ok(preferencias) => (preferencias, None),
             Err(erro) => (Preferencias::default(), Some(erro)),
         };
         EstadoInicial {
             versao: env!("CARGO_PKG_VERSION").to_owned(),
             idioma_da_interface: self.idioma_da_interface,
-            aceite: preferencias.aceite,
+            aceite: preferencias
+                .aceite
+                .filter(|aceite| aceite.versao >= VERSAO_DO_AVISO),
             erro,
+            backup_das_preferencias: file.backup(),
         }
     }
 
     /// Grava o aceite do Aviso de uso, com a data de agora.
     pub fn aceitar_aviso(&self) -> Result<Aceite, Erro> {
-        let file = self.preferences_file();
+        let mut file = self.preferences_file();
         let mut preferencias = file.read()?;
         let aceite = Aceite {
+            versao: VERSAO_DO_AVISO,
             data: OffsetDateTime::now_utc(),
         };
         preferencias.aceite = Some(aceite.clone());

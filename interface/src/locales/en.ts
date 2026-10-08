@@ -13,9 +13,10 @@ export const en: typeof ptBR = {
         "Shorts AI is for personal, noncommercial use, under the PolyForm Noncommercial 1.0.0 license.",
       conta:
         "It uses your own Claude account, through the official Claude Code you sign in to. The app never sees your password, token or key.",
+      cota: "Claude sessions count toward your plan's usage limits, along with the rest of your usage; with a Console account, they are billed at Anthropic's API prices.",
       direito: "Only process videos you have the right to use.",
       remotion:
-        "Reels are rendered with Remotion, which is free for individuals and companies with up to 3 employees. Larger companies need their own Remotion license.",
+        "Reels are rendered with Remotion, which is free for individuals, nonprofit organizations and companies with up to 3 employees. Larger companies need their own Remotion license.",
     },
     privacidadeTitulo: "What leaves your computer",
     privacidade:
@@ -35,18 +36,22 @@ export const en: typeof ptBR = {
       "Shorts AI is distributed under the PolyForm Noncommercial 1.0.0 license.",
     terceirosTitulo: "Third-party licenses",
     remotion:
-      "Remotion: its own license, free for individuals and companies with up to 3 employees.",
+      "Remotion: its own license, free for individuals, nonprofit organizations and companies with up to 3 employees.",
     montserrat: "Montserrat font: SIL Open Font License 1.1.",
     voltar: "Back",
   },
   conta: {
     titulo: "Account",
   },
+  preferencias: {
+    corrompidas:
+      "The preferences file was corrupted and was saved to {{backup}}. The preferences went back to the defaults, so the terms of use are shown again.",
+  },
   erros: {
     preferenciasIlegiveis:
       "Could not read the preferences at {{caminho}}. Fix or delete the file and open the app again.",
     preferenciasNaoGravadas:
       "Could not save the preferences at {{caminho}}. Check that the folder has free space and write permission, then try again.",
-    detalhe: "Details: {{detalhe}}",
+    detalhe: "Technical details (from the system): {{detalhe}}",
   },
 };

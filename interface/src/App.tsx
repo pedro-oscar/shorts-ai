@@ -39,6 +39,8 @@ function Screens() {
   const erroAoAbrir = useAppStore((store) => store.erroAoAbrir);
   const aceito = useAppStore((store) => store.aceite !== null);
   const [sobreOpen, setSobreOpen] = useState(false);
+  // Aqui, e não no Aviso, porque o Sobre desmonta o Aviso.
+  const [concordo, setConcordo] = useState(false);
 
   if (erroAoAbrir) return <ErroAoAbrir erro={erroAoAbrir} />;
   if (sobreOpen)
@@ -55,6 +57,10 @@ function Screens() {
   return aceito ? (
     <Conta onOpenSobre={openSobre} />
   ) : (
-    <Aviso onOpenSobre={openSobre} />
+    <Aviso
+      concordo={concordo}
+      onConcordoChange={setConcordo}
+      onOpenSobre={openSobre}
+    />
   );
 }

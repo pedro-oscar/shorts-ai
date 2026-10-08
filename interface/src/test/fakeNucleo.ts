@@ -14,6 +14,7 @@ export function createFakeNucleo(initial: Partial<EstadoInicial> = {}) {
     idiomaDaInterface: "pt-BR",
     aceite: null,
     erro: null,
+    backupDasPreferencias: null,
     ...initial,
   };
   const listeners = new Set<(evento: Evento) => void>();

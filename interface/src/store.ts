@@ -7,6 +7,8 @@ export interface AppState {
   app: { versao: string; idiomaDaInterface: IdiomaDaInterface } | null;
   /** As preferências não puderam ser lidas: o app não passa da mensagem de erro. */
   erroAoAbrir: Erro | null;
+  /** Onde o núcleo guardou, ao abrir, o arquivo de preferências que estava corrompido. */
+  backupDasPreferencias: string | null;
   aceite: Aceite | null;
   erroAoAceitar: Erro | null;
 }
@@ -29,6 +31,7 @@ export function createAppStore(nucleo: Nucleo) {
     return {
       app: null,
       erroAoAbrir: null,
+      backupDasPreferencias: null,
       aceite: null,
       erroAoAceitar: null,
 
@@ -48,6 +51,7 @@ export function createAppStore(nucleo: Nucleo) {
                 idiomaDaInterface: inicial.idiomaDaInterface,
               },
               erroAoAbrir: inicial.erro,
+              backupDasPreferencias: inicial.backupDasPreferencias,
               // Um aceite que chegou por evento vale mais que o do estado inicial.
               aceite: current.aceite ?? inicial.aceite,
             }));
