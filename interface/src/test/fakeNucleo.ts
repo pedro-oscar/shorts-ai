@@ -38,7 +38,6 @@ export function createFakeNucleo(
   };
   const listeners = new Set<(evento: Evento) => void>();
   const calls = { sair: 0, entrar: 0, testar: 0 };
-  let loginResult: EstadoDaConta = LOGADO;
   let loginError: Erro | null = null;
   let testError: Erro | null = null;
   let acceptanceError: Erro | null = null;
@@ -62,7 +61,7 @@ export function createFakeNucleo(
       calls.entrar++;
       if (loginError)
         return Promise.resolve({ status: "error", error: loginError });
-      conta = loginResult;
+      conta = LOGADO;
       return Promise.resolve({ status: "ok", data: conta });
     },
     testarClaude: () => {
@@ -86,17 +85,13 @@ export function createFakeNucleo(
   return {
     nucleo,
     calls,
-    /** Os próximos aceites falham com este erro, como num disco sem permissão. */
-    /** O que o login concluído deixa na conta. */
-    loginLeva: (estado: EstadoDaConta) => {
-      loginResult = estado;
-    },
     failLogin: (erro: Erro) => {
       loginError = erro;
     },
     failTest: (erro: Erro) => {
       testError = erro;
     },
+    /** Os próximos aceites falham com este erro, como num disco sem permissão. */
     failAcceptance: (erro: Erro) => {
       acceptanceError = erro;
     },
