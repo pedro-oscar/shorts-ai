@@ -23,3 +23,7 @@ Depois de clonar, rode `npm ci`: é ele que liga o hook (`.husky/pre-commit`, po
 - `gitleaks` 8.30+ no PATH (binário das releases de github.com/gitleaks/gitleaks); o pre-commit também usa;
 - `cargo-audit`: `cargo install cargo-audit --locked`;
 - para o `check:full`, Docker ou Podman; sem eles, o script instala o Semgrep com `uv`.
+
+## Loop AFK
+
+Tickets: `npm run -s tickets -- all`. Fábrica: `npm run afk`, sempre num branch afk/*; o merge no main é humano.

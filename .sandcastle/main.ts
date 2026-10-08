@@ -19,7 +19,10 @@
 // phase that produces no commits).
 //
 // Usage:
-//   npm run sandcastle
+//   npm run afk
+//
+// The run's commits land on a new branch, afk/<timestamp>; merging it into
+// main is a human's job.
 
 import * as sandcastle from "@ai-hero/sandcastle";
 import { docker } from "@ai-hero/sandcastle/sandboxes/docker";
@@ -48,7 +51,7 @@ const copyToWorktree = ["node_modules"];
 // Main loop
 // ---------------------------------------------------------------------------
 
-const branch = `sandcastle/sequential-reviewer/${String(Date.now())}`;
+const branch = `afk/${String(Date.now())}`;
 
 const sandbox = await sandcastle.createSandbox({
   branch,
