@@ -452,10 +452,7 @@ impl Nucleo {
             json.gravar(&pasta)
                 .map_err(|error| nao_criado(&pasta, error))?;
             let resumo = ProjetoResumo {
-                id: pasta
-                    .file_name()
-                    .map(|nome| nome.to_string_lossy().into_owned())
-                    .unwrap_or_default(),
+                id: nome_do_arquivo(&pasta),
                 titulo: json.titulo,
                 pasta: pasta.display().to_string(),
                 etapas: json.etapas,

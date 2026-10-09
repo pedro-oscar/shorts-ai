@@ -8,7 +8,7 @@ use std::sync::mpsc::{self, Sender};
 use std::thread;
 
 use crate::projeto::{ModoDeImportacao, Origem, ProjetoJson};
-use crate::{EstadoDaEtapa, Etapa, Evento, LigarArquivo};
+use crate::{EstadoDaEtapa, Etapa, Evento, LigarArquivo, nome_do_arquivo};
 
 pub(crate) type Emitir = Arc<dyn Fn(Evento) + Send + Sync>;
 
@@ -34,17 +34,10 @@ impl Fila {
     }
 }
 
-fn id_do(pasta: &Path) -> String {
-    pasta
-        .file_name()
-        .map(|nome| nome.to_string_lossy().into_owned())
-        .unwrap_or_default()
-}
-
 /// Roda as etapas que existem, da primeira não concluída em diante, e para na primeira que
 /// falha. As etapas sem executor continuam pendentes.
 fn rodar(pasta: &Path, emit: &Emitir, ligar: &LigarArquivo) {
-    let id = id_do(pasta);
+    let id = nome_do_arquivo(pasta);
     let mut projeto = match ProjetoJson::ler(pasta) {
         Ok(projeto) => projeto,
         Err(error) => {
