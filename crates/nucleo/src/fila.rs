@@ -9,6 +9,7 @@ use std::sync::mpsc::{self, Sender};
 use std::thread;
 
 use crate::projeto::{ModoDeImportacao, Origem, ProjetoJson};
+use crate::sessao::{self, EventoDaSessao, Roteirista};
 use crate::transcricao::{Pedido, Transcritor};
 use crate::{EstadoDaEtapa, Etapa, Evento, LigarArquivo, nome_do_arquivo};
 
@@ -19,11 +20,22 @@ pub(crate) struct Fila {
 }
 
 impl Fila {
-    pub fn new(emit: Emitir, ligar: LigarArquivo, transcritor: Option<Transcritor>) -> Self {
+    pub fn new(
+        emit: Emitir,
+        ligar: LigarArquivo,
+        transcritor: Option<Transcritor>,
+        roteirista: Option<Roteirista>,
+    ) -> Self {
         let (envio, recebimento) = mpsc::channel::<PathBuf>();
         thread::spawn(move || {
             for pasta in recebimento {
-                rodar(&pasta, &emit, &ligar, transcritor.as_ref());
+                rodar(
+                    &pasta,
+                    &emit,
+                    &ligar,
+                    transcritor.as_ref(),
+                    roteirista.as_ref(),
+                );
             }
         });
         Self { envio }
@@ -38,7 +50,13 @@ impl Fila {
 
 /// Roda as etapas que existem, da primeira não concluída em diante, e para na primeira que
 /// falha. As etapas sem executor continuam pendentes.
-fn rodar(pasta: &Path, emit: &Emitir, ligar: &LigarArquivo, transcritor: Option<&Transcritor>) {
+fn rodar(
+    pasta: &Path,
+    emit: &Emitir,
+    ligar: &LigarArquivo,
+    transcritor: Option<&Transcritor>,
+    roteirista: Option<&Roteirista>,
+) {
     let id = nome_do_arquivo(pasta);
     let mut projeto = match ProjetoJson::ler(pasta) {
         Ok(projeto) => projeto,
@@ -63,6 +81,7 @@ fn rodar(pasta: &Path, emit: &Emitir, ligar: &LigarArquivo, transcritor: Option<
         let tem_executor = match etapa {
             Etapa::Importacao => true,
             Etapa::Transcricao => transcritor.is_some(),
+            Etapa::Roteiro => roteirista.is_some(),
             _ => false,
         };
         if !tem_executor {
@@ -85,9 +104,12 @@ fn rodar(pasta: &Path, emit: &Emitir, ligar: &LigarArquivo, transcritor: Option<
             });
         };
         transicao(&mut projeto, EstadoDaEtapa::EmAndamento, None);
-        let resultado = match (etapa, transcritor) {
-            (Etapa::Transcricao, Some(transcritor)) => {
+        let resultado = match (etapa, transcritor, roteirista) {
+            (Etapa::Transcricao, Some(transcritor), _) => {
                 transcrever(pasta, &mut projeto, transcritor, &id, emit)
+            }
+            (Etapa::Roteiro, _, Some(roteirista)) => {
+                roteirizar(pasta, &projeto, roteirista, &id, emit)
             }
             _ => importar(pasta, &mut projeto, ligar).map_err(|error| error.to_string()),
         };
@@ -169,4 +191,50 @@ fn transcrever(
         .map_err(|error| error.to_string())?;
     projeto.idioma_do_video = Some(transcricao.idioma);
     Ok(())
+}
+
+/// O Roteiro: a sessão do Claude escreve `edit/roteiro.json`, e o núcleo o valida no fim. A
+/// fila ainda não cancela etapas, então nada liga o `cancelar`.
+fn roteirizar(
+    pasta: &Path,
+    projeto: &ProjetoJson,
+    roteirista: &Roteirista,
+    id: &str,
+    emit: &Emitir,
+) -> Result<(), String> {
+    let Origem::Arquivo { nome, .. } = &projeto.origem;
+    let idioma = projeto
+        .idioma_do_video
+        .as_deref()
+        .ok_or("o idioma do vídeo não foi detectado")?;
+    let modelo = (projeto.opcoes.modelo != "padrao").then_some(projeto.opcoes.modelo.as_str());
+    roteirista
+        .roteirizar(
+            &sessao::Pedido {
+                pasta,
+                video: nome,
+                idioma,
+                cortes: projeto.opcoes.quantidade_de_reels,
+                pedido: &projeto.opcoes.pedido,
+                modelo,
+            },
+            &AtomicBool::new(false),
+            &mut |evento| {
+                emit(match evento {
+                    EventoDaSessao::Acao { ferramenta, alvo } => Evento::AcaoDoClaude {
+                        projeto: id.to_owned(),
+                        etapa: Etapa::Roteiro,
+                        ferramenta,
+                        alvo,
+                    },
+                    EventoDaSessao::Tokens { entrada, cache } => Evento::TokensDoClaude {
+                        projeto: id.to_owned(),
+                        etapa: Etapa::Roteiro,
+                        entrada,
+                        cache,
+                    },
+                });
+            },
+        )
+        .map_err(|error| error.to_string())
 }

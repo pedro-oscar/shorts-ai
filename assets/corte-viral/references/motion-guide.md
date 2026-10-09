@@ -59,7 +59,7 @@ Tempos em segundos na linha do tempo **do corte** (a mesma de `captions.json`, q
 
 ## Cenas ilustradas (o lugar das imagens do Higgsfield)
 
-Toda cena é um componente em `remotion/src/scenes/<Nome>.tsx` desenhado para a caixa **940×760** (`SCENE_BOX`). O `SceneFrame` posiciona como `card` ou amplia como `full`. Registre em `scenes/index.ts`: o componente em `SCENES` e props de exemplo em `EXEMPLOS`. Pré-visualize com `./ae cena <Nome> <segundos> [card|full]`, que gera um PNG em `remotion/out/`.
+Toda cena é um componente em `remotion/src/scenes/<Nome>.tsx` desenhado para a caixa **940×760** (`SCENE_BOX`). O `SceneFrame` posiciona como `card` ou amplia como `full`. Registre em `scenes/index.ts`: o componente em `SCENES` e props de exemplo em `EXEMPLOS`. Pré-visualize com `shorts-cli cena <Nome> <segundos> [card|full]`, que gera um PNG em `remotion/out/`.
 
 Antes de criar uma cena, veja as que já existem em `scenes/index.ts`: o projeto acumula cenas de vídeos anteriores, e reaproveitar é melhor que duplicar.
 
@@ -73,7 +73,7 @@ Para criar uma cena nova, como o exemplo do `Dinheiro.tsx`:
 
 **Briefing para o sub-agente de cada cena nova** (um por cena, todos em paralelo):
 
-> Objetivo em 1 frase · caminho absoluto do arquivo · props e exemplo de valores · duração em segundos · paleta (accent/highlight hex) · roteiro quadro a quadro (o que entra quando) · "desenhe para 940×760, siga o padrão de src/scenes/Dinheiro.tsx, escreva só o arquivo da cena e devolva as props de exemplo" (quem registra em `index.ts`, roda `./ae tsc` e confere com `./ae cena` é o agente principal; sub-agentes podem não ter acesso a comandos) · "não faça perguntas, escolha a interpretação óbvia".
+> Objetivo em 1 frase · caminho absoluto do arquivo · props e exemplo de valores · duração em segundos · paleta (accent/highlight hex) · roteiro quadro a quadro (o que entra quando) · "desenhe para 940×760, siga o padrão de src/scenes/Dinheiro.tsx, escreva só o arquivo da cena e devolva as props de exemplo" (quem registra em `index.ts`, roda `shorts-cli tsc` e confere com `shorts-cli cena` é o agente principal; sub-agentes podem não ter acesso a comandos) · "não faça perguntas, escolha a interpretação óbvia".
 
 ## Referências visuais do usuário
 

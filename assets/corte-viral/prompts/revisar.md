@@ -1,6 +1,6 @@
-Você está rodando **sem ninguém para responder** (chamado por `./ae auto`/`./ae revisar`). Não faça perguntas.
+Você está rodando **sem ninguém para responder** (sessão de Revisão do Shorts AI). Não faça perguntas.
 
-Use a skill **corte-viral**. Leia `{SKILL}/SKILL.md` (seção 7, Revisão), `{SKILL}/references/roteiro.md` e `{SKILL}/references/aprendizados.md`.
+Use a skill **corte-viral**. Leia `{SKILL}/SKILL.md` (seção 7, Revisão), `{SKILL}/references/roteiro.md` e `{APRENDIZADOS}/aprendizados.md`.
 
 ## Tarefa
 
@@ -17,11 +17,11 @@ Os reels do roteiro `{ROTEIRO}` acabaram de ser produzidos.
    - final suave: o último quadro fecha uma frase e não corta no meio de uma palavra ou ideia;
    - nenhuma cena em tela cheia escondendo o rosto tempo demais. Cards podem virar tela cheia sozinhos quando não há espaço; se forem muitos, troque alguns por keyword/counter.
 3. Se o rosto estiver errado, olhe `edit/cortes/<chave>/verify_face/` e adicione `pin` ao corte (tempos **do corte**).
-4. Corrija o que for necessário **no roteiro** (trechos, motions, pin, ênfase, correções, estilo) e rode `./ae validar {ROTEIRO}` até passar. Para erros de cena, corrija o componente em `remotion/src/scenes/` e rode `./ae tsc`.
+4. Corrija o que for necessário **no roteiro** (trechos, motions, pin, ênfase, correções, estilo) e rode `shorts-cli validar {ROTEIRO}` até passar. Para erros de cena, corrija o componente em `remotion/src/scenes/` e rode `shorts-cli tsc`.
 5. Só mude o que melhora de verdade. Não troque escolhas boas por gosto.
-6. Se o pedido do usuário (abaixo) expressar uma **preferência geral**, que vale para os próximos vídeos (ex.: "nunca use emoji nos títulos", "prefiro legenda em minúsculas"), acrescente uma linha datada em `{SKILL}/references/aprendizados.md`, na seção certa. Pedidos sobre um corte específico não viram regra.
+6. Se o pedido do usuário (abaixo) expressar uma **preferência geral**, que vale para os próximos vídeos (ex.: "nunca use emoji nos títulos", "prefiro legenda em minúsculas"), acrescente uma linha datada em `{APRENDIZADOS}/aprendizados.md`, na seção certa. Pedidos sobre um corte específico não viram regra.
 
-**Não** rode `./ae produzir`.
+**Não** rode `o app produz`.
 {EXTRA}
 ## Resposta final
 

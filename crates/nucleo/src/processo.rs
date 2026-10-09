@@ -1,7 +1,7 @@
-//! Processos externos (ffmpeg, whisper-cli): rodam até o fim, entregam cada linha de saída
+//! Processos externos (ffmpeg, whisper-cli, claude): rodam até o fim, entregam cada linha de saída
 //! enquanto correm e morrem se a tarefa for cancelada.
 
-use std::io::{self, BufRead, BufReader};
+use std::io::{self, BufRead, BufReader, Write};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
@@ -37,15 +37,37 @@ impl From<io::Error> for Interrompido {
 /// Roda o comando até o fim, passando cada linha de saída a `por_linha`, e o mata se
 /// `cancelar` ligar.
 pub(crate) fn executar(
+    comando: Command,
+    cancelar: &AtomicBool,
+    por_linha: &mut dyn FnMut(Fluxo, &str),
+) -> Result<Saida, Interrompido> {
+    executar_com_entrada(comando, None, cancelar, por_linha)
+}
+
+/// Como [`executar`], entregando `entrada` ao processo pela entrada padrão.
+pub(crate) fn executar_com_entrada(
     mut comando: Command,
+    entrada: Option<&str>,
     cancelar: &AtomicBool,
     por_linha: &mut dyn FnMut(Fluxo, &str),
 ) -> Result<Saida, Interrompido> {
     let mut filho = comando
-        .stdin(Stdio::null())
+        .stdin(if entrada.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()?;
+    if let (Some(entrada), Some(mut stdin)) = (entrada, filho.stdin.take()) {
+        // Numa thread: um prompt maior que o pipe não pode travar a leitura da saída. Se o
+        // processo morrer antes de ler, a escrita falha e não há mais a quem entregar.
+        let entrada = entrada.to_owned();
+        thread::spawn(move || {
+            let _ = stdin.write_all(entrada.as_bytes());
+        });
+    }
     let stdout = filho.stdout.take().expect("stdout em pipe");
     let stderr = filho.stderr.take().expect("stderr em pipe");
     let (envio, recebimento) = mpsc::channel();

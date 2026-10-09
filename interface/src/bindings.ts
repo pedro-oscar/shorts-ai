@@ -107,7 +107,14 @@ export type Evento = { tipo: "avisoAceito"; aceite: Aceite } | { tipo: "planoCon
 /**  Uma etapa do projeto mudou de estado. */
 { tipo: "etapaMudou"; projeto: string; etapa: Etapa; estado: EstadoDaEtapa; falha: string | null } | 
 /**  O progresso de uma etapa que o mede, de 0 a 100. */
-{ tipo: "progressoDaEtapa"; projeto: string; etapa: Etapa; percentual: number };
+{ tipo: "progressoDaEtapa"; projeto: string; etapa: Etapa; percentual: number } | 
+/**
+ *  Uma ação do Claude numa sessão: a ferramenta (`Read`, `Bash`...) ou `texto`, e o que ela
+ *  toca.
+ */
+{ tipo: "acaoDoClaude"; projeto: string; etapa: Etapa; ferramenta: string; alvo: string | null } | 
+/**  Os tokens de entrada e de cache que a sessão do Claude já usou. */
+{ tipo: "tokensDoClaude"; projeto: string; etapa: Etapa; entrada: number; cache: number };
 
 /**  Os eventos do núcleo num só canal: a interface os aplica em ordem no estado dela. */
 export type EventoDoNucleo = Evento;

@@ -12,6 +12,7 @@ mod processo;
 mod projeto;
 mod remotion;
 pub mod roteiro;
+pub mod sessao;
 pub mod transcricao;
 
 use std::ffi::OsString;
@@ -31,6 +32,7 @@ use crate::preferencias::{PreferencesFile, Preferencias};
 pub use crate::projeto::{EtapaDoProjeto, ModoDeImportacao};
 use crate::projeto::{Origem, ProjetoJson};
 use crate::remotion::Remotion;
+use crate::sessao::Roteirista;
 use crate::transcricao::Transcritor;
 
 /// Como a Importação liga o vídeo original ao projeto sem copiá-lo: um hardlink. Se falha, o
@@ -64,6 +66,8 @@ pub struct Config {
     pub npm: Option<PathBuf>,
     /// O ffmpeg, o whisper-cli e os modelos da Transcrição. Sem ele a etapa fica pendente.
     pub transcritor: Option<Transcritor>,
+    /// O `claude` da etapa Roteiro, com a skill e os aprendizados. Sem ele a etapa fica pendente.
+    pub roteirista: Option<Roteirista>,
 }
 
 pub struct Nucleo {
@@ -270,6 +274,21 @@ pub enum Evento {
         etapa: Etapa,
         percentual: u8,
     },
+    /// Uma ação do Claude numa sessão: a ferramenta (`Read`, `Bash`...) ou `texto`, e o que ela
+    /// toca.
+    AcaoDoClaude {
+        projeto: String,
+        etapa: Etapa,
+        ferramenta: String,
+        alvo: Option<String>,
+    },
+    /// Os tokens de entrada e de cache que a sessão do Claude já usou.
+    TokensDoClaude {
+        projeto: String,
+        etapa: Etapa,
+        entrada: u32,
+        cache: u32,
+    },
 }
 
 /// Os erros do núcleo, como código e parâmetros. `detalhe` é a mensagem do sistema, para
@@ -314,7 +333,12 @@ impl Nucleo {
             .join("Shorts AI");
         Self {
             biblioteca,
-            fila: Fila::new(Arc::clone(&emit), ligar, config.transcritor),
+            fila: Fila::new(
+                Arc::clone(&emit),
+                ligar,
+                config.transcritor,
+                config.roteirista,
+            ),
             remotion: Remotion::new(config.assets_dir, &config.app_data_dir, config.npm),
             path_env: config.path_env.clone(),
             idioma_da_interface: IdiomaDaInterface::of_locale(config.system_locale.as_deref()),

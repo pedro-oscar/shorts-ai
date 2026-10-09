@@ -1,6 +1,6 @@
 # Roteiro (`edit/roteiros/<video>.json`)
 
-É o único arquivo que o Claude escreve para produzir os reels. O usuário roda `./ae produzir` e o `scripts/produzir.py` faz o resto: ajusta os cortes ao limite das palavras, corta, enquadra o rosto, monta legenda e motion e renderiza.
+É o único arquivo que o Claude escreve para produzir os reels. O usuário roda `o app produz` e o `scripts/produzir.py` faz o resto: ajusta os cortes ao limite das palavras, corta, enquadra o rosto, monta legenda e motion e renderiza.
 
 **Todos os tempos são em segundos do vídeo de origem**, os mesmos de `edit/takes_packed.md`. Podem ser número (`4092.3`) ou relógio (`"1:08:12.3"`). A conversão para a linha do tempo de cada corte é automática.
 
@@ -70,10 +70,10 @@ Tipos e propriedades: `title {text}`, `keyword {text}`, `counter {from, to, pref
 ## Validar e produzir
 
 ```bash
-./ae validar                 # o Claude roda antes de entregar; também gera <roteiro>.md
-./ae produzir                # o usuário roda; usa o roteiro mais recente em edit/roteiros/
-./ae produzir --rapido       # meia resolução → publicar/rapido/
-./ae produzir --so c01,c03   # só alguns cortes
+shorts-cli validar                 # o Claude roda antes de entregar; também gera <roteiro>.md
+o app produz                # o usuário roda; usa o roteiro mais recente em edit/roteiros/
+o app produz --rapido       # meia resolução → publicar/rapido/
+o app produz --so c01,c03   # só alguns cortes
 ```
 
 O cache por hash refaz só o que mudou. Mudar só motions ou legenda re-renderiza o reel sem recortar o vídeo.

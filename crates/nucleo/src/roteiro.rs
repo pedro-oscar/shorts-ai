@@ -11,6 +11,12 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
+/// Onde o projeto guarda a transcrição por palavra.
+pub const TRANSCRICAO: &str = "edit/transcricao.json";
+
+/// Onde o projeto guarda o roteiro que o Claude escreve.
+pub const ROTEIRO: &str = "edit/roteiro.json";
+
 /// A versão do contrato do roteiro que este núcleo entende.
 pub const VERSAO_DO_ROTEIRO: u32 = 1;
 
@@ -286,6 +292,90 @@ impl Problema {
             _ => Gravidade::Erro,
         }
     }
+
+    fn marca(&self) -> &'static str {
+        match self.gravidade() {
+            Gravidade::Erro => "✗ erro:",
+            Gravidade::Aviso => "⚠ aviso:",
+        }
+    }
+
+    /// A frase que descreve o problema, para o Claude e para os logs.
+    pub fn frase(&self) -> String {
+        match self {
+            Self::RoteiroIlegivel(erro) => {
+                format!("o roteiro não é um JSON válido do contrato: {erro}")
+            }
+            Self::VersaoNaoSuportada { versao } => {
+                format!("versão {versao} do roteiro não é suportada (use a versão 1)")
+            }
+            Self::TranscricaoAusente => format!(
+                "falta a transcrição ({TRANSCRICAO}); rode na pasta do projeto, depois da etapa Transcrição"
+            ),
+            Self::CorteSemTrechos => "o corte não tem trechos".into(),
+            Self::TrechoForaDoVideo {
+                inicio,
+                fim,
+                duracao,
+            } => {
+                format!("trecho {inicio:.2}–{fim:.2} fora do vídeo (0–{duracao:.0}s)")
+            }
+            Self::TrechoSemPalavra { inicio, fim } => {
+                format!("trecho {inicio:.2}–{fim:.2} não contém nenhuma palavra")
+            }
+            Self::DuracaoAcimaDoMaximo { duracao } => {
+                format!("{duracao:.1}s é mais que o máximo de 90s; enxugue os trechos")
+            }
+            Self::TipoDeMotionInvalido { numero, tipo } => format!(
+                "motion #{numero} com type inválido: \"{tipo}\" (use title, keyword, counter, zoom, shake, scene ou flash)"
+            ),
+            Self::AtForaDosTrechos { numero, instante } => {
+                format!(
+                    "motion #{numero}: o tempo {instante:.2}s não está em nenhum trecho do corte"
+                )
+            }
+            Self::PalavraNaoEncontrada { numero, palavra } => {
+                format!("motion #{numero}: a palavra \"{palavra}\" não aparece na legenda do corte")
+            }
+            Self::MotionSemAtNemWord { numero, tipo } => {
+                format!("motion #{numero} ({tipo}) precisa de \"at\" ou \"word\"")
+            }
+            Self::MotionCurto { numero, tipo } => {
+                format!("motion #{numero} ({tipo}) tem menos de 0,3s ou cai fora do corte")
+            }
+            Self::CenaNaoRegistrada { nome } => {
+                format!("a cena \"{nome}\" não está registrada em remotion/src/scenes/index.ts")
+            }
+            Self::FonteForaDoCatalogo { fonte } => {
+                format!("a fonte \"{fonte}\" não está no catálogo")
+            }
+            Self::LogoInexistente { arquivo } => {
+                format!("o arquivo de logo \"{arquivo}\" não existe")
+            }
+            Self::UltimoTrechoSemPontuacao { palavra } => format!(
+                "o corte termina em \"{palavra}\", sem fim de frase; pode soar abrupto, prefira terminar numa frase completa"
+            ),
+            Self::EncaixeMoveuBorda { pedido, encaixado } => format!(
+                "trecho {:.2}–{:.2} encaixado em {:.2}–{:.2}, mais de 0,6s de diferença",
+                pedido.0, pedido.1, encaixado.0, encaixado.1
+            ),
+            Self::CorteCurto { duracao } => format!(
+                "duração {duracao:.1}s é curta (menos de 20s); inclua o contexto e deixe o payoff respirar"
+            ),
+            Self::PalavraLongeDoAt { palavra, distancia } => {
+                format!(
+                    "a palavra \"{palavra}\" mais próxima está a {distancia:.1}s do \"at\" indicado"
+                )
+            }
+            Self::MotionsSobrepostas { a, b } => format!(
+                "{} {:.1}s e {} {:.1}s se sobrepõem na mesma região",
+                a.0, a.1, b.0, b.1
+            ),
+            Self::CenasCobremDemais => {
+                "cenas de tela cheia cobrem mais de 60% do corte; o rosto quase não aparece".into()
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------- plano
@@ -351,6 +441,55 @@ impl Validacao {
         self.todos_os_problemas()
             .any(|p| p.gravidade() == Gravidade::Erro)
     }
+
+    /// O relatório que o `shorts-cli validar` imprime e a sessão do Claude lê.
+    pub fn relatorio(&self) -> String {
+        let mut saida = String::new();
+        for problema in &self.problemas {
+            saida.push_str(&format!("  {} {}\n", problema.marca(), problema.frase()));
+        }
+        for corte in &self.cortes {
+            let erros = corte
+                .problemas
+                .iter()
+                .filter(|p| p.gravidade() == Gravidade::Erro)
+                .count();
+            match (&corte.plano, erros) {
+                (Some(plano), 0) => saida.push_str(&format!(
+                    "  ✓ {} → {}  {:.1}s  {} trecho(s)  {} motion(s)\n",
+                    corte.id,
+                    plano.chave,
+                    plano.duracao,
+                    plano.trechos.len(),
+                    plano.motion.motions.len()
+                )),
+                _ => saida.push_str(&format!("  ✗ {}\n", corte.id)),
+            }
+            for problema in &corte.problemas {
+                saida.push_str(&format!(
+                    "      {} {}\n",
+                    problema.marca(),
+                    problema.frase()
+                ));
+            }
+        }
+        let erros = self.contar(Gravidade::Erro);
+        let avisos = self.contar(Gravidade::Aviso);
+        if erros == 0 {
+            saida.push_str(&format!("\nRoteiro válido ({avisos} aviso(s)).\n"));
+        } else {
+            saida.push_str(&format!(
+                "\nRoteiro inválido: {erros} erro(s), {avisos} aviso(s). Corrija o roteiro.\n"
+            ));
+        }
+        saida
+    }
+
+    fn contar(&self, gravidade: Gravidade) -> usize {
+        self.todos_os_problemas()
+            .filter(|p| p.gravidade() == gravidade)
+            .count()
+    }
 }
 
 /// O que a validação confere fora do roteiro.
@@ -397,6 +536,19 @@ pub fn cenas_registradas(remotion: &Path) -> BTreeSet<String> {
             (!nome.is_empty()).then_some(nome)
         })
         .collect()
+}
+
+/// Valida o roteiro de um projeto: a transcrição e o registro de cenas vêm da pasta dele.
+pub fn validar_na_pasta(pasta: &Path, texto: &str) -> Validacao {
+    let transcricao = fs::read_to_string(pasta.join(TRANSCRICAO))
+        .ok()
+        .and_then(|texto| Transcricao::do_json(&texto).ok());
+    let contexto = Contexto {
+        cenas: cenas_registradas(&pasta.join("remotion")),
+        fontes: None,
+        pasta: pasta.to_owned(),
+    };
+    validar(texto, transcricao.as_ref(), &contexto)
 }
 
 /// Valida o roteiro e calcula o plano dos cortes com status `produzir`.

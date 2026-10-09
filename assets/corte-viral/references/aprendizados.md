@@ -3,7 +3,7 @@
 Regras aprovadas pelo usuário. **Valem mais que o SKILL.md e o motion-guide.** Acrescente uma linha datada sempre que o usuário aprovar, reprovar ou corrigir algo que deva valer para os próximos vídeos. Remova regras que o usuário revogar.
 
 ## Seleção
-- 2026-10-06 — O usuário não quer escrever nem escolher nada: o Claude seleciona sozinho, escreve o roteiro completo e entrega só o comando `./ae produzir`. (Substitui a regra de 05/10 de mostrar candidatos e esperar escolha.)
+- 2026-10-06 — O usuário não quer escrever nem escolher nada: o Claude seleciona sozinho, escreve o roteiro completo e entrega só o comando `o app produz`. (Substitui a regra de 05/10 de mostrar candidatos e esperar escolha.)
 - 2026-10-05 — Poucos cortes muito bons valem mais que muitos médios.
 
 ## Corte e enquadramento
