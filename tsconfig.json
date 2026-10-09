@@ -23,6 +23,7 @@
     ".sandcastle/logs",
     "**/target",
     "**/dist",
-    "interface"
+    "interface",
+    "assets"
   ]
 }

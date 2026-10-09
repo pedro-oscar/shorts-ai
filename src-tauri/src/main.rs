@@ -196,6 +196,8 @@ fn main() {
                     home_dir: app.path().home_dir().ok(),
                     pasta_de_videos: app.path().video_dir().ok(),
                     ligar_arquivo: None,
+                    assets_dir: app.path().resource_dir().ok().map(|dir| dir.join("assets")),
+                    npm: None,
                     chave_de_api_no_ambiente: std::env::var_os("ANTHROPIC_API_KEY")
                         .is_some_and(|chave| !chave.is_empty()),
                 },

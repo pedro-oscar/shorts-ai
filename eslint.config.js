@@ -19,6 +19,8 @@ export default defineConfig([
     "**/dist/",
     // Gerados: os bindings pelo tauri-specta, os esquemas pelo Tauri.
     "interface/src/bindings.ts",
+    // Cópia do CLI (assets/ORIGEM.md): tem o próprio tsconfig e não segue estes padrões.
+    "assets/",
     "src-tauri/gen/",
   ]),
   js.configs.recommended,

@@ -152,6 +152,8 @@ export const ptBR = {
       "{{caminho}} não é um vídeo aceito. Use arquivos MP4, MOV ou MKV que existam no computador.",
     projetoNaoCriado:
       "Não foi possível criar o projeto em {{caminho}}. Confira se há espaço e permissão nessa pasta e tente de novo.",
+    dependenciasDoRemotionNaoInstaladas:
+      "Não foi possível instalar as dependências do Remotion. Confira a conexão com a internet e tente de novo.",
     detalhe: "Detalhe técnico (do sistema): {{detalhe}}",
   },
 };

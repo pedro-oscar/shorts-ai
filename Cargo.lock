@@ -3167,6 +3167,9 @@ dependencies = [
 [[package]]
 name = "shorts-cli"
 version = "0.1.0"
+dependencies = [
+ "tempfile",
+]
 
 [[package]]
 name = "signal-hook-registry"

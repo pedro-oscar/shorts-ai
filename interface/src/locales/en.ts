@@ -150,6 +150,8 @@ export const en: typeof ptBR = {
       "{{caminho}} is not a supported video. Use MP4, MOV or MKV files that exist on this computer.",
     projetoNaoCriado:
       "Could not create the project in {{caminho}}. Check that the folder has space and permission, and try again.",
+    dependenciasDoRemotionNaoInstaladas:
+      "Could not install the Remotion dependencies. Check your internet connection and try again.",
     detalhe: "Technical details (from the system): {{detalhe}}",
   },
 };

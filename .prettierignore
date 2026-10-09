@@ -5,3 +5,4 @@ package-lock.json
 skills-lock.json
 # Gerado pelo tauri-specta a cada `cargo test` (ver src-tauri/src/main.rs).
 interface/src/bindings.ts
+assets/
