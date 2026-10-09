@@ -566,7 +566,7 @@ impl Ffmpeg {
         comando
             .args(["-hide_banner", "-nostats", "-v", "error", "-i"])
             .arg(corte)
-            .args(["-vf"])
+            .arg("-vf")
             .arg(format!("fps={QUADROS_POR_SEGUNDO},scale={quadro_l}:-2"))
             .args(["-f", "rawvideo", "-pix_fmt", "rgb24", "-"]);
         hide_console(&mut comando);
@@ -595,22 +595,19 @@ impl Ffmpeg {
                 .as_deref()
                 .is_some_and(|a| trocou_de_cena(a, &histograma));
             anterior = Some(histograma);
-            let rostos =
-                detector
-                    .detectar(&quadro, quadro_l, quadro_a)
-                    .map_err(|e| ErroDoCorte::Falhou {
+            let rostos = match detector.detectar(&quadro, quadro_l, quadro_a) {
+                Ok(rostos) => rostos,
+                Err(e) => {
+                    break Err(ErroDoCorte::Falhou {
                         programa: "yunet",
                         detalhe: e.to_string(),
                     });
-            match rostos {
-                Ok(rostos) => {
-                    let t = amostras.len() as f64 / QUADROS_POR_SEGUNDO;
-                    amostras.push(Amostra { t, troca, rostos });
-                    if duracao > 0.0 {
-                        progresso((t / duracao).min(1.0));
-                    }
                 }
-                Err(e) => break Err(e),
+            };
+            let t = amostras.len() as f64 / QUADROS_POR_SEGUNDO;
+            amostras.push(Amostra { t, troca, rostos });
+            if duracao > 0.0 {
+                progresso((t / duracao).min(1.0));
             }
         };
         if resultado.is_err() {
