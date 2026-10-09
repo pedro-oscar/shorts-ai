@@ -57,7 +57,7 @@ pub struct Reserva {
 }
 
 /// Os reels e as reservas de um projeto, na ordem do roteiro.
-#[derive(Debug, Clone, PartialEq, Serialize, Type)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct DadosDoProjeto {
     pub reels: Vec<ReelDoProjeto>,
@@ -69,18 +69,13 @@ pub(crate) fn ler(pasta: &Path) -> Result<DadosDoProjeto, String> {
     let texto = match fs::read_to_string(pasta.join(ROTEIRO)) {
         Ok(texto) => texto,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return Ok(DadosDoProjeto {
-                reels: Vec::new(),
-                reservas: Vec::new(),
-            });
+            return Ok(DadosDoProjeto::default());
         }
         Err(error) => return Err(error.to_string()),
     };
     let roteiro: Roteiro = serde_json::from_str(&texto).map_err(|error| error.to_string())?;
-    let mut dados = DadosDoProjeto {
-        reels: Vec::new(),
-        reservas: Vec::new(),
-    };
+    let mut dados = DadosDoProjeto::default();
+    let publicado = pasta.join(PUBLICAR);
     for corte in roteiro.cortes {
         if corte.status == StatusDoCorte::Reserva {
             dados.reservas.push(Reserva {
@@ -92,7 +87,6 @@ pub(crate) fn ler(pasta: &Path) -> Result<DadosDoProjeto, String> {
             continue;
         }
         let nome = nome_do_reel(&corte.id, corte.titulo.as_deref());
-        let publicado = pasta.join(PUBLICAR);
         let (arquivo, previa) = [
             (publicado.join(&nome), false),
             (publicado.join(PREVIAS).join(&nome), true),

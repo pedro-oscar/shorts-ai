@@ -2,8 +2,8 @@ import { createStore } from "zustand/vanilla";
 import type {
   Aceite,
   AlvoParaAbrir,
-  DadosDoProjeto,
   ArquivoDeVideo,
+  DadosDoProjeto,
   Erro,
   EstadoDaConta,
   Evento,
