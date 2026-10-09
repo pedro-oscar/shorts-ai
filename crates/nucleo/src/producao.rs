@@ -3,6 +3,7 @@
 //! corte é renderizado desse pacote. Cada passo guarda o hash do que o gerou: refazer só
 //! recalcula o que mudou.
 
+use std::ffi::OsStr;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -243,15 +244,16 @@ impl Producao {
         let nome = nome_do_reel(plano);
         let arquivo = pasta_final.join(&nome);
         let marca = pasta.join(format!("render-{}.hash", pedido.qualidade.nome()));
+        let reel = Reel {
+            id: plano.id.clone(),
+            arquivo: arquivo.clone(),
+            rosto_raro,
+        };
         if let Some(anterior) = render_em_dia(&marca, &hash_do_render, &pasta_final)
             && (anterior == nome || fs::rename(pasta_final.join(&anterior), &arquivo).is_ok())
         {
             progresso(1.0);
-            return Ok(Reel {
-                id: plano.id.clone(),
-                arquivo,
-                rosto_raro,
-            });
+            return Ok(reel);
         }
 
         let dados = pasta.join("clip");
@@ -299,11 +301,7 @@ impl Producao {
         }
         fs::write(&marca, format!("{hash_do_render}\n{nome}"))?;
         progresso(1.0);
-        Ok(Reel {
-            id: plano.id.clone(),
-            arquivo,
-            rosto_raro,
-        })
+        Ok(reel)
     }
 
     /// Roda `node render.mjs <args>` dentro de `remotion/`. Cada linha `progresso <fração>`
@@ -311,7 +309,7 @@ impl Producao {
     fn node(
         &self,
         remotion: &Path,
-        args: &[&std::ffi::OsStr],
+        args: &[&OsStr],
         cancelar: &AtomicBool,
         progresso: &mut dyn FnMut(f64),
     ) -> Result<(), ErroDaProducao> {
