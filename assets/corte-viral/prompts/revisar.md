@@ -21,7 +21,7 @@ Os reels do roteiro `{ROTEIRO}` acabaram de ser produzidos.
 5. Só mude o que melhora de verdade. Não troque escolhas boas por gosto.
 6. Se o pedido do usuário (abaixo) expressar uma **preferência geral**, que vale para os próximos vídeos (ex.: "nunca use emoji nos títulos", "prefiro legenda em minúsculas"), acrescente uma linha datada em `{APRENDIZADOS}/aprendizados.md`, na seção certa. Pedidos sobre um corte específico não viram regra.
 
-**Não** rode `o app produz`.
+**Não** produza nem renderize os reels: isso o app faz.
 {EXTRA}
 ## Resposta final
 

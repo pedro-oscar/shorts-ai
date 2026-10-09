@@ -1,8 +1,8 @@
-# Roteiro (`edit/roteiros/<video>.json`)
+# Roteiro (`edit/roteiro.json`)
 
-É o único arquivo que o Claude escreve para produzir os reels. O usuário roda `o app produz` e o `scripts/produzir.py` faz o resto: ajusta os cortes ao limite das palavras, corta, enquadra o rosto, monta legenda e motion e renderiza.
+É o único arquivo que o Claude escreve para produzir os reels. O app faz o resto a partir dele: ajusta os cortes ao limite das palavras, corta, enquadra o rosto, monta legenda e motion e renderiza.
 
-**Todos os tempos são em segundos do vídeo de origem**, os mesmos de `edit/takes_packed.md`. Podem ser número (`4092.3`) ou relógio (`"1:08:12.3"`). A conversão para a linha do tempo de cada corte é automática.
+**Todos os tempos são em segundos do vídeo de origem**, os mesmos de `edit/transcricao-compactada.txt`. Podem ser número (`4092.3`) ou relógio (`"1:08:12.3"`). A conversão para a linha do tempo de cada corte é automática.
 
 ```json
 {
@@ -21,6 +21,7 @@
       "gancho": "A CLT é uma lei fascista",
       "payoff": "Eu tô pagando mais pro Estado do que pra pessoa",
       "porque": "Opinião forte + número concreto; fecha com frase de efeito",
+      "descricao": "Quanto custa, de verdade, contratar alguém com carteira assinada?",
       "trechos": [["1:08:12.3", "1:08:41.0"], ["1:08:55.2", "1:09:20.8"]],
       "enfase": ["fascista", "18", "Estado"],
       "pin": [],
@@ -53,6 +54,7 @@
 | `cortes[].enfase` | não | palavras pintadas na cor `accent` na legenda |
 | `cortes[].correcoes`, `estilo` | não | sobrescrevem os globais só neste corte |
 | `cortes[].pin` | não | `["12-18:0.30"]`: força o centro do enquadramento (tempos **do corte**, cx 0–1). Use só depois de ver a revisão |
+| `cortes[].descricao` | recomendado | o texto do post do reel, no idioma do vídeo |
 | `nota`, `categoria`, `gancho`, `payoff`, `porque` | recomendado | documentação; aparece no resumo `.md` |
 
 ## Motions
@@ -67,16 +69,13 @@ Tipos e propriedades: `title {text}`, `keyword {text}`, `counter {from, to, pref
 
 `scene.name` precisa estar registrado em `remotion/src/scenes/index.ts`. Se não houver uma cena adequada, o Claude a cria antes (ver motion-guide).
 
-## Validar e produzir
+## Validar
 
 ```bash
-shorts-cli validar                 # o Claude roda antes de entregar; também gera <roteiro>.md
-o app produz                # o usuário roda; usa o roteiro mais recente em edit/roteiros/
-o app produz --rapido       # meia resolução → publicar/rapido/
-o app produz --so c01,c03   # só alguns cortes
+shorts-cli validar edit/roteiro.json   # o Claude roda antes de entregar, até passar
 ```
 
-O cache por hash refaz só o que mudou. Mudar só motions ou legenda re-renderiza o reel sem recortar o vídeo.
+Quem produz os reels é o app. O cache por hash refaz só o que mudou. Mudar só motions ou legenda re-renderiza o reel sem recortar o vídeo.
 
 Saídas por corte:
 - `publicar/<prefixo>-<id>.mp4`;
