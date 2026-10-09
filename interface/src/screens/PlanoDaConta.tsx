@@ -12,11 +12,11 @@ export function PlanoDaConta({ plano }: { plano: string | null }) {
   const confirmado = useAppStore((store) => store.plano);
   const confirmarPlano = useAppStore((store) => store.confirmarPlano);
   const niveis = niveisDoPlano(plano);
-  const [nivel, setNivel] = useState<NivelDoPlano | null>(
-    confirmado && niveis.includes(confirmado.nivel)
-      ? confirmado.nivel
-      : ((niveis.length === 1 ? niveis[0] : null) ?? null),
-  );
+  const [nivel, setNivel] = useState<NivelDoPlano | null>(() => {
+    if (confirmado && niveis.includes(confirmado.nivel))
+      return confirmado.nivel;
+    return niveis.length === 1 ? (niveis[0] ?? null) : null;
+  });
   const [periodo, setPeriodo] = useState<PeriodoDeCobranca>(
     confirmado?.periodo ?? "mensal",
   );

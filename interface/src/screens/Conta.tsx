@@ -74,15 +74,13 @@ export function Conta({
           </>
         )}
         {conta?.tipo === "versaoAntiga" && (
-          <p role="status">
-            {t("conta.versaoAntiga", {
-              versao: conta.versao,
-              minima: conta.minima,
-            })}
-          </p>
-        )}
-        {conta?.tipo === "versaoAntiga" && (
           <>
+            <p role="status">
+              {t("conta.versaoAntiga", {
+                versao: conta.versao,
+                minima: conta.minima,
+              })}
+            </p>
             {atualizando && <p role="status">{t("conta.atualizando")}</p>}
             <div className="actions">
               <button
