@@ -15,6 +15,10 @@ export const commands = {
 	atualizarClaudeCode: () => typedError<EstadoDaConta, Erro>(__TAURI_INVOKE("atualizar_claude_code")),
 	confirmarPlano: (nivel: NivelDoPlano, periodo: PeriodoDeCobranca) => typedError<PlanoConfirmado, Erro>(__TAURI_INVOKE("confirmar_plano", { nivel, periodo })),
 	testarClaude: () => typedError<null, Erro>(__TAURI_INVOKE("testar_claude")),
+	/**  O seletor de arquivos do sistema, só com os vídeos que o app aceita. */
+	escolherArquivos: () => __TAURI_INVOKE<string[]>("escolher_arquivos"),
+	inspecionarArquivos: (caminhos: string[]) => typedError<ArquivoDeVideo[], Erro>(__TAURI_INVOKE("inspecionar_arquivos", { caminhos })),
+	criarLote: (caminhos: string[]) => typedError<ProjetoResumo[], Erro>(__TAURI_INVOKE("criar_lote", { caminhos })),
 	/**  "Sair" no Aviso de uso: fecha o app. */
 	sair: () => __TAURI_INVOKE<void>("sair"),
 };
@@ -36,6 +40,16 @@ export type Aceite = {
 	data: string,
 };
 
+/**  Um arquivo de vídeo escolhido, para a lista do passo Vídeos. */
+export type ArquivoDeVideo = {
+	caminho: string,
+	nome: string,
+	/**  Em bytes. */
+	tamanho: number | null,
+	/**  `None` quando não há como ler a duração (sem o `ffprobe`). */
+	duracaoEmSegundos: number | null,
+};
+
 /**  Como o uso do Claude é pago: pela cota da assinatura ou pelo preço de API. */
 export type Cobranca = "assinatura" | 
 /**  Conta do Console e plano Enterprise contam como preço de API. */
@@ -45,7 +59,7 @@ export type Cobranca = "assinatura" |
  *  Os erros do núcleo, como código e parâmetros. `detalhe` é a mensagem do sistema, para
  *  diagnóstico.
  */
-export type Erro = { codigo: "preferenciasIlegiveis"; caminho: string; detalhe: string } | { codigo: "preferenciasNaoGravadas"; caminho: string; detalhe: string } | { codigo: "loginNaoConcluido"; detalhe: string } | { codigo: "instalacaoFalhou"; detalhe: string } | { codigo: "atualizacaoFalhou"; detalhe: string } | { codigo: "claudeNaoRespondeu"; detalhe: string };
+export type Erro = { codigo: "preferenciasIlegiveis"; caminho: string; detalhe: string } | { codigo: "preferenciasNaoGravadas"; caminho: string; detalhe: string } | { codigo: "loginNaoConcluido"; detalhe: string } | { codigo: "instalacaoFalhou"; detalhe: string } | { codigo: "atualizacaoFalhou"; detalhe: string } | { codigo: "claudeNaoRespondeu"; detalhe: string } | { codigo: "arquivoInvalido"; caminho: string } | { codigo: "projetoNaoCriado"; caminho: string; detalhe: string };
 
 /**  Em que pé está a conta Claude do app. */
 export type EstadoDaConta = { tipo: "naoInstalado" } | { tipo: "versaoAntiga"; versao: string; minima: string } | { tipo: "semLogin"; versao: string } | { tipo: "logado"; versao: string; 
@@ -53,6 +67,8 @@ export type EstadoDaConta = { tipo: "naoInstalado" } | { tipo: "versaoAntiga"; v
 metodo: string; 
 /**  O `subscriptionType` (`pro`, `max`, `team`...); `None` na conta do Console. */
 plano: string | null; email: string | null; cobranca: Cobranca };
+
+export type EstadoDaEtapa = "pendente" | "emAndamento" | "concluida" | "falhou";
 
 /**  O que a interface precisa para abrir. */
 export type EstadoInicial = {
@@ -64,6 +80,8 @@ export type EstadoInicial = {
 	plano: PlanoConfirmado | null,
 	/**  Há um `ANTHROPIC_API_KEY` no ambiente: a Conta mostra "chave de API no ambiente". */
 	chaveDeApiNoAmbiente: boolean,
+	/**  A pasta da Biblioteca, onde ficam os projetos. */
+	biblioteca: string,
 	/**  Por que as preferências não puderam ser lidas; o idioma da interface é o do sistema. */
 	erro: Erro | null,
 	/**
@@ -73,10 +91,21 @@ export type EstadoInicial = {
 	backupDasPreferencias: string | null,
 };
 
+/**  As etapas por que passa cada projeto, nesta ordem. */
+export type Etapa = "importacao" | "transcricao" | "roteiro" | "producao" | "revisao";
+
+/**  A etapa e o estado dela, na ordem em que o projeto passa por elas. */
+export type EtapaDoProjeto = {
+	etapa: Etapa,
+	estado: EstadoDaEtapa,
+};
+
 /**  O que muda no núcleo e a interface acompanha. */
 export type Evento = { tipo: "avisoAceito"; aceite: Aceite } | { tipo: "planoConfirmado"; plano: PlanoConfirmado } | 
 /**  Uma linha de saída do instalador ou do `claude update`. */
-{ tipo: "saidaDoComando"; linha: string };
+{ tipo: "saidaDoComando"; linha: string } | { tipo: "projetoCriado"; projeto: ProjetoResumo } | 
+/**  Uma etapa do projeto mudou de estado. */
+{ tipo: "etapaMudou"; projeto: string; etapa: Etapa; estado: EstadoDaEtapa; falha: string | null };
 
 /**  Os eventos do núcleo num só canal: a interface os aplica em ordem no estado dela. */
 export type EventoDoNucleo = Evento;
@@ -106,6 +135,17 @@ export type PlanoConfirmado = {
 	periodo: PeriodoDeCobranca | null,
 	/**  O uso é cobrado pelo preço de API, não pela cota de uma assinatura. */
 	precoDeApi: boolean,
+};
+
+/**  Um projeto como a interface o mostra na fila. */
+export type ProjetoResumo = {
+	/**  O nome da pasta do projeto na Biblioteca. */
+	id: string,
+	titulo: string,
+	pasta: string,
+	etapas: EtapaDoProjeto[],
+	/**  Por que a etapa que falhou falhou, como a mensagem do sistema. */
+	falha: string | null,
 };
 
 /* Tauri Specta runtime */

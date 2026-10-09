@@ -1,3 +1,4 @@
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { commands, events, type Evento } from "./bindings";
 
 /**
@@ -7,6 +8,10 @@ import { commands, events, type Evento } from "./bindings";
 export type Nucleo = typeof commands & {
   /** Passa ao ouvinte cada evento do núcleo; a promessa traz a função que para de ouvir. */
   listen: (listener: (evento: Evento) => void) => Promise<() => void>;
+  /** Passa ao ouvinte os caminhos dos arquivos que a pessoa soltou na janela. */
+  aoSoltarArquivos: (
+    listener: (caminhos: string[]) => void,
+  ) => Promise<() => void>;
 };
 
 export const tauriNucleo: Nucleo = {
@@ -14,5 +19,9 @@ export const tauriNucleo: Nucleo = {
   listen: (listener) =>
     events.eventoDoNucleo.listen((event) => {
       listener(event.payload);
+    }),
+  aoSoltarArquivos: (listener) =>
+    getCurrentWebview().onDragDropEvent((event) => {
+      if (event.payload.type === "drop") listener(event.payload.paths);
     }),
 };

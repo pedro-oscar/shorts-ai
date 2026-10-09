@@ -5,12 +5,13 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use nucleo::{
-    Aceite, Config, Erro, EstadoDaConta, EstadoInicial, Evento, ModoDeLogin, NivelDoPlano, Nucleo,
-    PeriodoDeCobranca, PlanoConfirmado,
+    Aceite, ArquivoDeVideo, Config, Erro, EstadoDaConta, EstadoInicial, Evento, ModoDeLogin,
+    NivelDoPlano, Nucleo, PeriodoDeCobranca, PlanoConfirmado, ProjetoResumo,
 };
 use serde::Serialize;
 use specta::Type;
 use tauri::{AppHandle, Manager, State};
+use tauri_plugin_dialog::DialogExt;
 use tauri_specta::{Builder, Event, collect_commands, collect_events};
 
 /// Os eventos do núcleo num só canal: a interface os aplica em ordem no estado dela.
@@ -98,6 +99,51 @@ async fn testar_claude(app: AppHandle) -> Result<(), Erro> {
         })?
 }
 
+/// O seletor de arquivos do sistema, só com os vídeos que o app aceita.
+#[tauri::command]
+#[specta::specta]
+async fn escolher_arquivos(app: AppHandle) -> Vec<String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        app.dialog()
+            .file()
+            .add_filter("Vídeos", &["mp4", "mov", "mkv"])
+            .blocking_pick_files()
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|arquivo| arquivo.into_path().ok())
+            .map(|caminho| caminho.display().to_string())
+            .collect()
+    })
+    .await
+    .unwrap_or_default()
+}
+
+#[tauri::command]
+#[specta::specta]
+async fn inspecionar_arquivos(
+    app: AppHandle,
+    caminhos: Vec<String>,
+) -> Result<Vec<ArquivoDeVideo>, Erro> {
+    // Roda o `ffprobe` como processo filho: fora da thread do runtime async.
+    tauri::async_runtime::spawn_blocking(move || {
+        app.state::<Nucleo>().inspecionar_arquivos(&caminhos)
+    })
+    .await
+    .map_err(|error| Erro::ProjetoNaoCriado {
+        caminho: String::new(),
+        detalhe: error.to_string(),
+    })?
+}
+
+#[tauri::command]
+#[specta::specta]
+async fn criar_lote(
+    nucleo: State<'_, Nucleo>,
+    caminhos: Vec<String>,
+) -> Result<Vec<ProjetoResumo>, Erro> {
+    nucleo.criar_lote(&caminhos)
+}
+
 /// "Sair" no Aviso de uso: fecha o app.
 #[tauri::command]
 #[specta::specta]
@@ -118,6 +164,9 @@ fn bindings() -> Builder<tauri::Wry> {
             atualizar_claude_code,
             confirmar_plano,
             testar_claude,
+            escolher_arquivos,
+            inspecionar_arquivos,
+            criar_lote,
             sair
         ])
         .events(collect_events![EventoDoNucleo])
@@ -134,6 +183,7 @@ fn main() {
                 let _ = window.set_focus();
             }
         }))
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(bindings.invoke_handler())
         .setup(move |app| {
             bindings.mount_events(app);
@@ -144,6 +194,8 @@ fn main() {
                     system_locale: sys_locale::get_locale(),
                     path_env: std::env::var_os("PATH"),
                     home_dir: app.path().home_dir().ok(),
+                    pasta_de_videos: app.path().video_dir().ok(),
+                    ligar_arquivo: None,
                     chave_de_api_no_ambiente: std::env::var_os("ANTHROPIC_API_KEY")
                         .is_some_and(|chave| !chave.is_empty()),
                 },

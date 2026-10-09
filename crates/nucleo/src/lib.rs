@@ -5,11 +5,15 @@
 //! escreve os textos, em pt-BR ou em inglês, é a interface.
 
 mod conta;
+mod fila;
 mod preferencias;
+mod projeto;
 
 use std::ffi::OsString;
-use std::path::PathBuf;
-use std::sync::Mutex;
+use std::io;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -17,7 +21,17 @@ use time::OffsetDateTime;
 
 use crate::conta::Conta;
 pub use crate::conta::{Cobranca, EstadoDaConta, ModoDeLogin, VERSAO_MINIMA_DO_CLAUDE_CODE};
+use crate::fila::Fila;
 use crate::preferencias::{PreferencesFile, Preferencias};
+pub use crate::projeto::{EtapaDoProjeto, ModoDeImportacao};
+use crate::projeto::{Origem, ProjetoJson};
+
+/// Como a Importação liga o vídeo original ao projeto sem copiá-lo: um hardlink. Se falha, o
+/// projeto fica só com a referência ao arquivo.
+pub type LigarArquivo = Arc<dyn Fn(&Path, &Path) -> io::Result<()> + Send + Sync>;
+
+/// As extensões de vídeo que o app aceita.
+const EXTENSOES: [&str; 3] = ["mp4", "mov", "mkv"];
 
 /// O que o núcleo recebe da casca: onde ficam os dados do app e o idioma do sistema.
 #[derive(Default)]
@@ -31,14 +45,22 @@ pub struct Config {
     pub system_locale: Option<String>,
     /// Há um `ANTHROPIC_API_KEY` no ambiente do app.
     pub chave_de_api_no_ambiente: bool,
+    /// A pasta de vídeos do sistema, onde fica a Biblioteca (`Shorts AI`). Sem ela vale
+    /// `Videos` na pasta pessoal e, sem esta, a pasta de dados do app.
+    pub pasta_de_videos: Option<PathBuf>,
+    /// Troca o hardlink da Importação, para os testes simularem volumes diferentes.
+    pub ligar_arquivo: Option<LigarArquivo>,
 }
 
 pub struct Nucleo {
+    biblioteca: PathBuf,
+    path_env: Option<OsString>,
+    fila: Fila,
     idioma_da_interface: IdiomaDaInterface,
     chave_de_api_no_ambiente: bool,
     preferencias: Mutex<PreferencesFile>,
     conta: Conta,
-    emit: Box<dyn Fn(Evento) + Send + Sync>,
+    emit: Arc<dyn Fn(Evento) + Send + Sync>,
 }
 
 /// O que a interface precisa para abrir.
@@ -53,6 +75,8 @@ pub struct EstadoInicial {
     pub plano: Option<PlanoConfirmado>,
     /// Há um `ANTHROPIC_API_KEY` no ambiente: a Conta mostra "chave de API no ambiente".
     pub chave_de_api_no_ambiente: bool,
+    /// A pasta da Biblioteca, onde ficam os projetos.
+    pub biblioteca: String,
     /// Por que as preferências não puderam ser lidas; o idioma da interface é o do sistema.
     pub erro: Option<Erro>,
     /// Onde ficou, ao abrir, o `preferencias.json` que não era JSON válido. As preferências
@@ -142,6 +166,61 @@ pub struct PlanoConfirmado {
     pub preco_de_api: bool,
 }
 
+/// As etapas por que passa cada projeto, nesta ordem.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum Etapa {
+    Importacao,
+    Transcricao,
+    Roteiro,
+    Producao,
+    Revisao,
+}
+
+impl Etapa {
+    pub const TODAS: [Self; 5] = [
+        Self::Importacao,
+        Self::Transcricao,
+        Self::Roteiro,
+        Self::Producao,
+        Self::Revisao,
+    ];
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum EstadoDaEtapa {
+    Pendente,
+    EmAndamento,
+    Concluida,
+    Falhou,
+}
+
+/// Um projeto como a interface o mostra na fila.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjetoResumo {
+    /// O nome da pasta do projeto na Biblioteca.
+    pub id: String,
+    pub titulo: String,
+    pub pasta: String,
+    pub etapas: Vec<EtapaDoProjeto>,
+    /// Por que a etapa que falhou falhou, como a mensagem do sistema.
+    pub falha: Option<String>,
+}
+
+/// Um arquivo de vídeo escolhido, para a lista do passo Vídeos.
+#[derive(Debug, Clone, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ArquivoDeVideo {
+    pub caminho: String,
+    pub nome: String,
+    /// Em bytes.
+    pub tamanho: f64,
+    /// `None` quando não há como ler a duração (sem o `ffprobe`).
+    pub duracao_em_segundos: Option<f64>,
+}
+
 /// O que muda no núcleo e a interface acompanha.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
 #[serde(
@@ -159,6 +238,16 @@ pub enum Evento {
     /// Uma linha de saída do instalador ou do `claude update`.
     SaidaDoComando {
         linha: String,
+    },
+    ProjetoCriado {
+        projeto: ProjetoResumo,
+    },
+    /// Uma etapa do projeto mudou de estado.
+    EtapaMudou {
+        projeto: String,
+        etapa: Etapa,
+        estado: EstadoDaEtapa,
+        falha: Option<String>,
     },
 }
 
@@ -183,11 +272,27 @@ pub enum Erro {
     AtualizacaoFalhou { detalhe: String },
     #[error("o Claude não respondeu ao teste: {detalhe}")]
     ClaudeNaoRespondeu { detalhe: String },
+    #[error("{caminho} não é um arquivo de vídeo aceito (MP4, MOV ou MKV)")]
+    ArquivoInvalido { caminho: String },
+    #[error("projeto não criado em {caminho}: {detalhe}")]
+    ProjetoNaoCriado { caminho: String, detalhe: String },
 }
 
 impl Nucleo {
     pub fn new(config: Config, emit: impl Fn(Evento) + Send + Sync + 'static) -> Self {
+        let emit: Arc<dyn Fn(Evento) + Send + Sync> = Arc::new(emit);
+        let ligar = config
+            .ligar_arquivo
+            .unwrap_or_else(|| Arc::new(|origem, destino| std::fs::hard_link(origem, destino)));
+        let biblioteca = config
+            .pasta_de_videos
+            .or_else(|| config.home_dir.as_ref().map(|home| home.join("Videos")))
+            .unwrap_or_else(|| config.app_data_dir.clone())
+            .join("Shorts AI");
         Self {
+            biblioteca,
+            fila: Fila::new(Arc::clone(&emit), ligar),
+            path_env: config.path_env.clone(),
             idioma_da_interface: IdiomaDaInterface::of_locale(config.system_locale.as_deref()),
             chave_de_api_no_ambiente: config.chave_de_api_no_ambiente,
             preferencias: Mutex::new(PreferencesFile::in_dir(&config.app_data_dir)),
@@ -196,7 +301,7 @@ impl Nucleo {
                 config.home_dir,
                 config.app_data_dir.join("claude"),
             ),
-            emit: Box::new(emit),
+            emit,
         }
     }
 
@@ -214,6 +319,7 @@ impl Nucleo {
                 .filter(|aceite| aceite.versao >= VERSAO_DO_AVISO),
             plano: preferencias.plano,
             chave_de_api_no_ambiente: self.chave_de_api_no_ambiente,
+            biblioteca: self.biblioteca.display().to_string(),
             erro,
             backup_das_preferencias: file.backup(),
         }
@@ -285,6 +391,156 @@ impl Nucleo {
         Ok(plano)
     }
 
+    /// Confere os arquivos escolhidos e lê a duração de cada um (com o `ffprobe`, se houver).
+    pub fn inspecionar_arquivos(&self, caminhos: &[String]) -> Result<Vec<ArquivoDeVideo>, Erro> {
+        caminhos
+            .iter()
+            .map(|caminho| {
+                let path = validar_arquivo(caminho)?;
+                Ok(ArquivoDeVideo {
+                    caminho: caminho.clone(),
+                    nome: nome_do_arquivo(&path),
+                    #[allow(clippy::cast_precision_loss)]
+                    tamanho: path.metadata().map_or(0, |meta| meta.len()) as f64,
+                    duracao_em_segundos: self.duracao(&path),
+                })
+            })
+            .collect()
+    }
+
+    /// Cria um lote de projetos, um por arquivo, cada um com a sua pasta na Biblioteca, e
+    /// põe todos na fila. Nada é criado se algum arquivo não for aceito.
+    pub fn criar_lote(&self, caminhos: &[String]) -> Result<Vec<ProjetoResumo>, Erro> {
+        let arquivos = caminhos
+            .iter()
+            .map(|caminho| validar_arquivo(caminho))
+            .collect::<Result<Vec<_>, _>>()?;
+        let agora = OffsetDateTime::now_utc();
+        let lote = self.reservar_lote(agora)?;
+        let mut projetos = Vec::new();
+        let resultado = self.criar_projetos(&lote, agora, &arquivos, &mut projetos);
+        self.registrar_lote(&lote, agora, &projetos)?;
+        resultado.map(|()| projetos)
+    }
+
+    fn criar_projetos(
+        &self,
+        lote: &str,
+        agora: OffsetDateTime,
+        arquivos: &[PathBuf],
+        projetos: &mut Vec<ProjetoResumo>,
+    ) -> Result<(), Erro> {
+        for arquivo in arquivos {
+            let titulo = arquivo
+                .file_stem()
+                .map_or_else(String::new, |nome| nome.to_string_lossy().into_owned());
+            let nao_criado = |caminho: &Path, error: io::Error| lote_nao_criado(caminho, &error);
+            let pasta = projeto::criar_pasta(&self.biblioteca, &titulo, agora.date())
+                .map_err(|error| nao_criado(&self.biblioteca, error))?;
+            let json = ProjetoJson::novo(
+                titulo,
+                lote.to_owned(),
+                Origem::Arquivo {
+                    caminho: arquivo.display().to_string(),
+                    nome: nome_do_arquivo(arquivo),
+                    tamanho: 0,
+                    modificado_em: None,
+                    modo: None,
+                },
+                agora,
+            );
+            json.gravar(&pasta)
+                .map_err(|error| nao_criado(&pasta, error))?;
+            let resumo = ProjetoResumo {
+                id: pasta
+                    .file_name()
+                    .map(|nome| nome.to_string_lossy().into_owned())
+                    .unwrap_or_default(),
+                titulo: json.titulo,
+                pasta: pasta.display().to_string(),
+                etapas: json.etapas,
+                falha: None,
+            };
+            (self.emit)(Evento::ProjetoCriado {
+                projeto: resumo.clone(),
+            });
+            self.fila.enfileirar(pasta);
+            projetos.push(resumo);
+        }
+        Ok(())
+    }
+
+    fn pasta_dos_lotes(&self) -> PathBuf {
+        self.biblioteca.join(".lotes")
+    }
+
+    /// Escolhe o id do lote, `AAAA-MM-DDTHH-MM-SS` (com `-2`, `-3`... se já existir), e
+    /// o reserva em `.lotes/` com um nome automático.
+    fn reservar_lote(&self, agora: OffsetDateTime) -> Result<String, Erro> {
+        let dir = self.pasta_dos_lotes();
+        std::fs::create_dir_all(&dir).map_err(|error| lote_nao_criado(&dir, &error))?;
+        let base = format!(
+            "{:04}-{:02}-{:02}T{:02}-{:02}-{:02}",
+            agora.year(),
+            u8::from(agora.month()),
+            agora.day(),
+            agora.hour(),
+            agora.minute(),
+            agora.second()
+        );
+        let mut id = base.clone();
+        for numero in 2.. {
+            if !dir.join(format!("{id}.json")).exists() {
+                break;
+            }
+            id = format!("{base}-{numero}");
+        }
+        self.registrar_lote(&id, agora, &[])?;
+        Ok(id)
+    }
+
+    /// Grava `.lotes/<lote>.json`: o nome automático e os projetos do lote.
+    fn registrar_lote(
+        &self,
+        id: &str,
+        agora: OffsetDateTime,
+        projetos: &[ProjetoResumo],
+    ) -> Result<(), Erro> {
+        let arquivo = self.pasta_dos_lotes().join(format!("{id}.json"));
+        let lote = serde_json::json!({
+            "id": id,
+            "nome": format!(
+                "Lote {:04}-{:02}-{:02} {:02}:{:02}",
+                agora.year(),
+                u8::from(agora.month()),
+                agora.day(),
+                agora.hour(),
+                agora.minute()
+            ),
+            "projetos": projetos.iter().map(|projeto| &projeto.id).collect::<Vec<_>>(),
+        });
+        projeto::gravar_json(&arquivo, &lote).map_err(|error| lote_nao_criado(&arquivo, &error))
+    }
+
+    /// A duração, em segundos, pelo `ffprobe` do `PATH`; `None` sem ele ou sem resposta.
+    fn duracao(&self, arquivo: &Path) -> Option<f64> {
+        let nome = if cfg!(windows) {
+            "ffprobe.exe"
+        } else {
+            "ffprobe"
+        };
+        let ffprobe = std::env::split_paths(self.path_env.as_ref()?)
+            .map(|dir| dir.join(nome))
+            .find(|candidato| candidato.is_file())?;
+        let saida = Command::new(ffprobe)
+            .args(["-v", "error", "-show_entries", "format=duration"])
+            .args(["-of", "csv=p=0"])
+            .arg(arquivo)
+            .output()
+            .ok()?;
+        String::from_utf8_lossy(&saida.stdout).trim().parse().ok()
+    }
+
     fn emit_line(&self, linha: String) {
         (self.emit)(Evento::SaidaDoComando { linha });
     }
@@ -299,5 +555,35 @@ impl Nucleo {
         self.preferencias
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+}
+
+/// O arquivo existe e tem uma das extensões aceitas.
+fn validar_arquivo(caminho: &str) -> Result<PathBuf, Erro> {
+    let path = PathBuf::from(caminho);
+    let aceita = path.extension().is_some_and(|extensao| {
+        EXTENSOES
+            .iter()
+            .any(|aceita| extensao.eq_ignore_ascii_case(aceita))
+    });
+    if aceita && path.is_file() {
+        Ok(path)
+    } else {
+        Err(Erro::ArquivoInvalido {
+            caminho: caminho.to_owned(),
+        })
+    }
+}
+
+fn nome_do_arquivo(path: &Path) -> String {
+    path.file_name()
+        .map(|nome| nome.to_string_lossy().into_owned())
+        .unwrap_or_default()
+}
+
+fn lote_nao_criado(caminho: &Path, error: &io::Error) -> Erro {
+    Erro::ProjetoNaoCriado {
+        caminho: caminho.display().to_string(),
+        detalhe: error.to_string(),
     }
 }

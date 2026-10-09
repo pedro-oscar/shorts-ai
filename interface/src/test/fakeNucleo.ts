@@ -1,11 +1,13 @@
 import type {
   Aceite,
+  ArquivoDeVideo,
   Erro,
   EstadoDaConta,
   EstadoInicial,
   Evento,
   ModoDeLogin,
   PlanoConfirmado,
+  ProjetoResumo,
 } from "../bindings";
 import type { Nucleo } from "../nucleo";
 
@@ -38,15 +40,21 @@ export function createFakeNucleo(
     backupDasPreferencias: null,
     plano: null,
     chaveDeApiNoAmbiente: false,
+    biblioteca: "/home/ana/Vídeos/Shorts AI",
     ...initial,
   };
   const listeners = new Set<(evento: Evento) => void>();
+  const droppers = new Set<(caminhos: string[]) => void>();
+  let picked: string[] = [];
+  let projetos: ProjetoResumo[] = [];
   const calls = {
     sair: 0,
     entrar: 0,
     testar: 0,
     instalar: 0,
     atualizar: 0,
+    /** Os caminhos de cada `criarLote`. */
+    lotes: [] as string[][],
     /** Os argumentos de cada `entrarNoClaudeCode`. */
     logins: [] as { modo: ModoDeLogin; porTerminal: boolean }[],
   };
@@ -54,6 +62,7 @@ export function createFakeNucleo(
   let loginError: Erro | null = null;
   let testError: Erro | null = null;
   let acceptanceError: Erro | null = null;
+  let batchError: Erro | null = null;
 
   const emit = (evento: Evento) => {
     for (const listener of listeners) listener(evento);
@@ -111,9 +120,54 @@ export function createFakeNucleo(
         return Promise.resolve({ status: "error", error: testError });
       return Promise.resolve({ status: "ok", data: null });
     },
+    escolherArquivos: () => Promise.resolve(picked),
+    inspecionarArquivos: (caminhos) =>
+      Promise.resolve({
+        status: "ok",
+        data: caminhos.map((caminho): ArquivoDeVideo => ({
+          caminho,
+          nome: caminho.split("/").pop() ?? caminho,
+          tamanho: 1000,
+          duracaoEmSegundos: caminho.endsWith("aula.mp4") ? 125 : null,
+        })),
+      }),
+    criarLote: (caminhos) => {
+      calls.lotes.push(caminhos);
+      if (batchError)
+        return Promise.resolve({ status: "error", error: batchError });
+      projetos = caminhos.map((caminho) => {
+        const nome = (caminho.split("/").pop() ?? caminho).replace(
+          /\.\w+$/,
+          "",
+        );
+        return {
+          id: `${nome} (2026-10-09)`,
+          titulo: nome,
+          pasta: `/Biblioteca/${nome} (2026-10-09)`,
+          etapas: (
+            [
+              "importacao",
+              "transcricao",
+              "roteiro",
+              "producao",
+              "revisao",
+            ] as const
+          ).map((etapa) => ({ etapa, estado: "pendente" as const })),
+          falha: null,
+        };
+      });
+      for (const projeto of projetos) emit({ tipo: "projetoCriado", projeto });
+      return Promise.resolve({ status: "ok", data: projetos });
+    },
     sair: () => {
       calls.sair++;
       return Promise.resolve();
+    },
+    aoSoltarArquivos: (listener) => {
+      droppers.add(listener);
+      return Promise.resolve(() => {
+        droppers.delete(listener);
+      });
     },
     listen: (listener) => {
       listeners.add(listener);
@@ -139,6 +193,26 @@ export function createFakeNucleo(
     /** Os próximos aceites falham com este erro, como num disco sem permissão. */
     failAcceptance: (erro: Erro) => {
       acceptanceError = erro;
+    },
+    failBatch: (erro: Erro) => {
+      batchError = erro;
+    },
+    /** O que o seletor de arquivos devolve na próxima vez. */
+    pick: (caminhos: string[]) => {
+      picked = caminhos;
+    },
+    /** A pessoa solta estes arquivos na janela. */
+    drop: (caminhos: string[]) => {
+      for (const dropper of droppers) dropper(caminhos);
+    },
+    /** O núcleo avisa que a etapa do projeto mudou de estado. */
+    etapa: (
+      projeto: string,
+      etapa: ProjetoResumo["etapas"][number]["etapa"],
+      estado: ProjetoResumo["etapas"][number]["estado"],
+      falha: string | null = null,
+    ) => {
+      emit({ tipo: "etapaMudou", projeto, etapa, estado, falha });
     },
   };
 }

@@ -1,6 +1,7 @@
 import { createStore } from "zustand/vanilla";
 import type {
   Aceite,
+  ArquivoDeVideo,
   Erro,
   EstadoDaConta,
   Evento,
@@ -9,6 +10,7 @@ import type {
   NivelDoPlano,
   PeriodoDeCobranca,
   PlanoConfirmado,
+  ProjetoResumo,
 } from "./bindings";
 import type { Nucleo } from "./nucleo";
 
@@ -38,6 +40,13 @@ export interface AppState {
   /** O plano que a pessoa confirmou; `null` até ela confirmar. */
   plano: PlanoConfirmado | null;
   chaveDeApiNoAmbiente: boolean;
+  /** A Biblioteca, onde ficam os projetos. */
+  biblioteca: string;
+  /** Os vídeos da lista do passo Vídeos, antes de Gerar. */
+  arquivos: ArquivoDeVideo[];
+  erroDeArquivos: Erro | null;
+  /** Os projetos criados, com o estado de cada etapa, em ordem de criação. */
+  projetos: ProjetoResumo[];
 }
 
 export interface AppStore extends AppState {
@@ -55,6 +64,11 @@ export interface AppStore extends AppState {
   setLoginPorTerminal: (porTerminal: boolean) => void;
   testarClaude: () => Promise<void>;
   sair: () => Promise<void>;
+  adicionarArquivos: (caminhos: string[]) => Promise<void>;
+  escolherArquivos: () => Promise<void>;
+  removerArquivo: (caminho: string) => void;
+  /** Cria o lote com os vídeos da lista; devolve se criou. */
+  gerar: () => Promise<boolean>;
 }
 
 /** O estado da interface, alimentado pelos eventos do núcleo. */
@@ -71,6 +85,31 @@ export function createAppStore(nucleo: Nucleo) {
         case "saidaDoComando":
           set((current) => ({
             saidaDoComando: [...current.saidaDoComando, evento.linha],
+          }));
+          break;
+        case "projetoCriado":
+          set((current) => ({
+            projetos: [
+              ...current.projetos.filter((p) => p.id !== evento.projeto.id),
+              evento.projeto,
+            ],
+          }));
+          break;
+        case "etapaMudou":
+          set((current) => ({
+            projetos: current.projetos.map((projeto) =>
+              projeto.id === evento.projeto
+                ? {
+                    ...projeto,
+                    etapas: projeto.etapas.map((item) =>
+                      item.etapa === evento.etapa
+                        ? { ...item, estado: evento.estado }
+                        : item,
+                    ),
+                    falha: evento.falha,
+                  }
+                : projeto,
+            ),
           }));
           break;
       }
@@ -104,11 +143,18 @@ export function createAppStore(nucleo: Nucleo) {
       loginPorTerminal: false,
       plano: null,
       chaveDeApiNoAmbiente: false,
+      biblioteca: "",
+      arquivos: [],
+      erroDeArquivos: null,
+      projetos: [],
 
       connect: () => {
         let connected = true;
         const stopListening = nucleo.listen((evento) => {
           if (connected) apply(evento);
+        });
+        const stopDropping = nucleo.aoSoltarArquivos((caminhos) => {
+          if (connected) void get().adicionarArquivos(caminhos);
         });
         // Só pede o estado depois de ouvir, para nenhum evento cair entre os dois.
         void stopListening
@@ -126,13 +172,15 @@ export function createAppStore(nucleo: Nucleo) {
               aceite: current.aceite ?? inicial.aceite,
               plano: current.plano ?? inicial.plano,
               chaveDeApiNoAmbiente: inicial.chaveDeApiNoAmbiente,
+              biblioteca: inicial.biblioteca,
             }));
           });
         return () => {
           connected = false;
-          void stopListening.then((stop) => {
-            stop();
-          });
+          for (const stopping of [stopListening, stopDropping])
+            void stopping.then((stop) => {
+              stop();
+            });
         };
       },
 
@@ -185,6 +233,50 @@ export function createAppStore(nucleo: Nucleo) {
       },
 
       sair: () => nucleo.sair(),
+
+      adicionarArquivos: async (caminhos) => {
+        const novos = caminhos.filter(
+          (caminho) => !get().arquivos.some((a) => a.caminho === caminho),
+        );
+        if (novos.length === 0) return;
+        const result = await nucleo.inspecionarArquivos(novos);
+        if (result.status === "error") {
+          set({ erroDeArquivos: result.error });
+          return;
+        }
+        set((current) => ({
+          erroDeArquivos: null,
+          arquivos: [
+            ...current.arquivos,
+            ...result.data.filter(
+              (novo) =>
+                !current.arquivos.some((a) => a.caminho === novo.caminho),
+            ),
+          ],
+        }));
+      },
+
+      escolherArquivos: async () => {
+        await get().adicionarArquivos(await nucleo.escolherArquivos());
+      },
+
+      removerArquivo: (caminho) => {
+        set((current) => ({
+          arquivos: current.arquivos.filter((a) => a.caminho !== caminho),
+        }));
+      },
+
+      gerar: async () => {
+        const result = await nucleo.criarLote(
+          get().arquivos.map((a) => a.caminho),
+        );
+        if (result.status === "error") {
+          set({ erroDeArquivos: result.error });
+          return false;
+        }
+        set({ arquivos: [], erroDeArquivos: null });
+        return true;
+      },
     };
   });
 }

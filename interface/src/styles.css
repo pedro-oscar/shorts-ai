@@ -180,3 +180,36 @@ fieldset {
 fieldset label {
   display: block;
 }
+
+.drop-zone {
+  border: 2px dashed currentColor;
+  border-radius: 8px;
+  padding: 1.5rem;
+  text-align: center;
+}
+
+.file-list,
+.project-list {
+  list-style: none;
+  padding: 0;
+}
+
+.file-list li {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+}
+
+.file-name {
+  flex: 1;
+}
+
+.project-list > li {
+  display: grid;
+  gap: 0.25rem;
+  margin-bottom: 1rem;
+}
+
+.stages {
+  margin: 0;
+}

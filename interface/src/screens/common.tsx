@@ -84,7 +84,11 @@ export function ErrorMessage({ erro }: { erro: Erro }) {
   return (
     <div role="alert" className="error">
       <p>{t(`erros.${erro.codigo}`, { caminho })}</p>
-      <p className="detail">{t("erros.detalhe", { detalhe: erro.detalhe })}</p>
+      {"detalhe" in erro && (
+        <p className="detail">
+          {t("erros.detalhe", { detalhe: erro.detalhe })}
+        </p>
+      )}
     </div>
   );
 }

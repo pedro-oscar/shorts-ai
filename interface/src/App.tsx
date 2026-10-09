@@ -6,6 +6,7 @@ import type { Nucleo } from "./nucleo";
 import { Aviso } from "./screens/Aviso";
 import { Conta } from "./screens/Conta";
 import { ErroAoAbrir } from "./screens/ErroAoAbrir";
+import { Gerando } from "./screens/Gerando";
 import { Sobre } from "./screens/Sobre";
 import { Videos } from "./screens/Videos";
 import { createAppStore } from "./store";
@@ -42,7 +43,7 @@ function Screens() {
   const [sobreOpen, setSobreOpen] = useState(false);
   // Aqui, e não no Aviso, porque o Sobre desmonta o Aviso.
   const [concordo, setConcordo] = useState(false);
-  const [passo, setPasso] = useState<"conta" | "videos">("conta");
+  const [passo, setPasso] = useState<"conta" | "videos" | "gerando">("conta");
 
   if (erroAoAbrir) return <ErroAoAbrir erro={erroAoAbrir} />;
   if (sobreOpen)
@@ -56,7 +57,16 @@ function Screens() {
   const openSobre = () => {
     setSobreOpen(true);
   };
-  if (aceito && passo === "videos") return <Videos onOpenSobre={openSobre} />;
+  if (aceito && passo === "gerando") return <Gerando onOpenSobre={openSobre} />;
+  if (aceito && passo === "videos")
+    return (
+      <Videos
+        onOpenSobre={openSobre}
+        onGerado={() => {
+          setPasso("gerando");
+        }}
+      />
+    );
   return aceito ? (
     <Conta
       onOpenSobre={openSobre}

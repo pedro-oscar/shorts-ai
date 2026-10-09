@@ -96,6 +96,38 @@ export const en: typeof ptBR = {
   },
   videos: {
     titulo: "Videos",
+    abaArquivos: "Files on this computer",
+    soltar: "Drop videos here (MP4, MOV or MKV) or pick them on your computer.",
+    escolher: "Choose files",
+    lista: "Chosen videos",
+    remover: "Remove",
+    removerArquivo: "Remove {{nome}}",
+    biblioteca: "Projects are kept in the Library: {{pasta}}",
+    gerar: "Generate",
+  },
+  gerando: {
+    titulo: "Generating",
+    etapaNdeM: "stage {{n}}/{{m}}",
+    progresso: "Progress of {{nome}}",
+    estados: {
+      naFila: "Queued",
+      emAndamento: "In progress",
+      falhou: "Failed",
+      pronto: "Done",
+    },
+    etapas: {
+      importacao: "Import",
+      transcricao: "Transcription",
+      roteiro: "Script",
+      producao: "Production",
+      revisao: "Review",
+    },
+    estadosDaEtapa: {
+      pendente: "pending",
+      emAndamento: "in progress",
+      concluida: "done",
+      falhou: "failed",
+    },
   },
   preferencias: {
     corrompidas:
@@ -114,6 +146,10 @@ export const en: typeof ptBR = {
       "Claude Code update did not finish. Check the output below and try again.",
     claudeNaoRespondeu:
       "Claude did not respond to the test. Check your account and plan, then try again.",
+    arquivoInvalido:
+      "{{caminho}} is not a supported video. Use MP4, MOV or MKV files that exist on this computer.",
+    projetoNaoCriado:
+      "Could not create the project in {{caminho}}. Check that the folder has space and permission, and try again.",
     detalhe: "Technical details (from the system): {{detalhe}}",
   },
 };

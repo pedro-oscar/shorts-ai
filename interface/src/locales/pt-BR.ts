@@ -97,6 +97,39 @@ export const ptBR = {
   },
   videos: {
     titulo: "Vídeos",
+    abaArquivos: "Arquivos do computador",
+    soltar:
+      "Solte aqui os vídeos (MP4, MOV ou MKV) ou escolha-os no computador.",
+    escolher: "Escolher arquivos",
+    lista: "Vídeos escolhidos",
+    remover: "Remover",
+    removerArquivo: "Remover {{nome}}",
+    biblioteca: "Os projetos ficam na Biblioteca: {{pasta}}",
+    gerar: "Gerar",
+  },
+  gerando: {
+    titulo: "Gerando",
+    etapaNdeM: "etapa {{n}}/{{m}}",
+    progresso: "Progresso de {{nome}}",
+    estados: {
+      naFila: "Na fila",
+      emAndamento: "Em andamento",
+      falhou: "Falhou",
+      pronto: "Pronto",
+    },
+    etapas: {
+      importacao: "Importação",
+      transcricao: "Transcrição",
+      roteiro: "Roteiro",
+      producao: "Produção",
+      revisao: "Revisão",
+    },
+    estadosDaEtapa: {
+      pendente: "pendente",
+      emAndamento: "em andamento",
+      concluida: "concluída",
+      falhou: "falhou",
+    },
   },
   preferencias: {
     corrompidas:
@@ -115,6 +148,10 @@ export const ptBR = {
       "A atualização do Claude Code não foi concluída. Veja a saída abaixo e tente de novo.",
     claudeNaoRespondeu:
       "O Claude não respondeu ao teste. Confira a sua conta e o seu plano e tente de novo.",
+    arquivoInvalido:
+      "{{caminho}} não é um vídeo aceito. Use arquivos MP4, MOV ou MKV que existam no computador.",
+    projetoNaoCriado:
+      "Não foi possível criar o projeto em {{caminho}}. Confira se há espaço e permissão nessa pasta e tente de novo.",
     detalhe: "Detalhe técnico (do sistema): {{detalhe}}",
   },
 };
