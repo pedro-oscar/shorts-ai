@@ -8,9 +8,11 @@ mod conta;
 pub mod corte;
 mod fila;
 mod preferencias;
+mod processo;
 mod projeto;
 mod remotion;
 pub mod roteiro;
+pub mod transcricao;
 
 use std::ffi::OsString;
 use std::io;
@@ -29,6 +31,7 @@ use crate::preferencias::{PreferencesFile, Preferencias};
 pub use crate::projeto::{EtapaDoProjeto, ModoDeImportacao};
 use crate::projeto::{Origem, ProjetoJson};
 use crate::remotion::Remotion;
+use crate::transcricao::Transcritor;
 
 /// Como a Importação liga o vídeo original ao projeto sem copiá-lo: um hardlink. Se falha, o
 /// projeto fica só com a referência ao arquivo.
@@ -59,6 +62,8 @@ pub struct Config {
     pub assets_dir: Option<PathBuf>,
     /// O `npm` que instala as dependências do Remotion; `None` procura `npm` no `PATH`.
     pub npm: Option<PathBuf>,
+    /// O ffmpeg, o whisper-cli e os modelos da Transcrição. Sem ele a etapa fica pendente.
+    pub transcritor: Option<Transcritor>,
 }
 
 pub struct Nucleo {
@@ -259,6 +264,12 @@ pub enum Evento {
         estado: EstadoDaEtapa,
         falha: Option<String>,
     },
+    /// O progresso de uma etapa que o mede, de 0 a 100.
+    ProgressoDaEtapa {
+        projeto: String,
+        etapa: Etapa,
+        percentual: u8,
+    },
 }
 
 /// Os erros do núcleo, como código e parâmetros. `detalhe` é a mensagem do sistema, para
@@ -303,7 +314,7 @@ impl Nucleo {
             .join("Shorts AI");
         Self {
             biblioteca,
-            fila: Fila::new(Arc::clone(&emit), ligar),
+            fila: Fila::new(Arc::clone(&emit), ligar, config.transcritor),
             remotion: Remotion::new(config.assets_dir, &config.app_data_dir, config.npm),
             path_env: config.path_env.clone(),
             idioma_da_interface: IdiomaDaInterface::of_locale(config.system_locale.as_deref()),

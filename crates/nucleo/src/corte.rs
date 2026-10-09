@@ -6,15 +6,14 @@
 use std::ffi::OsString;
 use std::fmt::Write as _;
 use std::fs;
-use std::io::{self, BufRead, BufReader, Read};
+use std::io;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc;
-use std::thread;
-use std::time::Duration;
+use std::process::Command;
+use std::sync::atomic::AtomicBool;
 
 use serde::Deserialize;
+
+use crate::processo::{self, Fluxo, Interrompido, Saida};
 
 /// O lado maior do vídeo horizontal.
 const LADO_MAIOR: u32 = 1920;
@@ -27,8 +26,6 @@ const AJUSTE_MAXIMO: f64 = 0.08;
 const ALVO_LUFS: f64 = -14.0;
 const PICO_MAXIMO_DBTP: f64 = -1.0;
 const FAIXA_LRA: f64 = 11.0;
-/// De quanto em quanto tempo o corte olha se o processo terminou ou se foi cancelado.
-const INTERVALO_DE_ESPERA: Duration = Duration::from_millis(20);
 
 /// Um intervalo do vídeo original, em segundos.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -339,16 +336,36 @@ pub enum ErroDoCorte {
     Io(#[from] io::Error),
 }
 
+impl From<Interrompido> for ErroDoCorte {
+    fn from(interrompido: Interrompido) -> Self {
+        match interrompido {
+            Interrompido::Cancelado => Self::Cancelado,
+            Interrompido::Io(error) => Self::Io(error),
+        }
+    }
+}
+
+/// Roda o comando, passando as linhas do stdout a `por_linha`.
+fn executar(
+    comando: Command,
+    cancelar: &AtomicBool,
+    por_linha: &mut dyn FnMut(&str),
+) -> Result<Saida, ErroDoCorte> {
+    Ok(processo::executar(
+        comando,
+        cancelar,
+        &mut |fluxo, linha| {
+            if fluxo == Fluxo::Stdout {
+                por_linha(linha);
+            }
+        },
+    )?)
+}
+
 /// Os programas do corte, por caminho configurável.
 pub struct Ffmpeg {
     ffmpeg: PathBuf,
     ffprobe: PathBuf,
-}
-
-struct Saida {
-    sucesso: bool,
-    stdout: Vec<String>,
-    stderr: String,
 }
 
 impl Ffmpeg {
@@ -622,62 +639,4 @@ impl Saida {
                 .to_owned(),
         })
     }
-}
-
-/// Roda o comando até o fim, passando cada linha do stdout a `por_linha`, e o mata se
-/// `cancelar` ligar.
-fn executar(
-    mut comando: Command,
-    cancelar: &AtomicBool,
-    por_linha: &mut dyn FnMut(&str),
-) -> Result<Saida, ErroDoCorte> {
-    let mut filho = comando
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()?;
-    let stdout = filho.stdout.take().expect("stdout em pipe");
-    let mut stderr = filho.stderr.take().expect("stderr em pipe");
-    let (envio, recebimento) = mpsc::channel();
-    let leitor_do_stdout = thread::spawn(move || {
-        for linha in BufReader::new(stdout).lines().map_while(Result::ok) {
-            if envio.send(linha).is_err() {
-                break;
-            }
-        }
-    });
-    let leitor_do_stderr = thread::spawn(move || {
-        let mut texto = String::new();
-        let _ = stderr.read_to_string(&mut texto);
-        texto
-    });
-    let mut linhas = Vec::new();
-    let status = loop {
-        if cancelar.load(Ordering::Relaxed) {
-            let _ = filho.kill();
-            let _ = filho.wait();
-            let _ = leitor_do_stdout.join();
-            let _ = leitor_do_stderr.join();
-            return Err(ErroDoCorte::Cancelado);
-        }
-        while let Ok(linha) = recebimento.try_recv() {
-            por_linha(&linha);
-            linhas.push(linha);
-        }
-        if let Some(status) = filho.try_wait()? {
-            break status;
-        }
-        thread::sleep(INTERVALO_DE_ESPERA);
-    };
-    let _ = leitor_do_stdout.join();
-    for linha in recebimento.try_iter() {
-        por_linha(&linha);
-        linhas.push(linha);
-    }
-    let stderr = leitor_do_stderr.join().unwrap_or_default();
-    Ok(Saida {
-        sucesso: status.success(),
-        stdout: linhas,
-        stderr,
-    })
 }

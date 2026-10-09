@@ -4,10 +4,12 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use std::sync::mpsc::{self, Sender};
 use std::thread;
 
 use crate::projeto::{ModoDeImportacao, Origem, ProjetoJson};
+use crate::transcricao::{Pedido, Transcritor};
 use crate::{EstadoDaEtapa, Etapa, Evento, LigarArquivo, nome_do_arquivo};
 
 pub(crate) type Emitir = Arc<dyn Fn(Evento) + Send + Sync>;
@@ -17,11 +19,11 @@ pub(crate) struct Fila {
 }
 
 impl Fila {
-    pub fn new(emit: Emitir, ligar: LigarArquivo) -> Self {
+    pub fn new(emit: Emitir, ligar: LigarArquivo, transcritor: Option<Transcritor>) -> Self {
         let (envio, recebimento) = mpsc::channel::<PathBuf>();
         thread::spawn(move || {
             for pasta in recebimento {
-                rodar(&pasta, &emit, &ligar);
+                rodar(&pasta, &emit, &ligar, transcritor.as_ref());
             }
         });
         Self { envio }
@@ -36,7 +38,7 @@ impl Fila {
 
 /// Roda as etapas que existem, da primeira não concluída em diante, e para na primeira que
 /// falha. As etapas sem executor continuam pendentes.
-fn rodar(pasta: &Path, emit: &Emitir, ligar: &LigarArquivo) {
+fn rodar(pasta: &Path, emit: &Emitir, ligar: &LigarArquivo, transcritor: Option<&Transcritor>) {
     let id = nome_do_arquivo(pasta);
     let mut projeto = match ProjetoJson::ler(pasta) {
         Ok(projeto) => projeto,
@@ -58,7 +60,12 @@ fn rodar(pasta: &Path, emit: &Emitir, ligar: &LigarArquivo) {
         if concluida {
             continue;
         }
-        if etapa != Etapa::Importacao {
+        let tem_executor = match etapa {
+            Etapa::Importacao => true,
+            Etapa::Transcricao => transcritor.is_some(),
+            _ => false,
+        };
+        if !tem_executor {
             return;
         }
         let transicao = |projeto: &mut ProjetoJson, estado, falha| {
@@ -78,10 +85,16 @@ fn rodar(pasta: &Path, emit: &Emitir, ligar: &LigarArquivo) {
             });
         };
         transicao(&mut projeto, EstadoDaEtapa::EmAndamento, None);
-        match importar(pasta, &mut projeto, ligar) {
+        let resultado = match (etapa, transcritor) {
+            (Etapa::Transcricao, Some(transcritor)) => {
+                transcrever(pasta, &mut projeto, transcritor, &id, emit)
+            }
+            _ => importar(pasta, &mut projeto, ligar).map_err(|error| error.to_string()),
+        };
+        match resultado {
             Ok(()) => transicao(&mut projeto, EstadoDaEtapa::Concluida, None),
-            Err(error) => {
-                transicao(&mut projeto, EstadoDaEtapa::Falhou, Some(error.to_string()));
+            Err(falha) => {
+                transicao(&mut projeto, EstadoDaEtapa::Falhou, Some(falha));
                 return;
             }
         }
@@ -107,5 +120,53 @@ fn importar(pasta: &Path, projeto: &mut ProjetoJson, ligar: &LigarArquivo) -> io
     } else {
         ModoDeImportacao::Referencia
     });
+    Ok(())
+}
+
+/// A Transcrição do vídeo original: grava `edit/transcricao.json` e a transcrição compactada,
+/// e o idioma detectado no projeto. Um idioma já definido no projeto (pelos padrões ou pelas
+/// exceções) é respeitado. A fila ainda não cancela etapas, então nada liga o `cancelar`.
+fn transcrever(
+    pasta: &Path,
+    projeto: &mut ProjetoJson,
+    transcritor: &Transcritor,
+    id: &str,
+    emit: &Emitir,
+) -> Result<(), String> {
+    let Origem::Arquivo {
+        caminho,
+        nome,
+        modo,
+        ..
+    } = &projeto.origem;
+    let video = match modo {
+        Some(ModoDeImportacao::Hardlink) => pasta.join("bruto").join(nome),
+        _ => PathBuf::from(caminho),
+    };
+    let mut ultimo = None;
+    let transcricao = transcritor
+        .transcrever(
+            &Pedido {
+                video: &video,
+                pasta_de_saida: &pasta.join("edit"),
+                idioma: projeto.idioma_do_video.as_deref(),
+                nomes_proprios: &projeto.opcoes.nomes_proprios,
+            },
+            &AtomicBool::new(false),
+            &mut |fracao| {
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                let percentual = (fracao * 100.0).floor().clamp(0.0, 100.0) as u8;
+                if ultimo != Some(percentual) {
+                    ultimo = Some(percentual);
+                    emit(Evento::ProgressoDaEtapa {
+                        projeto: id.to_owned(),
+                        etapa: Etapa::Transcricao,
+                        percentual,
+                    });
+                }
+            },
+        )
+        .map_err(|error| error.to_string())?;
+    projeto.idioma_do_video = Some(transcricao.idioma);
     Ok(())
 }

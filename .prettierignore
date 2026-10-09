@@ -8,3 +8,5 @@ interface/src/bindings.ts
 assets/
 .scratch/shorts-ai-mvp/spike-transcricao/gravado/
 .scratch/shorts-ai-mvp/referencia-kgfmahnbqx4/
+# Gabarito compacto das palavras da transcrição (ver tests/transcricao.rs).
+crates/nucleo/tests/dados/
