@@ -4,7 +4,10 @@
 // Sem a janela de console no Windows, nas builds de release.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use nucleo::{Aceite, Config, Erro, EstadoDaConta, EstadoInicial, Evento, Nucleo};
+use nucleo::{
+    Aceite, Config, Erro, EstadoDaConta, EstadoInicial, Evento, ModoDeLogin, NivelDoPlano, Nucleo,
+    PeriodoDeCobranca, PlanoConfirmado,
+};
 use serde::Serialize;
 use specta::Type;
 use tauri::{AppHandle, Manager, State};
@@ -40,12 +43,49 @@ async fn verificar_conta(app: AppHandle) -> EstadoDaConta {
 /// "Entrar no Claude Code": espera o login terminar, o que leva minutos.
 #[tauri::command]
 #[specta::specta]
-async fn entrar_no_claude_code(app: AppHandle) -> Result<EstadoDaConta, Erro> {
-    tauri::async_runtime::spawn_blocking(move || app.state::<Nucleo>().entrar_no_claude_code())
+async fn entrar_no_claude_code(
+    app: AppHandle,
+    modo: ModoDeLogin,
+    por_terminal: bool,
+) -> Result<EstadoDaConta, Erro> {
+    tauri::async_runtime::spawn_blocking(move || {
+        app.state::<Nucleo>()
+            .entrar_no_claude_code(modo, por_terminal)
+    })
+    .await
+    .map_err(|error| Erro::LoginNaoConcluido {
+        detalhe: error.to_string(),
+    })?
+}
+
+#[tauri::command]
+#[specta::specta]
+async fn instalar_claude_code(app: AppHandle) -> Result<EstadoDaConta, Erro> {
+    tauri::async_runtime::spawn_blocking(move || app.state::<Nucleo>().instalar_claude_code())
         .await
-        .map_err(|error| Erro::LoginNaoConcluido {
+        .map_err(|error| Erro::InstalacaoFalhou {
             detalhe: error.to_string(),
         })?
+}
+
+#[tauri::command]
+#[specta::specta]
+async fn atualizar_claude_code(app: AppHandle) -> Result<EstadoDaConta, Erro> {
+    tauri::async_runtime::spawn_blocking(move || app.state::<Nucleo>().atualizar_claude_code())
+        .await
+        .map_err(|error| Erro::AtualizacaoFalhou {
+            detalhe: error.to_string(),
+        })?
+}
+
+#[tauri::command]
+#[specta::specta]
+async fn confirmar_plano(
+    nucleo: State<'_, Nucleo>,
+    nivel: NivelDoPlano,
+    periodo: PeriodoDeCobranca,
+) -> Result<PlanoConfirmado, Erro> {
+    nucleo.confirmar_plano(nivel, periodo)
 }
 
 #[tauri::command]
@@ -74,6 +114,9 @@ fn bindings() -> Builder<tauri::Wry> {
             aceitar_aviso,
             verificar_conta,
             entrar_no_claude_code,
+            instalar_claude_code,
+            atualizar_claude_code,
+            confirmar_plano,
             testar_claude,
             sair
         ])
@@ -101,6 +144,8 @@ fn main() {
                     system_locale: sys_locale::get_locale(),
                     path_env: std::env::var_os("PATH"),
                     home_dir: app.path().home_dir().ok(),
+                    chave_de_api_no_ambiente: std::env::var_os("ANTHROPIC_API_KEY")
+                        .is_some_and(|chave| !chave.is_empty()),
                 },
                 move |evento| {
                     if let Err(error) = EventoDoNucleo(evento).emit(&handle) {

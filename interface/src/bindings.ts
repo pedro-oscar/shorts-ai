@@ -10,7 +10,10 @@ export const commands = {
 	aceitarAviso: () => typedError<Aceite, Erro>(__TAURI_INVOKE("aceitar_aviso")),
 	verificarConta: () => __TAURI_INVOKE<EstadoDaConta>("verificar_conta"),
 	/**  "Entrar no Claude Code": espera o login terminar, o que leva minutos. */
-	entrarNoClaudeCode: () => typedError<EstadoDaConta, Erro>(__TAURI_INVOKE("entrar_no_claude_code")),
+	entrarNoClaudeCode: (modo: ModoDeLogin, porTerminal: boolean) => typedError<EstadoDaConta, Erro>(__TAURI_INVOKE("entrar_no_claude_code", { modo, porTerminal })),
+	instalarClaudeCode: () => typedError<EstadoDaConta, Erro>(__TAURI_INVOKE("instalar_claude_code")),
+	atualizarClaudeCode: () => typedError<EstadoDaConta, Erro>(__TAURI_INVOKE("atualizar_claude_code")),
+	confirmarPlano: (nivel: NivelDoPlano, periodo: PeriodoDeCobranca) => typedError<PlanoConfirmado, Erro>(__TAURI_INVOKE("confirmar_plano", { nivel, periodo })),
 	testarClaude: () => typedError<null, Erro>(__TAURI_INVOKE("testar_claude")),
 	/**  "Sair" no Aviso de uso: fecha o app. */
 	sair: () => __TAURI_INVOKE<void>("sair"),
@@ -42,7 +45,7 @@ export type Cobranca = "assinatura" |
  *  Os erros do núcleo, como código e parâmetros. `detalhe` é a mensagem do sistema, para
  *  diagnóstico.
  */
-export type Erro = { codigo: "preferenciasIlegiveis"; caminho: string; detalhe: string } | { codigo: "preferenciasNaoGravadas"; caminho: string; detalhe: string } | { codigo: "loginNaoConcluido"; detalhe: string } | { codigo: "claudeNaoRespondeu"; detalhe: string };
+export type Erro = { codigo: "preferenciasIlegiveis"; caminho: string; detalhe: string } | { codigo: "preferenciasNaoGravadas"; caminho: string; detalhe: string } | { codigo: "loginNaoConcluido"; detalhe: string } | { codigo: "instalacaoFalhou"; detalhe: string } | { codigo: "atualizacaoFalhou"; detalhe: string } | { codigo: "claudeNaoRespondeu"; detalhe: string };
 
 /**  Em que pé está a conta Claude do app. */
 export type EstadoDaConta = { tipo: "naoInstalado" } | { tipo: "versaoAntiga"; versao: string; minima: string } | { tipo: "semLogin"; versao: string } | { tipo: "logado"; versao: string; 
@@ -57,6 +60,10 @@ export type EstadoInicial = {
 	idiomaDaInterface: IdiomaDaInterface,
 	/**  `None` até a pessoa aceitar a versão atual do Aviso de uso. */
 	aceite: Aceite | null,
+	/**  O plano que a pessoa confirmou na Conta; `None` até ela confirmar. */
+	plano: PlanoConfirmado | null,
+	/**  Há um `ANTHROPIC_API_KEY` no ambiente: a Conta mostra "chave de API no ambiente". */
+	chaveDeApiNoAmbiente: boolean,
 	/**  Por que as preferências não puderam ser lidas; o idioma da interface é o do sistema. */
 	erro: Erro | null,
 	/**
@@ -67,7 +74,9 @@ export type EstadoInicial = {
 };
 
 /**  O que muda no núcleo e a interface acompanha. */
-export type Evento = { tipo: "avisoAceito"; aceite: Aceite };
+export type Evento = { tipo: "avisoAceito"; aceite: Aceite } | { tipo: "planoConfirmado"; plano: PlanoConfirmado } | 
+/**  Uma linha de saída do instalador ou do `claude update`. */
+{ tipo: "saidaDoComando"; linha: string };
 
 /**  Os eventos do núcleo num só canal: a interface os aplica em ordem no estado dela. */
 export type EventoDoNucleo = Evento;
@@ -77,6 +86,27 @@ export type EventoDoNucleo = Evento;
  *  Não é o idioma do vídeo, que vale para a transcrição e os textos dos reels.
  */
 export type IdiomaDaInterface = "pt-BR" | "en";
+
+/**  Como a pessoa entra: pela assinatura Claude ou pela conta do Console (cobrança por uso). */
+export type ModoDeLogin = "assinatura" | "console";
+
+/**
+ *  O nível do plano que a pessoa confirma, porque o Claude Code só informa o tipo
+ *  (`subscriptionType`): não diz se o Max é 5x ou 20x.
+ */
+export type NivelDoPlano = "pro" | "max5x" | "max20x" | "teamPadrao" | "teamPremium" | "enterprise" | "console";
+
+/**  Como a assinatura é paga. */
+export type PeriodoDeCobranca = "mensal" | "anual";
+
+/**  O plano e a cobrança que a pessoa confirmou. */
+export type PlanoConfirmado = {
+	nivel: NivelDoPlano,
+	/**  `None` nos planos de preço de API, que não têm mensalidade a escolher. */
+	periodo: PeriodoDeCobranca | null,
+	/**  O uso é cobrado pelo preço de API, não pela cota de uma assinatura. */
+	precoDeApi: boolean,
+};
 
 /* Tauri Specta runtime */
 async function typedError<T, E>(result: Promise<T>): Promise<{ status: "ok"; data: T } | { status: "error"; error: E }> {

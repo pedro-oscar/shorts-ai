@@ -4,6 +4,8 @@ import type {
   EstadoDaConta,
   EstadoInicial,
   Evento,
+  ModoDeLogin,
+  PlanoConfirmado,
 } from "../bindings";
 import type { Nucleo } from "../nucleo";
 
@@ -11,7 +13,7 @@ import type { Nucleo } from "../nucleo";
 export const ACCEPTED_AT = "2026-10-07T18:30:00Z";
 
 /** A conta que o núcleo falso tem por padrão: assinatura Max, com o Claude Code em dia. */
-export const LOGADO: EstadoDaConta = {
+export const LOGADO: Extract<EstadoDaConta, { tipo: "logado" }> = {
   tipo: "logado",
   versao: "2.1.300",
   metodo: "claude.ai",
@@ -34,10 +36,21 @@ export function createFakeNucleo(
     aceite: null,
     erro: null,
     backupDasPreferencias: null,
+    plano: null,
+    chaveDeApiNoAmbiente: false,
     ...initial,
   };
   const listeners = new Set<(evento: Evento) => void>();
-  const calls = { sair: 0, entrar: 0, testar: 0 };
+  const calls = {
+    sair: 0,
+    entrar: 0,
+    testar: 0,
+    instalar: 0,
+    atualizar: 0,
+    /** Os argumentos de cada `entrarNoClaudeCode`. */
+    logins: [] as { modo: ModoDeLogin; porTerminal: boolean }[],
+  };
+  let commandError: Erro | null = null;
   let loginError: Erro | null = null;
   let testError: Erro | null = null;
   let acceptanceError: Erro | null = null;
@@ -57,8 +70,36 @@ export function createFakeNucleo(
       return Promise.resolve({ status: "ok", data: aceite });
     },
     verificarConta: () => Promise.resolve(conta),
-    entrarNoClaudeCode: () => {
+    instalarClaudeCode: () => {
+      calls.instalar++;
+      if (commandError)
+        return Promise.resolve({ status: "error", error: commandError });
+      emit({ tipo: "saidaDoComando", linha: "instalando o Claude Code" });
+      conta = { tipo: "semLogin", versao: "2.1.300" };
+      return Promise.resolve({ status: "ok", data: conta });
+    },
+    atualizarClaudeCode: () => {
+      calls.atualizar++;
+      if (commandError)
+        return Promise.resolve({ status: "error", error: commandError });
+      emit({ tipo: "saidaDoComando", linha: "atualizando o Claude Code" });
+      conta = { tipo: "semLogin", versao: "2.1.400" };
+      return Promise.resolve({ status: "ok", data: conta });
+    },
+    confirmarPlano: (nivel, periodo) => {
+      const preco = nivel === "console" || nivel === "enterprise";
+      const plano: PlanoConfirmado = {
+        nivel,
+        periodo: preco ? null : periodo,
+        precoDeApi: preco,
+      };
+      state = { ...state, plano };
+      emit({ tipo: "planoConfirmado", plano });
+      return Promise.resolve({ status: "ok", data: plano });
+    },
+    entrarNoClaudeCode: (modo, porTerminal) => {
       calls.entrar++;
+      calls.logins.push({ modo, porTerminal });
       if (loginError)
         return Promise.resolve({ status: "error", error: loginError });
       conta = LOGADO;
@@ -85,6 +126,10 @@ export function createFakeNucleo(
   return {
     nucleo,
     calls,
+    /** O instalador e o `claude update` falham com este erro. */
+    failCommand: (erro: Erro) => {
+      commandError = erro;
+    },
     failLogin: (erro: Erro) => {
       loginError = erro;
     },

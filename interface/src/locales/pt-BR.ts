@@ -62,6 +62,38 @@ export const ptBR = {
     testeOk: "O Claude respondeu ao teste.",
     testarDeNovo: "Testar de novo",
     continuar: "Continuar",
+    instalar: "Instalar Claude Code",
+    instalando: "Instalando o Claude Code com o instalador oficial…",
+    atualizar: "Atualizar Claude Code",
+    atualizando: "Atualizando o Claude Code…",
+    saida: "Saída do comando",
+    entrarConsole: "Usar conta do Console (cobrança por uso)",
+    loginPorTerminal:
+      "O navegador mostrou um código: abrir o login no terminal do sistema para colá-lo",
+    loginPorTerminalAjuda:
+      "O Shorts AI abre o terminal já com o login; cole o código ali e volte para cá. O app só acompanha o status.",
+    chaveDeApi: "Chave de API no ambiente",
+    plano: {
+      titulo: "Seu plano",
+      explicacao:
+        "O Claude Code não informa o nível do plano nem a cobrança; confirme para o app estimar o custo de cada vídeo.",
+      nivel: "Nível do plano",
+      cobranca: "Cobrança",
+      niveis: {
+        pro: "Pro",
+        max5x: "Max 5x",
+        max20x: "Max 20x",
+        teamPadrao: "Team padrão",
+        teamPremium: "Team premium",
+        enterprise: "Enterprise",
+        console: "Console",
+      },
+      periodos: { mensal: "Mensal", anual: "Anual" },
+      precoDeApi: "Preço de API",
+      confirmar: "Confirmar plano",
+      confirmado: "Plano confirmado: {{nivel}}, cobrança {{periodo}}.",
+      confirmadoPrecoDeApi: "Plano confirmado: {{nivel}} (preço de API).",
+    },
   },
   videos: {
     titulo: "Vídeos",
@@ -77,6 +109,10 @@ export const ptBR = {
       "Não foi possível gravar as preferências em {{caminho}}. Confira se há espaço e permissão nessa pasta e tente de novo.",
     loginNaoConcluido:
       "O login no Claude Code não foi concluído. Tente entrar de novo.",
+    instalacaoFalhou:
+      "A instalação do Claude Code não foi concluída. Veja a saída abaixo e tente de novo.",
+    atualizacaoFalhou:
+      "A atualização do Claude Code não foi concluída. Veja a saída abaixo e tente de novo.",
     claudeNaoRespondeu:
       "O Claude não respondeu ao teste. Confira a sua conta e o seu plano e tente de novo.",
     detalhe: "Detalhe técnico (do sistema): {{detalhe}}",

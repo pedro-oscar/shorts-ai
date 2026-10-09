@@ -61,6 +61,38 @@ export const en: typeof ptBR = {
     testeOk: "Claude responded to the test.",
     testarDeNovo: "Test again",
     continuar: "Continue",
+    instalar: "Install Claude Code",
+    instalando: "Installing Claude Code with the official installer…",
+    atualizar: "Update Claude Code",
+    atualizando: "Updating Claude Code…",
+    saida: "Command output",
+    entrarConsole: "Use a Console account (pay per use)",
+    loginPorTerminal:
+      "The browser showed a code: open the sign-in in the system terminal to paste it",
+    loginPorTerminalAjuda:
+      "Shorts AI opens the terminal with the sign-in already running; paste the code there and come back. The app only follows the status.",
+    chaveDeApi: "API key in the environment",
+    plano: {
+      titulo: "Your plan",
+      explicacao:
+        "Claude Code does not report the plan level or the billing; confirm them so the app can estimate the cost of each video.",
+      nivel: "Plan level",
+      cobranca: "Billing",
+      niveis: {
+        pro: "Pro",
+        max5x: "Max 5x",
+        max20x: "Max 20x",
+        teamPadrao: "Team standard",
+        teamPremium: "Team premium",
+        enterprise: "Enterprise",
+        console: "Console",
+      },
+      periodos: { mensal: "Monthly", anual: "Annual" },
+      precoDeApi: "API price",
+      confirmar: "Confirm plan",
+      confirmado: "Plan confirmed: {{nivel}}, billed {{periodo}}.",
+      confirmadoPrecoDeApi: "Plan confirmed: {{nivel}} (API price).",
+    },
   },
   videos: {
     titulo: "Videos",
@@ -76,6 +108,10 @@ export const en: typeof ptBR = {
       "Could not save the preferences at {{caminho}}. Check that the folder has free space and write permission, then try again.",
     loginNaoConcluido:
       "Signing in to Claude Code was not completed. Try signing in again.",
+    instalacaoFalhou:
+      "Claude Code installation did not finish. Check the output below and try again.",
+    atualizacaoFalhou:
+      "Claude Code update did not finish. Check the output below and try again.",
     claudeNaoRespondeu:
       "Claude did not respond to the test. Check your account and plan, then try again.",
     detalhe: "Technical details (from the system): {{detalhe}}",

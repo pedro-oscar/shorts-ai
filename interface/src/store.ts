@@ -5,6 +5,10 @@ import type {
   EstadoDaConta,
   Evento,
   IdiomaDaInterface,
+  ModoDeLogin,
+  NivelDoPlano,
+  PeriodoDeCobranca,
+  PlanoConfirmado,
 } from "./bindings";
 import type { Nucleo } from "./nucleo";
 
@@ -24,6 +28,16 @@ export interface AppState {
   /** O teste de resposta que roda depois do login. */
   testeDoClaude: "pendente" | "testando" | "ok" | "falhou";
   erroDaConta: Erro | null;
+  /** O instalador ou o `claude update` está rodando. */
+  instalando: boolean;
+  atualizando: boolean;
+  /** A saída do instalador ou do `claude update`, linha a linha. */
+  saidaDoComando: string[];
+  /** O login abre num terminal do sistema, para colar o código que o navegador mostrar. */
+  loginPorTerminal: boolean;
+  /** O plano que a pessoa confirmou; `null` até ela confirmar. */
+  plano: PlanoConfirmado | null;
+  chaveDeApiNoAmbiente: boolean;
 }
 
 export interface AppStore extends AppState {
@@ -31,7 +45,14 @@ export interface AppStore extends AppState {
   connect: () => () => void;
   aceitarAviso: () => Promise<void>;
   verificarConta: () => Promise<void>;
-  entrarNoClaudeCode: () => Promise<void>;
+  entrarNoClaudeCode: (modo: ModoDeLogin) => Promise<void>;
+  instalarClaudeCode: () => Promise<void>;
+  atualizarClaudeCode: () => Promise<void>;
+  confirmarPlano: (
+    nivel: NivelDoPlano,
+    periodo: PeriodoDeCobranca,
+  ) => Promise<void>;
+  setLoginPorTerminal: (porTerminal: boolean) => void;
   testarClaude: () => Promise<void>;
   sair: () => Promise<void>;
 }
@@ -39,9 +60,32 @@ export interface AppStore extends AppState {
 /** O estado da interface, alimentado pelos eventos do núcleo. */
 export function createAppStore(nucleo: Nucleo) {
   return createStore<AppStore>()((set, get) => {
-    // O único evento, por ora; com o segundo, um switch em evento.tipo.
     function apply(evento: Evento) {
-      set({ aceite: evento.aceite, erroAoAceitar: null });
+      switch (evento.tipo) {
+        case "avisoAceito":
+          set({ aceite: evento.aceite, erroAoAceitar: null });
+          break;
+        case "planoConfirmado":
+          set({ plano: evento.plano });
+          break;
+        case "saidaDoComando":
+          set((current) => ({
+            saidaDoComando: [...current.saidaDoComando, evento.linha],
+          }));
+          break;
+      }
+    }
+
+    /** Roda um comando de longa duração da Conta (instalar, atualizar) e guarda o resultado. */
+    async function rodar(
+      flag: "instalando" | "atualizando",
+      comando: () => ReturnType<Nucleo["instalarClaudeCode"]>,
+    ) {
+      set({ [flag]: true, erroDaConta: null, saidaDoComando: [] });
+      const result = await comando();
+      if (result.status === "error")
+        set({ [flag]: false, erroDaConta: result.error });
+      else set({ [flag]: false, conta: result.data });
     }
 
     return {
@@ -54,6 +98,12 @@ export function createAppStore(nucleo: Nucleo) {
       entrando: false,
       testeDoClaude: "pendente",
       erroDaConta: null,
+      instalando: false,
+      atualizando: false,
+      saidaDoComando: [],
+      loginPorTerminal: false,
+      plano: null,
+      chaveDeApiNoAmbiente: false,
 
       connect: () => {
         let connected = true;
@@ -74,6 +124,8 @@ export function createAppStore(nucleo: Nucleo) {
               backupDasPreferencias: inicial.backupDasPreferencias,
               // Um aceite que chegou por evento vale mais que o do estado inicial.
               aceite: current.aceite ?? inicial.aceite,
+              plano: current.plano ?? inicial.plano,
+              chaveDeApiNoAmbiente: inicial.chaveDeApiNoAmbiente,
             }));
           });
         return () => {
@@ -94,15 +146,34 @@ export function createAppStore(nucleo: Nucleo) {
         set({ conta: await nucleo.verificarConta(), erroDaConta: null });
       },
 
-      entrarNoClaudeCode: async () => {
+      entrarNoClaudeCode: async (modo) => {
         set({ entrando: true, erroDaConta: null });
-        const result = await nucleo.entrarNoClaudeCode();
+        const result = await nucleo.entrarNoClaudeCode(
+          modo,
+          get().loginPorTerminal,
+        );
         if (result.status === "error") {
           set({ entrando: false, erroDaConta: result.error });
           return;
         }
         set({ entrando: false, conta: result.data });
         if (result.data.tipo === "logado") await get().testarClaude();
+      },
+
+      instalarClaudeCode: () =>
+        rodar("instalando", () => nucleo.instalarClaudeCode()),
+
+      atualizarClaudeCode: () =>
+        rodar("atualizando", () => nucleo.atualizarClaudeCode()),
+
+      confirmarPlano: async (nivel, periodo) => {
+        // O plano em si chega pelo evento planoConfirmado.
+        const result = await nucleo.confirmarPlano(nivel, periodo);
+        if (result.status === "error") set({ erroDaConta: result.error });
+      },
+
+      setLoginPorTerminal: (loginPorTerminal) => {
+        set({ loginPorTerminal });
       },
 
       testarClaude: async () => {

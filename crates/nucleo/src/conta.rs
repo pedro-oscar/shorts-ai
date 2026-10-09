@@ -3,9 +3,12 @@
 //! Todo `claude` roda com `CLAUDE_CONFIG_DIR` numa pasta dos dados do app. O núcleo só lê
 //! `claude auth status --json`; nunca abre arquivo de credencial nem o Keychain.
 
+use std::collections::VecDeque;
 use std::ffi::OsString;
+use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Output, Stdio};
+use std::process::{Child, Command, ExitStatus, Output, Stdio};
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
@@ -54,6 +57,26 @@ pub enum Cobranca {
     /// Conta do Console e plano Enterprise contam como preço de API.
     PorUso,
 }
+
+/// Como a pessoa entra: pela assinatura Claude ou pela conta do Console (cobrança por uso).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum ModoDeLogin {
+    Assinatura,
+    Console,
+}
+
+impl ModoDeLogin {
+    fn flag(self) -> &'static str {
+        match self {
+            Self::Assinatura => "--claudeai",
+            Self::Console => "--console",
+        }
+    }
+}
+
+/// As últimas linhas de saída de um comando, para o detalhe de um erro.
+const LINHAS_DE_DETALHE: usize = 20;
 
 /// Onde o núcleo procura o `claude` e onde ele guarda a configuração.
 pub(crate) struct Conta {
@@ -112,22 +135,26 @@ impl Conta {
         }
     }
 
-    /// Roda `claude auth login --claudeai` como processo filho e acompanha o status até o
-    /// login concluir. O navegador é aberto pelo próprio Claude Code.
-    pub fn entrar(&self) -> Result<EstadoDaConta, Erro> {
+    /// Roda `claude auth login` como processo filho, ou num terminal do sistema quando o
+    /// navegador mostra um código para colar, e acompanha o status até o login concluir. O
+    /// navegador é aberto pelo próprio Claude Code.
+    pub fn entrar(&self, modo: ModoDeLogin, por_terminal: bool) -> Result<EstadoDaConta, Erro> {
         let estado = self.estado();
         let EstadoDaConta::SemLogin { .. } = estado else {
             return Ok(estado);
         };
         let exe = self.locate().ok_or_else(|| not_concluded("claude sumiu"))?;
-        let mut child = self
-            .command(&exe)
-            .args(["auth", "login", "--claudeai"])
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .map_err(|error| not_concluded(error.to_string()))?;
+        let mut child = if por_terminal {
+            self.terminal(&exe, modo)?
+        } else {
+            self.command(&exe)
+                .args(["auth", "login", modo.flag()])
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .map_err(|error| not_concluded(error.to_string()))?
+        };
         let started = Instant::now();
         let outcome = loop {
             let exited = match child.try_wait() {
@@ -138,7 +165,8 @@ impl Conta {
             if matches!(estado, EstadoDaConta::Logado { .. }) {
                 break Ok(estado);
             }
-            if let Some(status) = exited {
+            // Um terminal que sai sem erro pode ter só passado o login a outro processo.
+            if let Some(status) = exited.filter(|status| !por_terminal || !status.success()) {
                 break Err(not_concluded(format!("o login terminou com {status}")));
             }
             if started.elapsed() > LOGIN_TIMEOUT {
@@ -146,8 +174,41 @@ impl Conta {
             }
             std::thread::sleep(LOGIN_POLL_INTERVAL);
         };
-        stop(&mut child);
+        if !por_terminal || outcome.is_err() {
+            stop(&mut child);
+        }
         outcome
+    }
+
+    /// Roda o instalador oficial do sistema, repassando a saída, e detecta o Claude Code de
+    /// novo ao terminar.
+    pub fn instalar(&self, on_line: &(dyn Fn(String) + Sync)) -> Result<EstadoDaConta, Erro> {
+        let mut command = installer();
+        if let Some(path) = &self.path_env {
+            command.env("PATH", path);
+        }
+        let falha = |detalhe: String| Erro::InstalacaoFalhou { detalhe };
+        let (status, tail) = run_streaming(command, on_line).map_err(|e| falha(e.to_string()))?;
+        if !status.success() {
+            return Err(falha(detail_of(&status, &tail)));
+        }
+        Ok(self.estado())
+    }
+
+    /// Roda `claude update`, repassando a saída, e confere a versão de novo ao terminar.
+    pub fn atualizar(&self, on_line: &(dyn Fn(String) + Sync)) -> Result<EstadoDaConta, Erro> {
+        let falha = |detalhe: String| Erro::AtualizacaoFalhou { detalhe };
+        let exe = self
+            .locate()
+            .ok_or_else(|| falha("claude não encontrado".to_owned()))?;
+        std::fs::create_dir_all(&self.config_dir).map_err(|e| falha(e.to_string()))?;
+        let mut command = self.command(&exe);
+        command.arg("update");
+        let (status, tail) = run_streaming(command, on_line).map_err(|e| falha(e.to_string()))?;
+        if !status.success() {
+            return Err(falha(detail_of(&status, &tail)));
+        }
+        Ok(self.estado())
     }
 
     /// `claude -p "Responda só: OK"`: confirma que o Claude responde depois do login.
@@ -181,6 +242,68 @@ impl Conta {
         } else {
             detalhe
         }))
+    }
+
+    /// Abre o terminal do sistema já com o `CLAUDE_CONFIG_DIR` do app e o login. O app não
+    /// hospeda terminal nem repassa código: a pessoa cola o código ali.
+    fn terminal(&self, exe: &Path, modo: ModoDeLogin) -> Result<Child, Erro> {
+        std::fs::create_dir_all(&self.config_dir).map_err(|e| not_concluded(e.to_string()))?;
+        let mut command = self
+            .terminal_command(exe, modo)
+            .ok_or_else(|| not_concluded("nenhum terminal encontrado"))?;
+        command
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|error| not_concluded(error.to_string()))
+    }
+
+    #[cfg(windows)]
+    fn terminal_command(&self, exe: &Path, modo: ModoDeLogin) -> Option<Command> {
+        use std::os::windows::process::CommandExt;
+        let mut command = Command::new("cmd");
+        command.args(["/c", "start", "Claude Code", "cmd", "/k"]);
+        command.raw_arg(format!(
+            "\"set \"CLAUDE_CONFIG_DIR={}\" && \"{}\" auth login {}\"",
+            self.config_dir.display(),
+            exe.display(),
+            modo.flag()
+        ));
+        Some(command)
+    }
+
+    /// O primeiro emulador de terminal do PATH. O `env` leva o `CLAUDE_CONFIG_DIR` até o
+    /// comando mesmo quando o terminal é um servidor que não herda o ambiente.
+    #[cfg(not(windows))]
+    fn terminal_command(&self, exe: &Path, modo: ModoDeLogin) -> Option<Command> {
+        const TERMINAIS: [(&str, &str); 6] = [
+            ("x-terminal-emulator", "-e"),
+            ("gnome-terminal", "--"),
+            ("konsole", "-e"),
+            ("xfce4-terminal", "-x"),
+            ("kitty", "--"),
+            ("xterm", "-e"),
+        ];
+        let dirs = self
+            .path_env
+            .iter()
+            .flat_map(std::env::split_paths)
+            .collect::<Vec<_>>();
+        let (program, flag) = TERMINAIS.into_iter().find_map(|(name, flag)| {
+            dirs.iter()
+                .map(|dir| dir.join(name))
+                .find(|candidate| candidate.is_file())
+                .map(|path| (path, flag))
+        })?;
+        let mut command = Command::new(program);
+        command
+            .arg(flag)
+            .arg("env")
+            .arg(format!("CLAUDE_CONFIG_DIR={}", self.config_dir.display()))
+            .arg(exe)
+            .args(["auth", "login", modo.flag()]);
+        Some(command)
     }
 
     fn command(&self, exe: &Path) -> Command {
@@ -253,6 +376,78 @@ impl Conta {
 fn not_concluded(detalhe: impl Into<String>) -> Erro {
     Erro::LoginNaoConcluido {
         detalhe: detalhe.into(),
+    }
+}
+
+#[cfg(windows)]
+fn installer() -> Command {
+    use std::os::windows::process::CommandExt;
+    let mut command = Command::new("powershell");
+    command.args([
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        "irm https://claude.ai/install.ps1 | iex",
+    ]);
+    command.creation_flags(0x0800_0000);
+    command
+}
+
+/// Baixa o script antes de passá-lo ao `bash`: um `curl` que falha derruba a instalação.
+#[cfg(not(windows))]
+fn installer() -> Command {
+    let mut command = Command::new("/bin/sh");
+    command.args([
+        "-c",
+        r#"script=$(curl -fsSL https://claude.ai/install.sh) && printf '%s\n' "$script" | bash"#,
+    ]);
+    command
+}
+
+/// Roda o comando repassando cada linha de stdout e stderr; devolve também as últimas.
+fn run_streaming(
+    mut command: Command,
+    on_line: &(dyn Fn(String) + Sync),
+) -> std::io::Result<(ExitStatus, Vec<String>)> {
+    let mut child = command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    let readers: Vec<Box<dyn Read + Send>> = vec![
+        Box::new(child.stdout.take().expect("stdout em pipe")),
+        Box::new(child.stderr.take().expect("stderr em pipe")),
+    ];
+    let tail = Mutex::new(VecDeque::new());
+    std::thread::scope(|scope| {
+        for reader in readers {
+            scope.spawn(|| {
+                for line in BufReader::new(reader).lines().map_while(Result::ok) {
+                    on_line(line.clone());
+                    let mut tail = tail
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner);
+                    if tail.len() == LINHAS_DE_DETALHE {
+                        tail.pop_front();
+                    }
+                    tail.push_back(line);
+                }
+            });
+        }
+    });
+    let status = child.wait()?;
+    let tail = tail
+        .into_inner()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    Ok((status, tail.into()))
+}
+
+fn detail_of(status: &ExitStatus, tail: &[String]) -> String {
+    if tail.is_empty() {
+        status.to_string()
+    } else {
+        tail.join("\n")
     }
 }
 
