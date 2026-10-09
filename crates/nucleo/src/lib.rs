@@ -5,6 +5,7 @@
 //! escreve os textos, em pt-BR ou em inglês, é a interface.
 
 mod conta;
+pub mod corte;
 mod fila;
 mod preferencias;
 mod projeto;
