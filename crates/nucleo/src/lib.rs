@@ -9,6 +9,7 @@ mod fila;
 mod preferencias;
 mod projeto;
 mod remotion;
+pub mod roteiro;
 
 use std::ffi::OsString;
 use std::io;

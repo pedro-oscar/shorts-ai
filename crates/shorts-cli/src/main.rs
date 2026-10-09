@@ -1,11 +1,15 @@
 //! `shorts-cli`: as ferramentas que o Claude roda nas sessões, no lugar do `./ae` do CLI.
-//! Roda na pasta do projeto; `tsc`, `still` e `cena` usam o Remotion de `remotion/`.
+//! Roda na pasta do projeto; `validar` lê `edit/transcricao.json` e o registro de cenas do
+//! Remotion, e `tsc`, `still` e `cena` usam o Remotion de `remotion/`.
+
+mod validar;
 
 use std::env;
 use std::path::Path;
 use std::process::{Command, ExitCode};
 
 const USAGE: &str = "Uso: shorts-cli --version
+     shorts-cli validar <roteiro>
      shorts-cli tsc
      shorts-cli still <chave> <seg>
      shorts-cli cena <nome> <seg> [card|full]";
@@ -26,6 +30,7 @@ fn main() -> ExitCode {
             println!("shorts-cli {}", env!("CARGO_PKG_VERSION"));
             ExitCode::SUCCESS
         }
+        ["validar", roteiro] => validar::rodar(Path::new(roteiro)),
         ["tsc"] => no_remotion(&[TSC, "--noEmit"], || println!("tipos ok")),
         ["still", chave, segundos] => match (nome_valido(chave), frame(segundos)) {
             (true, Some(frame)) => {
