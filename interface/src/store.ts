@@ -14,6 +14,27 @@ import type {
 } from "./bindings";
 import type { Nucleo } from "./nucleo";
 
+/** Quantas ações do Claude o Gerando mostra por projeto. */
+const ULTIMAS_ACOES = 5;
+
+/** Uma ação do Claude na sessão em andamento: a ferramenta, ou `texto`, e o que ela toca. */
+export interface AcaoDoClaude {
+  /** A posição da ação na etapa, a partir de 1. */
+  numero: number;
+  ferramenta: string;
+  alvo: string | null;
+}
+
+/** Um projeto na fila, com o que a etapa em andamento informa ao vivo. */
+export interface ProjetoNaFila extends ProjetoResumo {
+  /** O percentual da etapa em andamento, quando ela o mede. */
+  percentual: number | null;
+  /** As últimas ações do Claude na etapa, da mais antiga à mais nova. */
+  acoes: AcaoDoClaude[];
+  /** Os tokens de entrada e de cache que a sessão do Claude já usou. */
+  tokens: { entrada: number; cache: number } | null;
+}
+
 export interface AppState {
   /** `null` até o núcleo responder. */
   app: { versao: string; idiomaDaInterface: IdiomaDaInterface } | null;
@@ -46,7 +67,7 @@ export interface AppState {
   arquivos: ArquivoDeVideo[];
   erroDeArquivos: Erro | null;
   /** Os projetos criados, com o estado de cada etapa, em ordem de criação. */
-  projetos: ProjetoResumo[];
+  projetos: ProjetoNaFila[];
 }
 
 export interface AppStore extends AppState {
@@ -74,6 +95,18 @@ export interface AppStore extends AppState {
 /** O estado da interface, alimentado pelos eventos do núcleo. */
 export function createAppStore(nucleo: Nucleo) {
   return createStore<AppStore>()((set, get) => {
+    /** Muda só o projeto `id`. */
+    function mudarProjeto(
+      id: string,
+      mudar: (projeto: ProjetoNaFila) => ProjetoNaFila,
+    ) {
+      set((current) => ({
+        projetos: current.projetos.map((projeto) =>
+          projeto.id === id ? mudar(projeto) : projeto,
+        ),
+      }));
+    }
+
     function apply(evento: Evento) {
       switch (evento.tipo) {
         case "avisoAceito":
@@ -91,25 +124,49 @@ export function createAppStore(nucleo: Nucleo) {
           set((current) => ({
             projetos: [
               ...current.projetos.filter((p) => p.id !== evento.projeto.id),
-              evento.projeto,
+              { ...evento.projeto, percentual: null, acoes: [], tokens: null },
             ],
           }));
           break;
         case "etapaMudou":
-          set((current) => ({
-            projetos: current.projetos.map((projeto) =>
-              projeto.id === evento.projeto
-                ? {
-                    ...projeto,
-                    etapas: projeto.etapas.map((item) =>
-                      item.etapa === evento.etapa
-                        ? { ...item, estado: evento.estado }
-                        : item,
-                    ),
-                    falha: evento.falha,
-                  }
-                : projeto,
+          // Uma etapa que começa limpa o que a anterior mostrava; uma que falha deixa as
+          // ações do Claude à vista, junto com o motivo.
+          mudarProjeto(evento.projeto, (projeto) => ({
+            ...projeto,
+            etapas: projeto.etapas.map((item) =>
+              item.etapa === evento.etapa
+                ? { ...item, estado: evento.estado }
+                : item,
             ),
+            falha: evento.falha,
+            percentual: null,
+            ...(evento.estado === "emAndamento" && { acoes: [], tokens: null }),
+          }));
+          break;
+        case "progressoDaEtapa":
+          mudarProjeto(evento.projeto, (projeto) => ({
+            ...projeto,
+            percentual: evento.percentual,
+          }));
+          break;
+        case "acaoDoClaude":
+          mudarProjeto(evento.projeto, (projeto) => {
+            const numero = (projeto.acoes.at(-1)?.numero ?? 0) + 1;
+            const acao = {
+              numero,
+              ferramenta: evento.ferramenta,
+              alvo: evento.alvo,
+            };
+            return {
+              ...projeto,
+              acoes: [...projeto.acoes, acao].slice(-ULTIMAS_ACOES),
+            };
+          });
+          break;
+        case "tokensDoClaude":
+          mudarProjeto(evento.projeto, (projeto) => ({
+            ...projeto,
+            tokens: { entrada: evento.entrada, cache: evento.cache },
           }));
           break;
       }

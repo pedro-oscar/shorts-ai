@@ -110,7 +110,14 @@ export const ptBR = {
   gerando: {
     titulo: "Gerando",
     etapaNdeM: "etapa {{n}}/{{m}}",
+    percentual: "{{percentual}}%",
     progresso: "Progresso de {{nome}}",
+    acoesDoClaude: "Ações do Claude",
+    acao: "→ {{ferramenta}} {{alvo}}",
+    acaoSemAlvo: "→ {{ferramenta}}",
+    textoDoClaude: "“{{texto}}”",
+    tokens:
+      "Tokens da sessão: {{entrada, number}} de entrada e {{cache, number}} de cache",
     estados: {
       naFila: "Na fila",
       emAndamento: "Em andamento",

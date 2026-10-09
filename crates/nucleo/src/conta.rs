@@ -4,17 +4,17 @@
 //! `claude auth status --json`; nunca abre arquivo de credencial nem o Keychain.
 
 use std::collections::VecDeque;
-use std::ffi::OsString;
-use std::io::{BufRead, BufReader, Read};
-use std::path::{Path, PathBuf};
-use std::process::{Child, Command, ExitStatus, Output, Stdio};
-use std::sync::Mutex;
+use std::path::Path;
+use std::process::{Child, Command, Output, Stdio};
+use std::sync::atomic::AtomicBool;
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::Erro;
+use crate::claude_code::ClaudeCode;
+use crate::process::{self, Interrupted};
 
 /// A versão mínima do Claude Code que o app aceita.
 pub const VERSAO_MINIMA_DO_CLAUDE_CODE: &str = "2.1.292";
@@ -76,13 +76,10 @@ impl ModoDeLogin {
 }
 
 /// As últimas linhas de saída de um comando, para o detalhe de um erro.
-const LINHAS_DE_DETALHE: usize = 20;
+const DETAIL_LINES: usize = 20;
 
-/// Onde o núcleo procura o `claude` e onde ele guarda a configuração.
 pub(crate) struct Conta {
-    path_env: Option<OsString>,
-    home_dir: Option<PathBuf>,
-    config_dir: PathBuf,
+    claude: ClaudeCode,
 }
 
 #[derive(Deserialize)]
@@ -96,16 +93,12 @@ struct AuthStatus {
 }
 
 impl Conta {
-    pub fn new(path_env: Option<OsString>, home_dir: Option<PathBuf>, config_dir: PathBuf) -> Self {
-        Self {
-            path_env,
-            home_dir,
-            config_dir,
-        }
+    pub fn new(claude: ClaudeCode) -> Self {
+        Self { claude }
     }
 
     pub fn estado(&self) -> EstadoDaConta {
-        let Some(exe) = self.locate() else {
+        let Some(exe) = self.claude.locate() else {
             return EstadoDaConta::NaoInstalado;
         };
         let Some(versao) = self.version(&exe) else {
@@ -143,11 +136,15 @@ impl Conta {
         let EstadoDaConta::SemLogin { .. } = estado else {
             return Ok(estado);
         };
-        let exe = self.locate().ok_or_else(|| not_concluded("claude sumiu"))?;
+        let exe = self
+            .claude
+            .locate()
+            .ok_or_else(|| not_concluded("claude sumiu"))?;
         let mut child = if por_terminal {
             self.terminal(&exe, modo)?
         } else {
-            self.command(&exe)
+            self.claude
+                .command(&exe)
                 .args(["auth", "login", modo.flag()])
                 .stdin(Stdio::null())
                 .stdout(Stdio::null())
@@ -184,14 +181,10 @@ impl Conta {
     /// novo ao terminar.
     pub fn instalar(&self, on_line: &(dyn Fn(String) + Sync)) -> Result<EstadoDaConta, Erro> {
         let mut command = installer();
-        if let Some(path) = &self.path_env {
+        if let Some(path) = &self.claude.path_env {
             command.env("PATH", path);
         }
-        let falha = |detalhe: String| Erro::InstalacaoFalhou { detalhe };
-        let (status, tail) = run_streaming(command, on_line).map_err(|e| falha(e.to_string()))?;
-        if !status.success() {
-            return Err(falha(detail_of(&status, &tail)));
-        }
+        run_streaming(command, on_line).map_err(|detalhe| Erro::InstalacaoFalhou { detalhe })?;
         Ok(self.estado())
     }
 
@@ -199,15 +192,13 @@ impl Conta {
     pub fn atualizar(&self, on_line: &(dyn Fn(String) + Sync)) -> Result<EstadoDaConta, Erro> {
         let falha = |detalhe: String| Erro::AtualizacaoFalhou { detalhe };
         let exe = self
+            .claude
             .locate()
             .ok_or_else(|| falha("claude não encontrado".to_owned()))?;
-        std::fs::create_dir_all(&self.config_dir).map_err(|e| falha(e.to_string()))?;
-        let mut command = self.command(&exe);
+        std::fs::create_dir_all(&self.claude.config_dir).map_err(|e| falha(e.to_string()))?;
+        let mut command = self.claude.command(&exe);
         command.arg("update");
-        let (status, tail) = run_streaming(command, on_line).map_err(|e| falha(e.to_string()))?;
-        if !status.success() {
-            return Err(falha(detail_of(&status, &tail)));
-        }
+        run_streaming(command, on_line).map_err(falha)?;
         Ok(self.estado())
     }
 
@@ -215,9 +206,11 @@ impl Conta {
     pub fn testar(&self) -> Result<(), Erro> {
         let failure = |detalhe: String| Erro::ClaudeNaoRespondeu { detalhe };
         let exe = self
+            .claude
             .locate()
             .ok_or_else(|| failure("claude não encontrado".to_owned()))?;
         let output = self
+            .claude
             .command(&exe)
             .args(["-p", "Responda só: OK", "--output-format", "json"])
             .stdin(Stdio::null())
@@ -247,7 +240,8 @@ impl Conta {
     /// Abre o terminal do sistema já com o `CLAUDE_CONFIG_DIR` do app e o login. O app não
     /// hospeda terminal nem repassa código: a pessoa cola o código ali.
     fn terminal(&self, exe: &Path, modo: ModoDeLogin) -> Result<Child, Erro> {
-        std::fs::create_dir_all(&self.config_dir).map_err(|e| not_concluded(e.to_string()))?;
+        std::fs::create_dir_all(&self.claude.config_dir)
+            .map_err(|e| not_concluded(e.to_string()))?;
         let mut command = self
             .terminal_command(exe, modo)
             .ok_or_else(|| not_concluded("nenhum terminal encontrado"))?;
@@ -266,7 +260,7 @@ impl Conta {
         command.args(["/c", "start", "Claude Code", "cmd", "/k"]);
         command.raw_arg(format!(
             "\"set \"CLAUDE_CONFIG_DIR={}\" && \"{}\" auth login {}\"",
-            self.config_dir.display(),
+            self.claude.config_dir.display(),
             exe.display(),
             modo.flag()
         ));
@@ -286,6 +280,7 @@ impl Conta {
             ("xterm", "-e"),
         ];
         let dirs = self
+            .claude
             .path_env
             .iter()
             .flat_map(std::env::split_paths)
@@ -300,27 +295,19 @@ impl Conta {
         command
             .arg(flag)
             .arg("env")
-            .arg(format!("CLAUDE_CONFIG_DIR={}", self.config_dir.display()))
+            .arg(format!(
+                "CLAUDE_CONFIG_DIR={}",
+                self.claude.config_dir.display()
+            ))
             .arg(exe)
             .args(["auth", "login", modo.flag()]);
         Some(command)
     }
 
-    fn command(&self, exe: &Path) -> Command {
-        let mut command = Command::new(exe);
-        command.env("CLAUDE_CONFIG_DIR", &self.config_dir);
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            // Sem a janela de console piscando a cada consulta.
-            command.creation_flags(0x0800_0000);
-        }
-        command
-    }
-
     fn output(&self, exe: &Path, args: &[&str]) -> Option<Output> {
-        std::fs::create_dir_all(&self.config_dir).ok()?;
-        self.command(exe)
+        std::fs::create_dir_all(&self.claude.config_dir).ok()?;
+        self.claude
+            .command(exe)
             .args(args)
             .stdin(Stdio::null())
             .output()
@@ -340,37 +327,6 @@ impl Conta {
         let output = self.output(exe, &["auth", "status", "--json"])?;
         serde_json::from_slice(&output.stdout).ok()
     }
-
-    /// Um app aberto pelo menu ou pelo Dock não recebe o PATH do terminal; por isso, depois
-    /// do PATH, valem os locais de instalação conhecidos.
-    fn locate(&self) -> Option<PathBuf> {
-        let from_path = self
-            .path_env
-            .iter()
-            .flat_map(std::env::split_paths)
-            .collect::<Vec<_>>();
-        let known = self.home_dir.iter().flat_map(|home| {
-            [
-                home.join(".local").join("bin"),
-                home.join(".claude").join("local"),
-                home.join("AppData").join("Roaming").join("npm"),
-            ]
-        });
-        let system = [
-            PathBuf::from("/usr/local/bin"),
-            PathBuf::from("/opt/homebrew/bin"),
-        ];
-        from_path
-            .into_iter()
-            .chain(known)
-            .chain(system)
-            .flat_map(|dir| {
-                ["claude", "claude.exe", "claude.cmd"]
-                    .into_iter()
-                    .map(move |name| dir.join(name))
-            })
-            .find(|candidate| candidate.is_file())
-    }
 }
 
 fn not_concluded(detalhe: impl Into<String>) -> Erro {
@@ -381,7 +337,6 @@ fn not_concluded(detalhe: impl Into<String>) -> Erro {
 
 #[cfg(windows)]
 fn installer() -> Command {
-    use std::os::windows::process::CommandExt;
     let mut command = Command::new("powershell");
     command.args([
         "-NoProfile",
@@ -390,7 +345,7 @@ fn installer() -> Command {
         "-Command",
         "irm https://claude.ai/install.ps1 | iex",
     ]);
-    command.creation_flags(0x0800_0000);
+    process::hide_console(&mut command);
     command
 }
 
@@ -405,49 +360,27 @@ fn installer() -> Command {
     command
 }
 
-/// Roda o comando repassando cada linha de stdout e stderr; devolve também as últimas.
-fn run_streaming(
-    mut command: Command,
-    on_line: &(dyn Fn(String) + Sync),
-) -> std::io::Result<(ExitStatus, Vec<String>)> {
-    let mut child = command
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()?;
-    let readers: Vec<Box<dyn Read + Send>> = vec![
-        Box::new(child.stdout.take().expect("stdout em pipe")),
-        Box::new(child.stderr.take().expect("stderr em pipe")),
-    ];
-    let tail = Mutex::new(VecDeque::new());
-    std::thread::scope(|scope| {
-        for reader in readers {
-            scope.spawn(|| {
-                for line in BufReader::new(reader).lines().map_while(Result::ok) {
-                    on_line(line.clone());
-                    let mut tail = tail
-                        .lock()
-                        .unwrap_or_else(std::sync::PoisonError::into_inner);
-                    if tail.len() == LINHAS_DE_DETALHE {
-                        tail.pop_front();
-                    }
-                    tail.push_back(line);
-                }
-            });
+/// Roda o comando repassando cada linha de stdout e stderr. Se ele falha, o erro traz as
+/// últimas linhas, na ordem em que saíram.
+fn run_streaming(command: Command, on_line: &(dyn Fn(String) + Sync)) -> Result<(), String> {
+    let mut tail = VecDeque::new();
+    let output = process::run(command, &AtomicBool::new(false), &mut |_, line| {
+        on_line(line.to_owned());
+        if tail.len() == DETAIL_LINES {
+            tail.pop_front();
         }
-    });
-    let status = child.wait()?;
-    let tail = tail
-        .into_inner()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    Ok((status, tail.into()))
-}
-
-fn detail_of(status: &ExitStatus, tail: &[String]) -> String {
-    if tail.is_empty() {
-        status.to_string()
+        tail.push_back(line.to_owned());
+    })
+    .map_err(|interrupted| match interrupted {
+        Interrupted::Io(error) => error.to_string(),
+        Interrupted::Cancelled => "cancelado".to_owned(),
+    })?;
+    if output.status.success() {
+        Ok(())
+    } else if tail.is_empty() {
+        Err(output.status.to_string())
     } else {
-        tail.join("\n")
+        Err(Vec::from(tail).join("\n"))
     }
 }
 

@@ -72,6 +72,100 @@ test("Gerar cria o lote e Gerando mostra o projeto etapa a etapa", async () => {
   expect(projeto).toHaveTextContent("etapa 2/5");
 });
 
+async function gerarAula() {
+  const fake = await renderVideos();
+  fake.pick(["/v/aula.mp4"]);
+  await fake.user.click(
+    screen.getByRole("button", { name: "Escolher arquivos" }),
+  );
+  await screen.findByRole("list", { name: "Vídeos escolhidos" });
+  await fake.user.click(screen.getByRole("button", { name: "Gerar" }));
+  await screen.findByRole("heading", { name: "Gerando" });
+  return { ...fake, projeto: screen.getByRole("listitem", { name: "aula" }) };
+}
+
+const AULA = "aula (2026-10-09)";
+
+test("a Transcrição mostra a porcentagem, e a barra anda junto", async () => {
+  const { etapa, emitir, projeto } = await gerarAula();
+  etapa(AULA, "importacao", "concluida");
+  etapa(AULA, "transcricao", "emAndamento");
+
+  emitir({
+    tipo: "progressoDaEtapa",
+    projeto: AULA,
+    etapa: "transcricao",
+    percentual: 42,
+  });
+
+  await within(projeto).findByText("Em andamento · etapa 2/5 · 42%");
+  expect(
+    within(projeto).getByRole("progressbar", { name: "Progresso de aula" }),
+  ).toHaveAttribute("value", "1.42");
+
+  etapa(AULA, "transcricao", "concluida");
+  await within(projeto).findByText("Em andamento · etapa 3/5");
+});
+
+test("o Roteiro mostra ao vivo as últimas ações do Claude e os tokens", async () => {
+  const { etapa, emitir, projeto } = await gerarAula();
+  etapa(AULA, "importacao", "concluida");
+  etapa(AULA, "transcricao", "concluida");
+  etapa(AULA, "roteiro", "emAndamento");
+  const acao = (ferramenta: string, alvo: string | null) => {
+    emitir({
+      tipo: "acaoDoClaude",
+      projeto: AULA,
+      etapa: "roteiro",
+      ferramenta,
+      alvo,
+    });
+  };
+
+  acao("Read", "/dados/skill/corte-viral/SKILL.md");
+  acao("texto", "Lendo a transcrição.");
+  acao("Grep", "^## ");
+  acao("Bash", "shorts-cli validar edit/roteiro.json");
+  acao("TodoWrite", null);
+  acao("Write", "/projeto/edit/roteiro.json");
+  emitir({
+    tipo: "tokensDoClaude",
+    projeto: AULA,
+    etapa: "roteiro",
+    entrada: 12345,
+    cache: 1234567,
+  });
+
+  const acoes = await within(projeto).findByRole("list", {
+    name: "Ações do Claude",
+  });
+  expect(
+    within(acoes)
+      .getAllByRole("listitem")
+      .map((item) => item.textContent),
+  ).toEqual([
+    "“Lendo a transcrição.”",
+    "→ Grep ^## ",
+    "→ Bash shorts-cli validar edit/roteiro.json",
+    "→ TodoWrite",
+    "→ Write /projeto/edit/roteiro.json",
+  ]);
+  within(projeto).getByText(
+    "Tokens da sessão: 12.345 de entrada e 1.234.567 de cache",
+  );
+
+  // A falha deixa as ações à vista; a etapa seguinte começa do zero.
+  etapa(AULA, "roteiro", "falhou", "roteiro inválido");
+  await within(projeto).findByText("Falhou");
+  within(projeto).getByRole("list", { name: "Ações do Claude" });
+  etapa(AULA, "roteiro", "emAndamento");
+  await within(projeto).findByText("Em andamento · etapa 3/5");
+  expect(
+    within(projeto).queryByRole("list", { name: "Ações do Claude" }),
+  ).toBeNull();
+  expect(within(projeto).queryByText(/Tokens da sessão/)).toBeNull();
+});
+
 test("a falha da Importação mostra o motivo", async () => {
   const { user, pick, etapa } = await renderVideos();
   pick(["/v/aula.mp4"]);

@@ -213,3 +213,12 @@ fieldset label {
 .stages {
   margin: 0;
 }
+
+.claude-actions {
+  margin: 0;
+  padding-left: 1.25rem;
+  color: var(--muted);
+  font-size: 0.875rem;
+  /* Caminhos longos quebram em vez de alargar a lista. */
+  overflow-wrap: anywhere;
+}

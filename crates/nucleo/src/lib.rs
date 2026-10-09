@@ -4,18 +4,21 @@
 //! interface. O núcleo fala por códigos e parâmetros, nunca por frases prontas: quem
 //! escreve os textos, em pt-BR ou em inglês, é a interface.
 
+mod claude_code;
 mod conta;
 pub mod corte;
 mod fila;
+mod files;
 mod preferencias;
-mod processo;
+mod process;
 mod projeto;
 mod remotion;
 pub mod roteiro;
 pub mod sessao;
 pub mod transcricao;
 
-use std::ffi::OsString;
+use std::env::consts::EXE_SUFFIX;
+use std::ffi::{OsStr, OsString};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -25,10 +28,12 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 use time::OffsetDateTime;
 
+pub use crate::claude_code::ClaudeCode;
 use crate::conta::Conta;
 pub use crate::conta::{Cobranca, EstadoDaConta, ModoDeLogin, VERSAO_MINIMA_DO_CLAUDE_CODE};
 use crate::fila::Fila;
 use crate::preferencias::{PreferencesFile, Preferencias};
+use crate::process::hide_console;
 pub use crate::projeto::{EtapaDoProjeto, ModoDeImportacao};
 use crate::projeto::{Origem, ProjetoJson};
 use crate::remotion::Remotion;
@@ -64,15 +69,20 @@ pub struct Config {
     pub assets_dir: Option<PathBuf>,
     /// O `npm` que instala as dependências do Remotion; `None` procura `npm` no `PATH`.
     pub npm: Option<PathBuf>,
-    /// O ffmpeg, o whisper-cli e os modelos da Transcrição. Sem ele a etapa fica pendente.
-    pub transcritor: Option<Transcritor>,
-    /// O `claude` da etapa Roteiro, com a skill e os aprendizados. Sem ele a etapa fica pendente.
-    pub roteirista: Option<Roteirista>,
+    /// A pasta dos programas que vão com o app (sidecars): `ffmpeg`, `ffprobe`, `whisper-cli`
+    /// (Vulkan), `whisper-cli-cpu` e `shorts-cli`. Cada um é procurado ali e, na falta, no
+    /// `PATH`. Sem ela, a Transcrição e o Roteiro ficam pendentes; o Roteiro também precisa
+    /// dos assets, de onde vem a skill.
+    pub sidecar_dir: Option<PathBuf>,
 }
+
+/// Onde ficam, nos dados do app, os modelos da Transcrição (o do Whisper e o do VAD).
+const MODELS_DIR: &str = "modelos";
 
 pub struct Nucleo {
     biblioteca: PathBuf,
     path_env: Option<OsString>,
+    sidecar_dir: Option<PathBuf>,
     fila: Fila,
     remotion: Remotion,
     idioma_da_interface: IdiomaDaInterface,
@@ -331,24 +341,34 @@ impl Nucleo {
             .or_else(|| config.home_dir.as_ref().map(|home| home.join("Videos")))
             .unwrap_or_else(|| config.app_data_dir.clone())
             .join("Shorts AI");
+        let claude = ClaudeCode::new(
+            config.path_env.clone(),
+            config.home_dir.clone(),
+            config.app_data_dir.join("claude"),
+        );
+        let transcritor = config
+            .sidecar_dir
+            .as_deref()
+            .map(|dir| transcritor(dir, config.path_env.as_deref(), &config.app_data_dir));
+        let roteirista = match (&config.assets_dir, &config.sidecar_dir) {
+            (Some(assets_dir), Some(sidecar_dir)) => Some(Roteirista::new(
+                claude.clone(),
+                assets_dir.clone(),
+                config.app_data_dir.clone(),
+                Some(sidecar_dir.clone()),
+            )),
+            _ => None,
+        };
         Self {
             biblioteca,
-            fila: Fila::new(
-                Arc::clone(&emit),
-                ligar,
-                config.transcritor,
-                config.roteirista,
-            ),
+            fila: Fila::new(Arc::clone(&emit), ligar, transcritor, roteirista),
             remotion: Remotion::new(config.assets_dir, &config.app_data_dir, config.npm),
-            path_env: config.path_env.clone(),
+            path_env: config.path_env,
+            sidecar_dir: config.sidecar_dir,
             idioma_da_interface: IdiomaDaInterface::of_locale(config.system_locale.as_deref()),
             chave_de_api_no_ambiente: config.chave_de_api_no_ambiente,
             preferencias: Mutex::new(PreferencesFile::in_dir(&config.app_data_dir)),
-            conta: Conta::new(
-                config.path_env,
-                config.home_dir,
-                config.app_data_dir.join("claude"),
-            ),
+            conta: Conta::new(claude),
             emit,
         }
     }
@@ -577,25 +597,23 @@ impl Nucleo {
             ),
             "projetos": projetos.iter().map(|projeto| &projeto.id).collect::<Vec<_>>(),
         });
-        projeto::gravar_json(&arquivo, &lote).map_err(|error| lote_nao_criado(&arquivo, &error))
+        files::write_json(&arquivo, &lote).map_err(|error| lote_nao_criado(&arquivo, &error))
     }
 
-    /// A duração, em segundos, pelo `ffprobe` do `PATH`; `None` sem ele ou sem resposta.
+    /// A duração, em segundos, pelo `ffprobe`; `None` sem ele ou sem resposta.
     fn duracao(&self, arquivo: &Path) -> Option<f64> {
-        let nome = if cfg!(windows) {
-            "ffprobe.exe"
-        } else {
-            "ffprobe"
-        };
-        let ffprobe = std::env::split_paths(self.path_env.as_ref()?)
-            .map(|dir| dir.join(nome))
-            .find(|candidato| candidato.is_file())?;
-        let saida = Command::new(ffprobe)
+        let ffprobe = find_program(
+            "ffprobe",
+            self.sidecar_dir.as_deref(),
+            self.path_env.as_deref(),
+        )?;
+        let mut command = Command::new(ffprobe);
+        command
             .args(["-v", "error", "-show_entries", "format=duration"])
             .args(["-of", "csv=p=0"])
-            .arg(arquivo)
-            .output()
-            .ok()?;
+            .arg(arquivo);
+        hide_console(&mut command);
+        let saida = command.output().ok()?;
         String::from_utf8_lossy(&saida.stdout).trim().parse().ok()
     }
 
@@ -614,6 +632,42 @@ impl Nucleo {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
+}
+
+/// A Transcrição com os programas que vão com o app e os modelos dos dados do app. Um programa
+/// que falta fica com o caminho em que devia estar, para o erro mostrar onde ele foi procurado;
+/// sem o whisper-cli de CPU, não há reserva.
+fn transcritor(sidecar_dir: &Path, path_env: Option<&OsStr>, app_data_dir: &Path) -> Transcritor {
+    let program = |name: &str| {
+        find_program(name, Some(sidecar_dir), path_env)
+            .unwrap_or_else(|| sidecar_dir.join(format!("{name}{EXE_SUFFIX}")))
+    };
+    let models = app_data_dir.join(MODELS_DIR);
+    let transcritor = Transcritor::new(
+        program("ffmpeg"),
+        program("whisper-cli"),
+        models.join(transcricao::MODEL_FILE),
+        models.join(transcricao::VAD_MODEL_FILE),
+    );
+    match find_program("whisper-cli-cpu", Some(sidecar_dir), path_env) {
+        Some(whisper_cpu) => transcritor.with_cpu_fallback(whisper_cpu),
+        None => transcritor,
+    }
+}
+
+/// Um programa que vai com o app: o da pasta dos sidecars e, sem ele lá, o primeiro do `PATH`.
+fn find_program(
+    name: &str,
+    sidecar_dir: Option<&Path>,
+    path_env: Option<&OsStr>,
+) -> Option<PathBuf> {
+    let file = format!("{name}{EXE_SUFFIX}");
+    sidecar_dir
+        .into_iter()
+        .map(Path::to_path_buf)
+        .chain(path_env.into_iter().flat_map(std::env::split_paths))
+        .map(|dir| dir.join(&file))
+        .find(|candidate| candidate.is_file())
 }
 
 /// O arquivo existe e tem uma das extensões aceitas.

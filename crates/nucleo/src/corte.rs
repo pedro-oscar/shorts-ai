@@ -13,7 +13,7 @@ use std::sync::atomic::AtomicBool;
 
 use serde::Deserialize;
 
-use crate::processo::{self, Fluxo, Interrompido, Saida};
+use crate::process::{self, Interrupted, Output, Stream};
 
 /// O lado maior do vídeo horizontal.
 const LADO_MAIOR: u32 = 1920;
@@ -336,11 +336,11 @@ pub enum ErroDoCorte {
     Io(#[from] io::Error),
 }
 
-impl From<Interrompido> for ErroDoCorte {
-    fn from(interrompido: Interrompido) -> Self {
-        match interrompido {
-            Interrompido::Cancelado => Self::Cancelado,
-            Interrompido::Io(error) => Self::Io(error),
+impl From<Interrupted> for ErroDoCorte {
+    fn from(interrupted: Interrupted) -> Self {
+        match interrupted {
+            Interrupted::Cancelled => Self::Cancelado,
+            Interrupted::Io(error) => Self::Io(error),
         }
     }
 }
@@ -350,16 +350,12 @@ fn executar(
     comando: Command,
     cancelar: &AtomicBool,
     por_linha: &mut dyn FnMut(&str),
-) -> Result<Saida, ErroDoCorte> {
-    Ok(processo::executar(
-        comando,
-        cancelar,
-        &mut |fluxo, linha| {
-            if fluxo == Fluxo::Stdout {
-                por_linha(linha);
-            }
-        },
-    )?)
+) -> Result<Output, ErroDoCorte> {
+    Ok(process::run(comando, cancelar, &mut |stream, linha| {
+        if stream == Stream::Stdout {
+            por_linha(linha);
+        }
+    })?)
 }
 
 /// Os programas do corte, por caminho configurável.
@@ -596,7 +592,7 @@ impl Ffmpeg {
         args: &[OsString],
         cancelar: &AtomicBool,
         por_linha: &mut dyn FnMut(&str),
-    ) -> Result<Saida, ErroDoCorte> {
+    ) -> Result<Output, ErroDoCorte> {
         let mut comando = Command::new(&self.ffmpeg);
         comando
             .args(["-hide_banner", "-nostats", "-v", "info"])
@@ -625,18 +621,11 @@ fn escapar(caminho: &Path) -> String {
     caminho.display().to_string().replace('\'', "'\\''")
 }
 
-impl Saida {
-    /// A última linha do stderr diz por que o programa falhou.
+impl Output {
     fn erro(&self, programa: &'static str) -> Option<ErroDoCorte> {
-        (!self.sucesso).then(|| ErroDoCorte::Falhou {
+        (!self.status.success()).then(|| ErroDoCorte::Falhou {
             programa,
-            detalhe: self
-                .stderr
-                .trim()
-                .lines()
-                .last()
-                .unwrap_or_default()
-                .to_owned(),
+            detalhe: self.last_stderr_line().to_owned(),
         })
     }
 }

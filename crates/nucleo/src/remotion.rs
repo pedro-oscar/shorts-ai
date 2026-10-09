@@ -7,6 +7,8 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use crate::files::copy_dir;
+
 /// Os arquivos do template que cada projeto recebe, além de `src/` e `public/`.
 const ARQUIVOS: [&str; 3] = ["package.json", "remotion.config.ts", "tsconfig.json"];
 /// Os arquivos que definem as dependências instaladas.
@@ -69,12 +71,12 @@ impl Remotion {
         };
         let destino = pasta.join("remotion");
         for subpasta in ["src", "public"] {
-            copiar_pasta(&template.join(subpasta), &destino.join(subpasta))?;
+            copy_dir(&template.join(subpasta), &destino.join(subpasta))?;
         }
         for nome in ARQUIVOS {
             fs::copy(template.join(nome), destino.join(nome))?;
         }
-        ligar_pasta(&self.node_modules(), &destino.join("node_modules"))
+        link_dir(&self.node_modules(), &destino.join("node_modules"))
     }
 
     fn template(&self) -> Option<PathBuf> {
@@ -86,28 +88,14 @@ impl Remotion {
     }
 }
 
-fn copiar_pasta(origem: &Path, destino: &Path) -> io::Result<()> {
-    fs::create_dir_all(destino)?;
-    for entrada in fs::read_dir(origem)? {
-        let entrada = entrada?;
-        let alvo = destino.join(entrada.file_name());
-        if entrada.file_type()?.is_dir() {
-            copiar_pasta(&entrada.path(), &alvo)?;
-        } else {
-            fs::copy(entrada.path(), alvo)?;
-        }
-    }
-    Ok(())
-}
-
 /// Symlink no Linux e no macOS. A junction do Windows, que não exige administrador, fica
 /// para o ticket 19.
 #[cfg(unix)]
-fn ligar_pasta(origem: &Path, destino: &Path) -> io::Result<()> {
-    std::os::unix::fs::symlink(origem, destino)
+fn link_dir(source: &Path, destination: &Path) -> io::Result<()> {
+    std::os::unix::fs::symlink(source, destination)
 }
 
 #[cfg(not(unix))]
-fn ligar_pasta(_origem: &Path, _destino: &Path) -> io::Result<()> {
+fn link_dir(_source: &Path, _destination: &Path) -> io::Result<()> {
     Ok(())
 }

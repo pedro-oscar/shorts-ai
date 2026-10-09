@@ -17,25 +17,31 @@ use std::sync::atomic::AtomicBool;
 
 use serde::{Deserialize, Serialize};
 
-use crate::processo::{self, Fluxo, Interrompido};
+use crate::files::write_json;
+use crate::process::{self, Interrupted, Stream};
+
+/// O modelo do Whisper escolhido no spike (ADR 0005), que a preparação baixa.
+pub const MODEL_FILE: &str = "ggml-large-v3-q5_0.bin";
+/// O modelo do VAD (Silero v6.2.0) no formato do whisper.cpp.
+pub const VAD_MODEL_FILE: &str = "ggml-silero-v6.2.0.bin";
 
 /// Primeiro token especial do vocabulário multilíngue do Whisper; abaixo dele, só texto.
 const EOT: i64 = 50257;
 /// A pontuação ASCII (`string.punctuation` do Python) separa palavras no alinhamento.
-const PONTUACAO_ASCII: &str = "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~";
-const PONTUACAO_DE_ABERTURA: &str = "\"'“¿([{-";
-const PONTUACAO_DE_FECHAMENTO: &str = "\"'.。,，!！?？:：”)]}、";
-const FIM_DE_FRASE: &str = ".。!！?？";
+const ASCII_PUNCTUATION: &str = "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~";
+const PREPEND_PUNCTUATIONS: &str = "\"'“¿([{-";
+const APPEND_PUNCTUATIONS: &str = "\"'.。,，!！?？:：”)]}、";
+const SENTENCE_END: &str = ".。!！?？";
 /// Cada palavra dura pelo menos 50 ms.
 const DURACAO_MINIMA: f64 = 0.05;
 /// Uma pausa de 0,5 s ou mais separa as frases da transcrição compactada.
 const PAUSA_ENTRE_FRASES: f64 = 0.5;
 /// Quanto áudio a detecção de idioma escuta.
-const SEGUNDOS_DA_DETECCAO: u32 = 30;
+const LANGUAGE_DETECTION_SECONDS: u32 = 30;
 /// O áudio de 16 kHz, mono, 16 bits: bytes por segundo.
-const BYTES_POR_SEGUNDO: u64 = 32_000;
+const WAV_BYTES_PER_SECOND: u64 = 32_000;
 /// De onde, no máximo, a detecção de idioma escuta.
-const INICIO_MAXIMO_DA_DETECCAO: u64 = 120;
+const LANGUAGE_DETECTION_MAX_START: u64 = 120;
 
 const PROMPT_PT: &str =
     "Ahn, então, tipo... é, hum, né? Aí, tipo assim, eu acho que, hã, a gente... É isso.";
@@ -94,33 +100,36 @@ pub enum ErroDaTranscricao {
     Io(#[from] io::Error),
 }
 
-impl From<Interrompido> for ErroDaTranscricao {
-    fn from(interrompido: Interrompido) -> Self {
-        match interrompido {
-            Interrompido::Cancelado => Self::Cancelado,
-            Interrompido::Io(error) => Self::Io(error),
-        }
-    }
-}
-
 /// Os programas e modelos da Transcrição, por caminho configurável.
 pub struct Transcritor {
     ffmpeg: PathBuf,
+    /// O whisper-cli com Vulkan.
     whisper: PathBuf,
-    modelo: PathBuf,
-    modelo_do_vad: PathBuf,
+    /// O whisper-cli só de CPU, a reserva de quando o de Vulkan não abre ou falha.
+    whisper_cpu: Option<PathBuf>,
+    model: PathBuf,
+    vad_model: PathBuf,
     threads: u32,
 }
 
 impl Transcritor {
-    pub fn new(ffmpeg: PathBuf, whisper: PathBuf, modelo: PathBuf, modelo_do_vad: PathBuf) -> Self {
+    pub fn new(ffmpeg: PathBuf, whisper: PathBuf, model: PathBuf, vad_model: PathBuf) -> Self {
         Self {
             ffmpeg,
             whisper,
-            modelo,
-            modelo_do_vad,
+            whisper_cpu: None,
+            model,
+            vad_model,
             threads: std::thread::available_parallelism().map_or(4, |n| n.get().min(8) as u32),
         }
+    }
+
+    /// A reserva de CPU: o whisper-cli que roda, com `-ng`, quando o de Vulkan não abre (sem o
+    /// driver, por exemplo) ou falha no meio.
+    #[must_use]
+    pub fn with_cpu_fallback(mut self, whisper_cpu: PathBuf) -> Self {
+        self.whisper_cpu = Some(whisper_cpu);
+        self
     }
 
     /// Transcreve o vídeo e grava `transcricao.json` e `transcricao-compactada.txt` em
@@ -133,9 +142,9 @@ impl Transcritor {
         progresso: &mut dyn FnMut(f64),
     ) -> Result<Transcricao, ErroDaTranscricao> {
         fs::create_dir_all(pedido.pasta_de_saida)?;
-        let trabalho = pasta_de_trabalho(pedido.pasta_de_saida)?;
-        let resultado = self.transcrever_em(pedido, &trabalho, cancelar, progresso);
-        let _ = fs::remove_dir_all(&trabalho);
+        let work_dir = work_dir(pedido.pasta_de_saida)?;
+        let resultado = self.transcrever_em(pedido, &work_dir, cancelar, progresso);
+        let _ = fs::remove_dir_all(&work_dir);
         let transcricao = resultado?;
         gravar(pedido.pasta_de_saida, &transcricao)?;
         progresso(1.0);
@@ -145,22 +154,23 @@ impl Transcritor {
     fn transcrever_em(
         &self,
         pedido: &Pedido<'_>,
-        trabalho: &Path,
+        work_dir: &Path,
         cancelar: &AtomicBool,
         progresso: &mut dyn FnMut(f64),
     ) -> Result<Transcricao, ErroDaTranscricao> {
-        let audio = trabalho.join("audio.wav");
-        self.extrair_audio(pedido.video, &audio, cancelar)?;
+        let audio = work_dir.join("audio.wav");
+        self.extract_audio(pedido.video, &audio, cancelar)?;
+        // Se o Vulkan falha uma vez, o resto desta transcrição vai direto para a CPU.
+        let mut cpu_only = false;
         let idioma = match pedido.idioma {
             Some(idioma) => idioma.to_owned(),
-            None => self.detectar_idioma(&audio, trabalho, cancelar)?,
+            None => self.detectar_idioma(&audio, work_dir, cancelar, &mut cpu_only)?,
         };
 
-        let base = trabalho.join("transcricao");
-        let argumentos = trabalho.join("whisper.txt");
-        let mut linhas = vec![
+        let base = work_dir.join("transcricao");
+        let mut args = vec![
             "-m".to_owned(),
-            self.modelo.display().to_string(),
+            self.model.display().to_string(),
             "-f".to_owned(),
             audio.display().to_string(),
             "-l".to_owned(),
@@ -169,16 +179,16 @@ impl Transcritor {
             self.threads.to_string(),
         ];
         if let Some(prompt) = prompt(&idioma, pedido.nomes_proprios) {
-            linhas.extend([
+            args.extend([
                 "--prompt".to_owned(),
                 prompt,
                 "--carry-initial-prompt".to_owned(),
             ]);
         }
-        linhas.extend([
+        args.extend([
             "--vad".to_owned(),
             "-vm".to_owned(),
-            self.modelo_do_vad.display().to_string(),
+            self.vad_model.display().to_string(),
             "--vad-min-silence-duration-ms".to_owned(),
             "2000".to_owned(),
             "--vad-speech-pad-ms".to_owned(),
@@ -191,24 +201,19 @@ impl Transcritor {
             "-nfa".to_owned(),
             "-pp".to_owned(),
         ]);
-        // No Windows o whisper-cli lê os argumentos na página de código do sistema; o arquivo
-        // de resposta preserva os acentos do prompt.
-        fs::write(&argumentos, linhas.join("\n"))?;
-
-        let mut comando = Command::new(&self.whisper);
-        comando.arg(format!("@{}", argumentos.display()));
-        let saida = processo::executar(comando, cancelar, &mut |fluxo, linha| {
-            if fluxo == Fluxo::Stderr
-                && let Some(percentual) = percentual_do_progresso(linha)
-            {
-                progresso(percentual / 100.0);
-            }
-        })?;
-        if !saida.sucesso {
-            return Err(falhou("whisper-cli", &saida.stderr));
-        }
-        let whisper = ler_saida(&base)?;
-        let vad = segmentos_do_vad(&saida.stderr);
+        let stderr = self.whisper(
+            &args,
+            &work_dir.join("whisper.txt"),
+            cancelar,
+            &mut cpu_only,
+            &mut |line| {
+                if let Some(percent) = progress_percent(line) {
+                    progresso(percent / 100.0);
+                }
+            },
+        )?;
+        let whisper = read_whisper_json(&base)?;
+        let vad = vad_segments(&stderr);
         let idioma = whisper.result.language.unwrap_or(idioma);
         Ok(Transcricao {
             idioma,
@@ -217,11 +222,11 @@ impl Transcritor {
     }
 
     /// Extrai o áudio em 16 kHz mono, o que o whisper.cpp lê.
-    fn extrair_audio(
+    fn extract_audio(
         &self,
         video: &Path,
         audio: &Path,
-        cancelar: &AtomicBool,
+        cancel: &AtomicBool,
     ) -> Result<(), ErroDaTranscricao> {
         self.ffmpeg(
             vec![
@@ -237,7 +242,7 @@ impl Transcritor {
                 "pcm_s16le".into(),
                 audio.into(),
             ],
-            cancelar,
+            cancel,
         )
     }
 
@@ -245,84 +250,153 @@ impl Transcritor {
     fn detectar_idioma(
         &self,
         audio: &Path,
-        trabalho: &Path,
+        work_dir: &Path,
         cancelar: &AtomicBool,
+        cpu_only: &mut bool,
     ) -> Result<String, ErroDaTranscricao> {
-        let tamanho = fs::metadata(audio)?.len();
-        let inicio = (tamanho / BYTES_POR_SEGUNDO / 3).min(INICIO_MAXIMO_DA_DETECCAO);
-        let amostra = trabalho.join("amostra.wav");
+        let size = fs::metadata(audio)?.len();
+        let start = (size / WAV_BYTES_PER_SECOND / 3).min(LANGUAGE_DETECTION_MAX_START);
+        let sample = work_dir.join("amostra.wav");
         self.ffmpeg(
             vec![
                 "-y".into(),
                 "-ss".into(),
-                inicio.to_string().into(),
+                start.to_string().into(),
                 "-t".into(),
-                SEGUNDOS_DA_DETECCAO.to_string().into(),
+                LANGUAGE_DETECTION_SECONDS.to_string().into(),
                 "-i".into(),
                 audio.into(),
                 "-c".into(),
                 "copy".into(),
-                amostra.clone().into(),
+                sample.clone().into(),
             ],
             cancelar,
         )?;
-        let base = trabalho.join("deteccao");
-        let mut comando = Command::new(&self.whisper);
-        comando
-            .args(["-m"])
-            .arg(&self.modelo)
-            .arg("-f")
-            .arg(&amostra)
-            .args(["-l", "auto", "-t"])
-            .arg(self.threads.to_string())
-            .args(["-oj", "-of"])
-            .arg(&base);
-        let saida = processo::executar(comando, cancelar, &mut |_, _| {})?;
-        if !saida.sucesso {
-            return Err(falhou("whisper-cli", &saida.stderr));
-        }
-        let whisper = ler_saida(&base)?;
-        whisper
+        let base = work_dir.join("deteccao");
+        let args = [
+            "-m".to_owned(),
+            self.model.display().to_string(),
+            "-f".to_owned(),
+            sample.display().to_string(),
+            "-l".to_owned(),
+            "auto".to_owned(),
+            "-t".to_owned(),
+            self.threads.to_string(),
+            "-oj".to_owned(),
+            "-of".to_owned(),
+            base.display().to_string(),
+        ];
+        self.whisper(
+            &args,
+            &work_dir.join("deteccao.txt"),
+            cancelar,
+            cpu_only,
+            &mut |_| {},
+        )?;
+        read_whisper_json(&base)?
             .result
             .language
             .ok_or_else(|| ErroDaTranscricao::SaidaIlegivel("sem idioma detectado".to_owned()))
     }
 
-    fn ffmpeg(&self, args: Vec<OsString>, cancelar: &AtomicBool) -> Result<(), ErroDaTranscricao> {
-        let mut comando = Command::new(&self.ffmpeg);
-        comando
+    /// Roda o whisper-cli e devolve o stderr dele. Se o de Vulkan não abre ou falha, roda de
+    /// novo só na CPU (`-ng`), e liga `cpu_only` para as próximas chamadas. Cancelar não passa
+    /// para a CPU.
+    fn whisper(
+        &self,
+        args: &[String],
+        response_file: &Path,
+        cancel: &AtomicBool,
+        cpu_only: &mut bool,
+        on_stderr: &mut dyn FnMut(&str),
+    ) -> Result<String, ErroDaTranscricao> {
+        let Some(whisper_cpu) = &self.whisper_cpu else {
+            return run_whisper(&self.whisper, args, response_file, cancel, on_stderr);
+        };
+        if !*cpu_only {
+            match run_whisper(&self.whisper, args, response_file, cancel, on_stderr) {
+                Err(ErroDaTranscricao::Cancelado) => return Err(ErroDaTranscricao::Cancelado),
+                Err(_) => *cpu_only = true,
+                stderr => return stderr,
+            }
+        }
+        let args = [args, &["-ng".to_owned()]].concat();
+        run_whisper(whisper_cpu, &args, response_file, cancel, on_stderr)
+    }
+
+    fn ffmpeg(&self, args: Vec<OsString>, cancel: &AtomicBool) -> Result<(), ErroDaTranscricao> {
+        let mut command = Command::new(&self.ffmpeg);
+        command
             .args(["-hide_banner", "-nostats", "-v", "error"])
             .args(args);
-        let saida = processo::executar(comando, cancelar, &mut |_, _| {})?;
-        if saida.sucesso {
-            Ok(())
-        } else {
-            Err(falhou("ffmpeg", &saida.stderr))
+        run_program("ffmpeg", command, cancel, &mut |_, _| {}).map(drop)
+    }
+}
+
+/// Um whisper-cli com os argumentos num arquivo de resposta: no Windows ele lê o argv na
+/// página de código do sistema, e o arquivo, em UTF-8, preserva os acentos do prompt e dos
+/// caminhos.
+fn run_whisper(
+    program: &Path,
+    args: &[String],
+    response_file: &Path,
+    cancel: &AtomicBool,
+    on_stderr: &mut dyn FnMut(&str),
+) -> Result<String, ErroDaTranscricao> {
+    fs::write(response_file, args.join("\n"))?;
+    let mut command = Command::new(program);
+    command.arg(format!("@{}", response_file.display()));
+    run_program("whisper-cli", command, cancel, &mut |stream, line| {
+        if stream == Stream::Stderr {
+            on_stderr(line);
         }
+    })
+}
+
+/// Roda um programa da Transcrição e devolve o stderr dele. Um programa que não está onde
+/// devia vira falha com o caminho em que foi procurado.
+fn run_program(
+    name: &'static str,
+    command: Command,
+    cancel: &AtomicBool,
+    on_line: &mut dyn FnMut(Stream, &str),
+) -> Result<String, ErroDaTranscricao> {
+    let program = PathBuf::from(command.get_program());
+    let output =
+        process::run(command, cancel, on_line).map_err(|interrupted| match interrupted {
+            Interrupted::Cancelled => ErroDaTranscricao::Cancelado,
+            Interrupted::Io(error) if error.kind() == io::ErrorKind::NotFound => {
+                ErroDaTranscricao::Falhou {
+                    programa: name,
+                    detalhe: format!("não encontrado em {}", program.display()),
+                }
+            }
+            Interrupted::Io(error) => ErroDaTranscricao::Io(error),
+        })?;
+    if output.status.success() {
+        Ok(output.stderr)
+    } else {
+        Err(ErroDaTranscricao::Falhou {
+            programa: name,
+            detalhe: output.last_stderr_line().to_owned(),
+        })
     }
 }
 
 /// Lê o JSON que o whisper-cli gravou em `<base>.json`.
-fn ler_saida(base: &Path) -> Result<SaidaDoWhisper, ErroDaTranscricao> {
-    let ilegivel =
-        |erro: &dyn std::fmt::Display| ErroDaTranscricao::SaidaIlegivel(erro.to_string());
-    let json = fs::read_to_string(base.with_extension("json")).map_err(|erro| ilegivel(&erro))?;
-    serde_json::from_str(&json).map_err(|erro| ilegivel(&erro))
-}
-
-fn falhou(programa: &'static str, stderr: &str) -> ErroDaTranscricao {
-    ErroDaTranscricao::Falhou {
-        programa,
-        detalhe: stderr.trim().lines().last().unwrap_or_default().to_owned(),
-    }
+fn read_whisper_json(base: &Path) -> Result<WhisperOutput, ErroDaTranscricao> {
+    let unreadable =
+        |error: &dyn std::fmt::Display| ErroDaTranscricao::SaidaIlegivel(error.to_string());
+    let json = fs::read_to_string(base.with_extension("json")).map_err(|e| unreadable(&e))?;
+    serde_json::from_str(&json).map_err(|e| unreadable(&e))
 }
 
 /// Uma pasta de trabalho só desta transcrição, dentro de `base`.
-fn pasta_de_trabalho(base: &Path) -> io::Result<PathBuf> {
-    let pasta = base.join(".transcricao");
-    let _ = fs::remove_dir_all(&pasta);
-    fs::create_dir_all(&pasta)?;
-    Ok(pasta)
+fn work_dir(base: &Path) -> io::Result<PathBuf> {
+    let dir = base.join(".transcricao");
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir)?;
+    Ok(dir)
 }
 
 /// O prompt "verbatim" no idioma do vídeo (pt e en) mais os nomes próprios; nos outros
@@ -348,123 +422,123 @@ pub fn prompt(idioma: &str, nomes_proprios: &[String]) -> Option<String> {
 }
 
 /// A porcentagem de uma linha `whisper_print_progress_callback: progress =  10%`.
-pub fn percentual_do_progresso(linha: &str) -> Option<f64> {
-    let resto = linha.split("progress =").nth(1)?;
-    resto.trim().strip_suffix('%')?.trim().parse().ok()
+pub fn progress_percent(line: &str) -> Option<f64> {
+    let rest = line.split("progress =").nth(1)?;
+    rest.trim().strip_suffix('%')?.trim().parse().ok()
 }
 
 // ------------------------------------------------------------------ saída do whisper-cli
 
 #[derive(Deserialize)]
-struct SaidaDoWhisper {
+struct WhisperOutput {
     #[serde(default)]
-    result: ResultadoDoWhisper,
+    result: WhisperResult,
     #[serde(default)]
-    transcription: Vec<SegmentoDoWhisper>,
+    transcription: Vec<WhisperSegment>,
 }
 
 #[derive(Deserialize, Default)]
-struct ResultadoDoWhisper {
+struct WhisperResult {
     language: Option<String>,
 }
 
 #[derive(Deserialize)]
-struct SegmentoDoWhisper {
-    offsets: Intervalo,
+struct WhisperSegment {
+    offsets: Offsets,
     #[serde(default)]
-    tokens: Vec<TokenDoWhisper>,
+    tokens: Vec<WhisperToken>,
 }
 
 #[derive(Deserialize, Clone, Copy)]
-struct Intervalo {
+struct Offsets {
     from: i64,
     to: i64,
 }
 
 #[derive(Deserialize)]
-struct TokenDoWhisper {
+struct WhisperToken {
     text: String,
     id: i64,
     #[serde(default)]
     p: f64,
-    #[serde(default = "sem_dtw")]
+    #[serde(default = "no_dtw")]
     t_dtw: i64,
-    offsets: Option<Intervalo>,
+    offsets: Option<Offsets>,
 }
 
-fn sem_dtw() -> i64 {
+fn no_dtw() -> i64 {
     -1
 }
 
 /// Um segmento de fala do VAD, em centésimos de segundo, como o whisper.cpp o registra em
 /// `vad_segment_info`: onde ele está no áudio original e no áudio cortado.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct SegmentoDoVad {
-    pub inicio_original: i64,
-    pub fim_original: i64,
-    pub inicio_cortado: i64,
-    pub fim_cortado: i64,
+pub struct VadSegment {
+    pub original_start: i64,
+    pub original_end: i64,
+    pub vad_start: i64,
+    pub vad_end: i64,
 }
 
 /// A tabela do VAD que o whisper.cpp escreve no stderr, uma linha por segmento.
-pub fn segmentos_do_vad(stderr: &str) -> Vec<SegmentoDoVad> {
+pub fn vad_segments(stderr: &str) -> Vec<VadSegment> {
     stderr
         .lines()
-        .filter_map(|linha| {
-            let resto = linha.split("vad_segment_info:").nth(1)?;
-            let mut valores = ["orig_start:", "orig_end:", "vad_start:", "vad_end:"]
+        .filter_map(|line| {
+            let rest = line.split("vad_segment_info:").nth(1)?;
+            let mut values = ["orig_start:", "orig_end:", "vad_start:", "vad_end:"]
                 .iter()
-                .map(|chave| {
-                    let texto = resto.split(chave).nth(1)?.trim_start();
-                    let numero = texto.split([',', ' ']).next()?;
-                    numero.parse::<f64>().ok().map(centesimos)
+                .map(|key| {
+                    let text = rest.split(key).nth(1)?.trim_start();
+                    let number = text.split([',', ' ']).next()?;
+                    number.parse::<f64>().ok().map(centiseconds)
                 });
-            Some(SegmentoDoVad {
-                inicio_original: valores.next()??,
-                fim_original: valores.next()??,
-                inicio_cortado: valores.next()??,
-                fim_cortado: valores.next()??,
+            Some(VadSegment {
+                original_start: values.next()??,
+                original_end: values.next()??,
+                vad_start: values.next()??,
+                vad_end: values.next()??,
             })
         })
         .collect()
 }
 
 #[allow(clippy::cast_possible_truncation)]
-fn centesimos(segundos: f64) -> i64 {
-    (segundos * 100.0).round() as i64
+fn centiseconds(seconds: f64) -> i64 {
+    (seconds * 100.0).round() as i64
 }
 
 /// Leva um tempo (centésimos) do áudio cortado pelo VAD para o original, pela regra de
 /// `whisper_map_token_time_segment_aware` (whisper.cpp v1.9.5): dentro de um segmento de fala
 /// interpola; no silêncio removido entre dois, encosta na borda mais próxima.
-pub fn para_o_original(t: i64, vad: &[SegmentoDoVad]) -> i64 {
-    let (Some(primeiro), Some(ultimo)) = (vad.first(), vad.last()) else {
+pub fn to_original_time(t: i64, vad: &[VadSegment]) -> i64 {
+    let (Some(first), Some(last)) = (vad.first(), vad.last()) else {
         return t;
     };
-    if t <= primeiro.inicio_cortado {
-        return primeiro.inicio_original;
+    if t <= first.vad_start {
+        return first.original_start;
     }
-    if t >= ultimo.fim_cortado {
-        return ultimo.fim_original;
+    if t >= last.vad_end {
+        return last.original_end;
     }
     for (i, s) in vad.iter().enumerate() {
-        if t >= s.inicio_cortado && t <= s.fim_cortado {
-            let tamanho = s.fim_cortado - s.inicio_cortado;
-            if tamanho <= 0 {
-                return s.inicio_original;
+        if t >= s.vad_start && t <= s.vad_end {
+            let length = s.vad_end - s.vad_start;
+            if length <= 0 {
+                return s.original_start;
             }
-            return s.inicio_original
-                + (t - s.inicio_cortado) * (s.fim_original - s.inicio_original) / tamanho;
+            return s.original_start
+                + (t - s.vad_start) * (s.original_end - s.original_start) / length;
         }
-        if let Some(seguinte) = vad.get(i + 1)
-            && t > s.fim_cortado
-            && t < seguinte.inicio_cortado
+        if let Some(next) = vad.get(i + 1)
+            && t > s.vad_end
+            && t < next.vad_start
         {
-            let meio = (s.fim_cortado + seguinte.inicio_cortado) / 2;
-            return if t <= meio {
-                s.fim_original
+            let middle = (s.vad_end + next.vad_start) / 2;
+            return if t <= middle {
+                s.original_end
             } else {
-                seguinte.inicio_original
+                next.original_start
             };
         }
     }
@@ -484,12 +558,13 @@ struct PalavraAlinhada {
 
 /// Divide os tokens de texto de um segmento em palavras, como o `split_tokens_on_spaces` do
 /// Whisper: um token com espaço inicial ou de pontuação abre uma palavra.
-fn dividir_em_palavras(segmento: &SegmentoDoWhisper) -> Vec<Vec<&TokenDoWhisper>> {
-    let mut grupos: Vec<Vec<&TokenDoWhisper>> = Vec::new();
+fn dividir_em_palavras(segmento: &WhisperSegment) -> Vec<Vec<&WhisperToken>> {
+    let mut grupos: Vec<Vec<&WhisperToken>> = Vec::new();
     for token in segmento.tokens.iter().filter(|t| t.id < EOT) {
         match grupos.last_mut() {
             Some(atual)
-                if !token.text.starts_with(' ') && !PONTUACAO_ASCII.contains(token.text.trim()) =>
+                if !token.text.starts_with(' ')
+                    && !ASCII_PUNCTUATION.contains(token.text.trim()) =>
             {
                 atual.push(token);
             }
@@ -503,11 +578,8 @@ fn dividir_em_palavras(segmento: &SegmentoDoWhisper) -> Vec<Vec<&TokenDoWhisper>
 ///
 /// A palavra termina no `t_dtw` do último token, que é o fim dele, e começa no fim da anterior;
 /// se o DTW voltou no tempo (outra janela), vale o `t0` do primeiro token.
-fn palavras_do_whisper(
-    segmentos: &[SegmentoDoWhisper],
-    vad: &[SegmentoDoVad],
-) -> Vec<PalavraTranscrita> {
-    let tempo = |cs: i64| para_o_original(cs, vad) as f64 / 100.0;
+fn palavras_do_whisper(segmentos: &[WhisperSegment], vad: &[VadSegment]) -> Vec<PalavraTranscrita> {
+    let tempo = |cs: i64| to_original_time(cs, vad) as f64 / 100.0;
     let mut palavras: Vec<PalavraAlinhada> = Vec::new();
     for (indice, segmento) in segmentos.iter().enumerate() {
         for tokens in dividir_em_palavras(segmento) {
@@ -538,31 +610,31 @@ fn palavras_do_whisper(
 }
 
 /// Percentil com interpolação linear (o padrão do numpy).
-fn percentil(valores: &[f64], p: f64) -> f64 {
-    if valores.is_empty() {
+fn percentile(values: &[f64], p: f64) -> f64 {
+    if values.is_empty() {
         return f64::NAN;
     }
-    let mut ordenados = valores.to_vec();
-    ordenados.sort_by(f64::total_cmp);
+    let mut sorted = values.to_vec();
+    sorted.sort_by(f64::total_cmp);
     #[allow(clippy::cast_precision_loss)]
-    let posicao = (ordenados.len() - 1) as f64 * p / 100.0;
+    let position = (sorted.len() - 1) as f64 * p / 100.0;
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    let baixo = posicao.floor() as usize;
-    let a = ordenados[baixo];
-    let b = ordenados[(baixo + 1).min(ordenados.len() - 1)];
-    a + (b - a) * (posicao - baixo as f64)
+    let low = position.floor() as usize;
+    let a = sorted[low];
+    let b = sorted[(low + 1).min(sorted.len() - 1)];
+    a + (b - a) * (position - low as f64)
 }
 
 /// `merge_punctuations` do faster-whisper: a pontuação passa o texto para a palavra vizinha e
 /// fica vazia. Os tempos não mudam.
-fn juntar_pontuacao(palavras: &mut [PalavraAlinhada]) {
+fn merge_punctuations(palavras: &mut [PalavraAlinhada]) {
     if palavras.len() < 2 {
         return;
     }
     let mut j = palavras.len() - 1;
     for i in (0..palavras.len() - 1).rev() {
         if palavras[i].texto.starts_with(' ')
-            && PONTUACAO_DE_ABERTURA.contains(palavras[i].texto.trim())
+            && PREPEND_PUNCTUATIONS.contains(palavras[i].texto.trim())
         {
             let anterior = std::mem::take(&mut palavras[i].texto);
             palavras[j].texto = anterior + &palavras[j].texto;
@@ -572,9 +644,7 @@ fn juntar_pontuacao(palavras: &mut [PalavraAlinhada]) {
     }
     let mut i = 0;
     for j in 1..palavras.len() {
-        if !palavras[i].texto.ends_with(' ')
-            && PONTUACAO_DE_FECHAMENTO.contains(&*palavras[j].texto)
-        {
+        if !palavras[i].texto.ends_with(' ') && APPEND_PUNCTUATIONS.contains(&*palavras[j].texto) {
             let seguinte = std::mem::take(&mut palavras[j].texto);
             palavras[i].texto.push_str(&seguinte);
         } else {
@@ -586,7 +656,7 @@ fn juntar_pontuacao(palavras: &mut [PalavraAlinhada]) {
 /// As heurísticas do `add_word_timestamps` do faster-whisper 1.2.1. A mediana das durações vale
 /// para o vídeo todo: o faster-whisper a calcula a cada janela de 30 s, que o whisper-cli não
 /// informa.
-fn aplicar_heuristicas(palavras: &mut [PalavraAlinhada], segmentos: &[SegmentoDoWhisper]) {
+fn aplicar_heuristicas(palavras: &mut [PalavraAlinhada], segmentos: &[WhisperSegment]) {
     let duracoes: Vec<f64> = palavras
         .iter()
         .map(|p| p.fim - p.inicio)
@@ -595,21 +665,21 @@ fn aplicar_heuristicas(palavras: &mut [PalavraAlinhada], segmentos: &[SegmentoDo
     let mediana = if duracoes.is_empty() {
         0.0
     } else {
-        percentil(&duracoes, 50.0).min(0.7)
+        percentile(&duracoes, 50.0).min(0.7)
     };
     let maxima = mediana * 2.0;
 
     // Palavras longas na fronteira de uma frase.
     for i in 1..palavras.len() {
         if palavras[i].fim - palavras[i].inicio > maxima {
-            if FIM_DE_FRASE.contains(&*palavras[i].texto) {
+            if SENTENCE_END.contains(&*palavras[i].texto) {
                 palavras[i].fim = palavras[i].inicio + maxima;
-            } else if FIM_DE_FRASE.contains(&*palavras[i - 1].texto) {
+            } else if SENTENCE_END.contains(&*palavras[i - 1].texto) {
                 palavras[i].inicio = palavras[i].fim - maxima;
             }
         }
     }
-    juntar_pontuacao(palavras);
+    merge_punctuations(palavras);
 
     let mut ultima_fala = 0.0;
     for (indice, segmento) in segmentos.iter().enumerate() {
@@ -660,8 +730,8 @@ fn aplicar_heuristicas(palavras: &mut [PalavraAlinhada], segmentos: &[SegmentoDo
     }
 }
 
-fn arredondar_ms(segundos: f64) -> f64 {
-    (segundos * 1000.0).round() / 1000.0
+fn round_ms(seconds: f64) -> f64 {
+    (seconds * 1000.0).round() / 1000.0
 }
 
 /// Tempos monotônicos e pelo menos 50 ms por palavra.
@@ -672,13 +742,13 @@ fn monotonicas(palavras: &[PalavraAlinhada]) -> Vec<PalavraTranscrita> {
         if texto.is_empty() {
             continue;
         }
-        let mut inicio = arredondar_ms(palavra.inicio);
-        let mut fim = arredondar_ms(palavra.fim.max(palavra.inicio + DURACAO_MINIMA));
+        let mut inicio = round_ms(palavra.inicio);
+        let mut fim = round_ms(palavra.fim.max(palavra.inicio + DURACAO_MINIMA));
         if let Some(anterior) = saida.last()
             && inicio < anterior.fim
         {
             inicio = anterior.fim;
-            fim = arredondar_ms(fim.max(inicio + DURACAO_MINIMA));
+            fim = round_ms(fim.max(inicio + DURACAO_MINIMA));
         }
         saida.push(PalavraTranscrita {
             texto: texto.to_owned(),
@@ -686,7 +756,7 @@ fn monotonicas(palavras: &[PalavraAlinhada]) -> Vec<PalavraTranscrita> {
             fim,
             tipo: "word".to_owned(),
             falante: "speaker_0".to_owned(),
-            probabilidade: arredondar_ms(palavra.probabilidade),
+            probabilidade: round_ms(palavra.probabilidade),
         });
     }
     saida
@@ -713,7 +783,7 @@ pub fn compactar(palavras: &[PalavraTranscrita]) -> String {
     for palavra in palavras {
         if frase.last().is_some_and(|anterior| {
             // Os tempos têm precisão de milissegundo: a conta em ponto flutuante não decide.
-            arredondar_ms(palavra.inicio - anterior.fim) >= PAUSA_ENTRE_FRASES
+            round_ms(palavra.inicio - anterior.fim) >= PAUSA_ENTRE_FRASES
         }) {
             fechar(&mut frase);
         }
@@ -738,7 +808,7 @@ fn gravar(pasta: &Path, transcricao: &Transcricao) -> io::Result<()> {
         .map(|p| p.texto.as_str())
         .collect::<Vec<_>>()
         .join(" ");
-    crate::projeto::gravar_json(
+    write_json(
         &pasta.join("transcricao.json"),
         &TranscricaoJson {
             language_code: &transcricao.idioma,

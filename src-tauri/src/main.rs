@@ -198,8 +198,11 @@ fn main() {
                     ligar_arquivo: None,
                     assets_dir: app.path().resource_dir().ok().map(|dir| dir.join("assets")),
                     npm: None,
-                    transcritor: None,
-                    roteirista: None,
+                    // O Tauri instala os sidecars ao lado do executável do app; no
+                    // desenvolvimento, o cargo deixa o `shorts-cli` ali também.
+                    sidecar_dir: std::env::current_exe()
+                        .ok()
+                        .and_then(|exe| exe.parent().map(std::path::Path::to_path_buf)),
                     chave_de_api_no_ambiente: std::env::var_os("ANTHROPIC_API_KEY")
                         .is_some_and(|chave| !chave.is_empty()),
                 },

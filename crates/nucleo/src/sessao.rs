@@ -9,14 +9,16 @@ use std::io::{self, Write};
 use std::path::{Component, Path, PathBuf, Prefix};
 use std::process::Command;
 use std::sync::atomic::AtomicBool;
+use std::sync::{Mutex, PoisonError};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use time::OffsetDateTime;
 
 use crate::Etapa;
-use crate::processo::{self, Fluxo, Interrompido};
-use crate::projeto::gravar_json;
+use crate::claude_code::ClaudeCode;
+use crate::files::{copy_dir, write_json};
+use crate::process::{self, Interrupted, Stream};
 use crate::roteiro::{ROTEIRO, validar_na_pasta};
 
 /// O log das sessões: uma linha do `stream-json` por linha, como o Claude as emitiu. Cada
@@ -28,11 +30,11 @@ const ERROS: &str = "edit/erros-do-roteiro.txt";
 const CUSTOS: &str = "edit/custos.json";
 const ARQUIVO_DE_APRENDIZADOS: &str = "aprendizados.md";
 /// Quantos caracteres do alvo de uma ação entram no evento.
-const ALVO_MAXIMO: usize = 120;
+const MAX_TARGET_CHARS: usize = 120;
 /// Quantas linhas do stderr entram no detalhe de uma sessão que caiu.
-const LINHAS_DE_DETALHE: usize = 10;
+const STDERR_DETAIL_LINES: usize = 10;
 
-const FERRAMENTAS_LIBERADAS: [&str; 21] = [
+const ALLOWED_TOOLS: [&str; 21] = [
     "Read",
     "Write",
     "Edit",
@@ -56,7 +58,7 @@ const FERRAMENTAS_LIBERADAS: [&str; 21] = [
     "Bash(cat:*)",
 ];
 
-const FERRAMENTAS_NEGADAS: [&str; 7] = [
+const DISALLOWED_TOOLS: [&str; 7] = [
     "Bash(rm:*)",
     "WebFetch",
     "WebSearch",
@@ -101,7 +103,8 @@ pub struct Custo {
     pub custo_usd: f64,
     pub turnos: u32,
     pub duracao_ms: u64,
-    /// O `result` final foi `error_during_execution`: o valor pode estar incompleto.
+    /// O `result` final foi um `error_during_execution` com os custos zerados: o valor é o do
+    /// `result` anterior (ou zero, sem ele) e pode estar incompleto.
     pub parcial: bool,
     pub modelos: BTreeMap<String, UsoDoModelo>,
 }
@@ -125,6 +128,8 @@ pub struct Pedido<'a> {
 pub enum ErroDoRoteiro {
     #[error("sessão do Claude cancelada")]
     Cancelado,
+    #[error("o Claude Code não foi encontrado")]
+    ClaudeNaoEncontrado,
     #[error("sessão do Claude interrompida: {0}")]
     Io(#[from] io::Error),
     #[error("a sessão do Claude terminou sem resultado: {0}")]
@@ -135,16 +140,17 @@ pub enum ErroDoRoteiro {
     Invalido(String),
 }
 
-impl From<Interrompido> for ErroDoRoteiro {
-    fn from(interrompido: Interrompido) -> Self {
-        match interrompido {
-            Interrompido::Cancelado => Self::Cancelado,
-            Interrompido::Io(error) => Self::Io(error),
+impl From<Interrupted> for ErroDoRoteiro {
+    fn from(interrupted: Interrupted) -> Self {
+        match interrupted {
+            Interrupted::Cancelled => Self::Cancelado,
+            Interrupted::Io(error) => Self::Io(error),
         }
     }
 }
 
 /// A skill e a pasta de aprendizados que a sessão enxerga.
+#[derive(Debug, Clone)]
 pub struct Skill {
     /// A skill embutida: a cópia dos assets, somente leitura, trocada nas atualizações.
     pub skill: PathBuf,
@@ -157,12 +163,11 @@ pub struct Skill {
 pub fn preparar_skill(assets: &Path, app_data_dir: &Path) -> io::Result<Skill> {
     let skill = app_data_dir.join("skill").join("corte-viral");
     let aprendizados = app_data_dir.join("aprendizados");
-    let origem = assets.join("corte-viral");
     match fs::remove_dir_all(&skill) {
         Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error),
         _ => {}
     }
-    copiar_pasta(&origem, &skill)?;
+    copy_dir(&assets.join("corte-viral"), &skill)?;
     fs::create_dir_all(&aprendizados)?;
     let inicial = skill.join("references").join(ARQUIVO_DE_APRENDIZADOS);
     let destino = aprendizados.join(ARQUIVO_DE_APRENDIZADOS);
@@ -178,41 +183,31 @@ pub fn preparar_skill(assets: &Path, app_data_dir: &Path) -> io::Result<Skill> {
     })
 }
 
-fn copiar_pasta(origem: &Path, destino: &Path) -> io::Result<()> {
-    fs::create_dir_all(destino)?;
-    for entrada in fs::read_dir(origem)? {
-        let entrada = entrada?;
-        let alvo = destino.join(entrada.file_name());
-        if entrada.file_type()?.is_dir() {
-            copiar_pasta(&entrada.path(), &alvo)?;
-        } else {
-            fs::copy(entrada.path(), alvo)?;
-        }
-    }
-    Ok(())
-}
-
 /// O `claude` e as pastas que a sessão do Roteiro usa.
 pub struct Roteirista {
-    claude: PathBuf,
-    config_dir: PathBuf,
-    skill: Skill,
+    claude: ClaudeCode,
+    /// Os assets do app, de onde vem a skill.
+    assets_dir: PathBuf,
+    app_data_dir: PathBuf,
+    /// A skill nos dados do app, copiada na primeira sessão desta execução do app.
+    skill: Mutex<Option<Skill>>,
     /// A pasta do `shorts-cli`, posta na frente do `PATH` da sessão.
-    pasta_do_cli: Option<PathBuf>,
+    cli_dir: Option<PathBuf>,
 }
 
 impl Roteirista {
     pub fn new(
-        claude: PathBuf,
-        config_dir: PathBuf,
-        skill: Skill,
-        pasta_do_cli: Option<PathBuf>,
+        claude: ClaudeCode,
+        assets_dir: PathBuf,
+        app_data_dir: PathBuf,
+        cli_dir: Option<PathBuf>,
     ) -> Self {
         Self {
             claude,
-            config_dir,
-            skill,
-            pasta_do_cli,
+            assets_dir,
+            app_data_dir,
+            skill: Mutex::new(None),
+            cli_dir,
         }
     }
 
@@ -225,32 +220,32 @@ impl Roteirista {
         cancelar: &AtomicBool,
         evento: &mut dyn FnMut(EventoDaSessao),
     ) -> Result<(), ErroDoRoteiro> {
-        let prompt = self.prompt(pedido)?;
+        let skill = self.skill()?;
+        let prompt = prompt(&skill, pedido)?;
+        let command = self.command(&skill, pedido)?;
         let inicio = OffsetDateTime::now_utc();
         let mut log = OpenOptions::new()
             .create(true)
             .append(true)
             .open(pedido.pasta.join(LOG))?;
-        let mut acompanhante = Acompanhante::default();
-        let saida = processo::executar_com_entrada(
-            self.comando(pedido)?,
-            Some(&prompt),
-            cancelar,
-            &mut |fluxo, linha| {
-                if fluxo == Fluxo::Stdout {
-                    let _ = writeln!(log, "{linha}");
-                    acompanhante.linha(linha, evento);
+        let mut stream = StreamState::default();
+        let output =
+            process::run_with_input(command, Some(&prompt), cancelar, &mut |kind, line| {
+                if kind == Stream::Stdout {
+                    let _ = writeln!(log, "{line}");
+                    stream.line(line, evento);
                 }
-            },
-        )?;
-        if let Some(custo) = acompanhante.custo(Etapa::Roteiro, inicio) {
+            })?;
+        if let Some(custo) = stream.custo(Etapa::Roteiro, inicio) {
             registrar_custo(pedido.pasta, &custo)?;
         }
-        if !saida.sucesso {
-            let detalhe = detalhe_da_falha(&saida.stderr, &acompanhante);
-            return Err(ErroDoRoteiro::SessaoCaiu(detalhe));
+        if !output.status.success() {
+            return Err(ErroDoRoteiro::SessaoCaiu(failure_detail(
+                &output.stderr,
+                &stream,
+            )));
         }
-        if acompanhante.resultados.is_empty() {
+        if stream.results.is_empty() {
             return Err(ErroDoRoteiro::SessaoCaiu(
                 "nenhum resultado no stream".to_owned(),
             ));
@@ -258,11 +253,26 @@ impl Roteirista {
         validar_roteiro(pedido.pasta)
     }
 
-    fn comando(&self, pedido: &Pedido<'_>) -> io::Result<Command> {
-        let mut comando = Command::new(&self.claude);
-        comando
+    /// A skill nos dados do app. A cópia sai uma vez por execução; se falhar, a próxima
+    /// sessão tenta de novo.
+    fn skill(&self) -> io::Result<Skill> {
+        let mut skill = self.skill.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(skill) = skill.as_ref() {
+            return Ok(skill.clone());
+        }
+        let preparada = preparar_skill(&self.assets_dir, &self.app_data_dir)?;
+        *skill = Some(preparada.clone());
+        Ok(preparada)
+    }
+
+    fn command(&self, skill: &Skill, pedido: &Pedido<'_>) -> Result<Command, ErroDoRoteiro> {
+        let exe = self
+            .claude
+            .locate()
+            .ok_or(ErroDoRoteiro::ClaudeNaoEncontrado)?;
+        let mut command = self.claude.command(&exe);
+        command
             .current_dir(pedido.pasta)
-            .env("CLAUDE_CONFIG_DIR", &self.config_dir)
             .args([
                 "-p",
                 "--output-format",
@@ -273,73 +283,64 @@ impl Roteirista {
                 "acceptEdits",
             ])
             .arg("--add-dir")
-            .arg(&self.skill.skill)
+            .arg(&skill.skill)
             .arg("--add-dir")
-            .arg(&self.skill.aprendizados)
+            .arg(&skill.aprendizados)
             .arg("--allowedTools")
-            .arg(FERRAMENTAS_LIBERADAS.join(","))
+            .arg(ALLOWED_TOOLS.join(","))
             .arg("--disallowedTools")
             .arg(
-                FERRAMENTAS_NEGADAS
+                DISALLOWED_TOOLS
                     .iter()
-                    .map(|&ferramenta| ferramenta.to_owned())
+                    .map(|&tool| tool.to_owned())
                     // A negação vence o `acceptEdits` e o `--add-dir`: a skill fica somente
                     // leitura, e os aprendizados seguem graváveis.
-                    .chain([format!("Edit(/{}/**)", permission_path(&self.skill.skill))])
+                    .chain([format!("Edit(/{}/**)", permission_path(&skill.skill))])
                     .collect::<Vec<_>>()
                     .join(","),
             );
         if let Some(modelo) = pedido.modelo {
-            comando.args(["--model", modelo]);
+            command.args(["--model", modelo]);
         }
-        if let Some(pasta) = &self.pasta_do_cli {
-            let caminhos = std::env::var_os("PATH").unwrap_or_default();
-            let todos = std::iter::once(pasta.clone()).chain(std::env::split_paths(&caminhos));
-            let path: OsString = std::env::join_paths(todos)
+        if let Some(cli_dir) = &self.cli_dir {
+            let path = std::env::var_os("PATH").unwrap_or_default();
+            let dirs = std::iter::once(cli_dir.clone()).chain(std::env::split_paths(&path));
+            let path: OsString = std::env::join_paths(dirs)
                 .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
-            comando.env("PATH", path);
+            command.env("PATH", path);
         }
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            // Sem a janela de console piscando a cada sessão.
-            comando.creation_flags(0x0800_0000);
-        }
-        Ok(comando)
+        Ok(command)
     }
+}
 
-    /// O `prompts/roteirizar.md` da skill com os dados do projeto no lugar dos `{...}`.
-    fn prompt(&self, pedido: &Pedido<'_>) -> io::Result<String> {
-        let modelo = fs::read_to_string(self.skill.skill.join("prompts/roteirizar.md"))?;
-        let mut extra = String::new();
-        if !pedido.pedido.trim().is_empty() {
-            extra.push_str(&format!(
-                "\n## Pedido do usuário para este lote\n\n{}\n",
-                pedido.pedido.trim()
-            ));
-        }
-        if let Ok(erros) = fs::read_to_string(pedido.pasta.join(ERROS)) {
-            extra.push_str(&format!(
-                "\n## Erros da tentativa anterior\n\nO roteiro anterior terminou inválido, e o \
-                 projeto falhou nesta etapa. Corrija estes erros:\n\n{erros}\n"
-            ));
-        }
-        let troca = [
-            ("{SKILL}", self.skill.skill.display().to_string()),
-            (
-                "{APRENDIZADOS}",
-                self.skill.aprendizados.display().to_string(),
-            ),
-            ("{VIDEO}", pedido.video.to_owned()),
-            ("{ROTEIRO}", ROTEIRO.to_owned()),
-            ("{CORTES}", pedido.cortes.to_string()),
-            ("{IDIOMA}", pedido.idioma.to_owned()),
-            ("{EXTRA}", extra),
-        ];
-        Ok(troca
-            .iter()
-            .fold(modelo, |texto, (chave, valor)| texto.replace(chave, valor)))
+/// O `prompts/roteirizar.md` da skill com os dados do projeto no lugar dos `{...}`.
+fn prompt(skill: &Skill, pedido: &Pedido<'_>) -> io::Result<String> {
+    let modelo = fs::read_to_string(skill.skill.join("prompts/roteirizar.md"))?;
+    let mut extra = String::new();
+    if !pedido.pedido.trim().is_empty() {
+        extra.push_str(&format!(
+            "\n## Pedido do usuário para este lote\n\n{}\n",
+            pedido.pedido.trim()
+        ));
     }
+    if let Ok(erros) = fs::read_to_string(pedido.pasta.join(ERROS)) {
+        extra.push_str(&format!(
+            "\n## Erros da tentativa anterior\n\nO roteiro anterior terminou inválido, e o \
+             projeto falhou nesta etapa. Corrija estes erros:\n\n{erros}\n"
+        ));
+    }
+    let troca = [
+        ("{SKILL}", skill.skill.display().to_string()),
+        ("{APRENDIZADOS}", skill.aprendizados.display().to_string()),
+        ("{VIDEO}", pedido.video.to_owned()),
+        ("{ROTEIRO}", ROTEIRO.to_owned()),
+        ("{CORTES}", pedido.cortes.to_string()),
+        ("{IDIOMA}", pedido.idioma.to_owned()),
+        ("{EXTRA}", extra),
+    ];
+    Ok(troca
+        .iter()
+        .fold(modelo, |texto, (chave, valor)| texto.replace(chave, valor)))
 }
 
 fn validar_roteiro(pasta: &Path) -> Result<(), ErroDoRoteiro> {
@@ -370,7 +371,7 @@ fn registrar_custo(pasta: &Path, custo: &Custo) -> io::Result<()> {
         .and_then(|bytes| serde_json::from_slice(&bytes).ok())
         .unwrap_or_default();
     custos.push(serde_json::to_value(custo)?);
-    gravar_json(&caminho, &custos)
+    write_json(&caminho, &custos)
 }
 
 /// The path in the form Claude Code's permission rules match: forward slashes from the root,
@@ -393,54 +394,55 @@ fn permission_path(path: &Path) -> String {
     format!("/{}", parts.join("/"))
 }
 
-fn detalhe_da_falha(stderr: &str, acompanhante: &Acompanhante) -> String {
-    let linhas: Vec<&str> = stderr.lines().rev().take(LINHAS_DE_DETALHE).collect();
-    let stderr = linhas.into_iter().rev().collect::<Vec<_>>().join("\n");
+/// As últimas linhas do stderr; sem elas, o texto do último `result`.
+fn failure_detail(stderr: &str, stream: &StreamState) -> String {
+    let lines: Vec<&str> = stderr.lines().rev().take(STDERR_DETAIL_LINES).collect();
+    let stderr = lines.into_iter().rev().collect::<Vec<_>>().join("\n");
     if !stderr.trim().is_empty() {
         return stderr;
     }
-    acompanhante
-        .resultados
+    stream
+        .results
         .last()
-        .and_then(|r| r["result"].as_str())
+        .and_then(|result| result["result"].as_str())
         .unwrap_or("sem detalhe")
         .to_owned()
 }
 
-/// Lê o `stream-json` linha a linha.
+/// O que o `stream-json` da sessão disse até agora, lido linha a linha.
 #[derive(Default)]
-struct Acompanhante {
+struct StreamState {
     /// Entrada e cache de cada mensagem, pelo `message.id`: o Claude repete o `usage` em cada
     /// bloco da mesma mensagem, então a soma é sobre as mensagens, não sobre as linhas.
-    usos: HashMap<String, (u32, u32)>,
-    resultados: Vec<Value>,
+    usage_by_message: HashMap<String, (u32, u32)>,
+    results: Vec<Value>,
     session_id: Option<String>,
 }
 
-impl Acompanhante {
-    fn linha(&mut self, linha: &str, evento: &mut dyn FnMut(EventoDaSessao)) {
-        let Ok(valor) = serde_json::from_str::<Value>(linha) else {
+impl StreamState {
+    fn line(&mut self, line: &str, evento: &mut dyn FnMut(EventoDaSessao)) {
+        let Ok(value) = serde_json::from_str::<Value>(line) else {
             return;
         };
         if self.session_id.is_none() {
-            self.session_id = valor["session_id"].as_str().map(str::to_owned);
+            self.session_id = value["session_id"].as_str().map(str::to_owned);
         }
-        match valor["type"].as_str() {
-            Some("assistant") => self.mensagem(&valor["message"], evento),
-            Some("result") => self.resultados.push(valor),
+        match value["type"].as_str() {
+            Some("assistant") => self.assistant_message(&value["message"], evento),
+            Some("result") => self.results.push(value),
             _ => {}
         }
     }
 
-    fn mensagem(&mut self, mensagem: &Value, evento: &mut dyn FnMut(EventoDaSessao)) {
-        for bloco in mensagem["content"].as_array().into_iter().flatten() {
-            match bloco["type"].as_str() {
+    fn assistant_message(&mut self, message: &Value, evento: &mut dyn FnMut(EventoDaSessao)) {
+        for block in message["content"].as_array().into_iter().flatten() {
+            match block["type"].as_str() {
                 Some("tool_use") => evento(EventoDaSessao::Acao {
-                    ferramenta: bloco["name"].as_str().unwrap_or("?").to_owned(),
-                    alvo: alvo_da_ferramenta(&bloco["input"]),
+                    ferramenta: block["name"].as_str().unwrap_or("?").to_owned(),
+                    alvo: tool_target(&block["input"]),
                 }),
                 Some("text") => {
-                    if let Some(alvo) = bloco["text"].as_str().and_then(resumir) {
+                    if let Some(alvo) = block["text"].as_str().and_then(first_line) {
                         evento(EventoDaSessao::Acao {
                             ferramenta: "texto".to_owned(),
                             alvo: Some(alvo),
@@ -450,52 +452,51 @@ impl Acompanhante {
                 _ => {}
             }
         }
-        if let (Some(id), usage) = (mensagem["id"].as_str(), &mensagem["usage"])
+        if let (Some(id), usage) = (message["id"].as_str(), &message["usage"])
             && usage.is_object()
         {
-            let numero =
-                |chave: &str| u32::try_from(usage[chave].as_u64().unwrap_or(0)).unwrap_or(u32::MAX);
-            let cache = numero("cache_creation_input_tokens")
-                .saturating_add(numero("cache_read_input_tokens"));
-            self.usos
-                .insert(id.to_owned(), (numero("input_tokens"), cache));
-            let soma = |campo: fn(&(u32, u32)) -> u32| {
-                self.usos
+            let number =
+                |key: &str| u32::try_from(usage[key].as_u64().unwrap_or(0)).unwrap_or(u32::MAX);
+            let cache = number("cache_creation_input_tokens")
+                .saturating_add(number("cache_read_input_tokens"));
+            self.usage_by_message
+                .insert(id.to_owned(), (number("input_tokens"), cache));
+            let sum = |field: fn(&(u32, u32)) -> u32| {
+                self.usage_by_message
                     .values()
-                    .fold(0u32, |total, uso| total.saturating_add(campo(uso)))
+                    .fold(0u32, |total, usage| total.saturating_add(field(usage)))
             };
             evento(EventoDaSessao::Tokens {
-                entrada: soma(|uso| uso.0),
-                cache: soma(|uso| uso.1),
+                entrada: sum(|usage| usage.0),
+                cache: sum(|usage| usage.1),
             });
         }
     }
 
     /// O custo vem do **último** `result` (inclui os sub-agentes) e nunca se soma. Um último
-    /// `error_during_execution` com tudo zerado cede o lugar ao `result` anterior; em
-    /// qualquer caso o valor sai marcado como parcial.
+    /// `error_during_execution` com tudo zerado cede o lugar ao `result` anterior, e só então
+    /// o valor sai marcado como parcial.
     fn custo(&self, etapa: Etapa, inicio: OffsetDateTime) -> Option<Custo> {
-        let ultimo = self.resultados.last()?;
-        let com_erro = ultimo["subtype"] == "error_during_execution";
-        let escolhido = if com_erro && zerado(ultimo) && self.resultados.len() > 1 {
-            &self.resultados[self.resultados.len() - 2]
-        } else {
-            ultimo
+        let last = self.results.last()?;
+        let parcial = last["subtype"] == "error_during_execution" && is_zeroed(last);
+        let chosen = match self.results.len() {
+            n if parcial && n > 1 => &self.results[n - 2],
+            _ => last,
         };
-        let modelos = escolhido["modelUsage"]
+        let modelos = chosen["modelUsage"]
             .as_object()
             .into_iter()
             .flatten()
-            .map(|(nome, uso)| {
-                let numero = |chave: &str| uso[chave].as_u64().unwrap_or(0);
+            .map(|(name, usage)| {
+                let number = |key: &str| usage[key].as_u64().unwrap_or(0);
                 (
-                    nome.clone(),
+                    name.clone(),
                     UsoDoModelo {
-                        entrada: numero("inputTokens"),
-                        saida: numero("outputTokens"),
-                        cache_leitura: numero("cacheReadInputTokens"),
-                        cache_criacao: numero("cacheCreationInputTokens"),
-                        custo_usd: uso["costUSD"].as_f64().unwrap_or(0.0),
+                        entrada: number("inputTokens"),
+                        saida: number("outputTokens"),
+                        cache_leitura: number("cacheReadInputTokens"),
+                        cache_criacao: number("cacheCreationInputTokens"),
+                        custo_usd: usage["costUSD"].as_f64().unwrap_or(0.0),
                     },
                 )
             })
@@ -504,26 +505,26 @@ impl Acompanhante {
             etapa,
             session_id: self.session_id.clone(),
             inicio,
-            custo_usd: escolhido["total_cost_usd"].as_f64().unwrap_or(0.0),
-            turnos: u32::try_from(escolhido["num_turns"].as_u64().unwrap_or(0)).unwrap_or(u32::MAX),
-            duracao_ms: escolhido["duration_ms"].as_u64().unwrap_or(0),
-            parcial: com_erro,
+            custo_usd: chosen["total_cost_usd"].as_f64().unwrap_or(0.0),
+            turnos: u32::try_from(chosen["num_turns"].as_u64().unwrap_or(0)).unwrap_or(u32::MAX),
+            duracao_ms: chosen["duration_ms"].as_u64().unwrap_or(0),
+            parcial,
             modelos,
         })
     }
 }
 
-fn zerado(resultado: &Value) -> bool {
-    resultado["total_cost_usd"].as_f64().unwrap_or(0.0) == 0.0
-        && resultado["modelUsage"].as_object().is_none_or(|modelos| {
-            modelos
+fn is_zeroed(result: &Value) -> bool {
+    result["total_cost_usd"].as_f64().unwrap_or(0.0) == 0.0
+        && result["modelUsage"].as_object().is_none_or(|models| {
+            models
                 .values()
-                .all(|uso| uso["costUSD"].as_f64().unwrap_or(0.0) == 0.0)
+                .all(|usage| usage["costUSD"].as_f64().unwrap_or(0.0) == 0.0)
         })
 }
 
 /// O que a ferramenta está tocando: o arquivo, o comando ou o padrão da busca.
-fn alvo_da_ferramenta(entrada: &Value) -> Option<String> {
+fn tool_target(input: &Value) -> Option<String> {
     [
         "file_path",
         "path",
@@ -533,15 +534,12 @@ fn alvo_da_ferramenta(entrada: &Value) -> Option<String> {
         "description",
     ]
     .iter()
-    .find_map(|chave| entrada[*chave].as_str())
-    .and_then(resumir)
+    .find_map(|key| input[*key].as_str())
+    .and_then(first_line)
 }
 
-/// A primeira linha com texto, cortada em [`ALVO_MAXIMO`] caracteres.
-fn resumir(texto: &str) -> Option<String> {
-    let linha = texto
-        .lines()
-        .map(str::trim)
-        .find(|linha| !linha.is_empty())?;
-    Some(linha.chars().take(ALVO_MAXIMO).collect())
+/// A primeira linha com texto, cortada em [`MAX_TARGET_CHARS`] caracteres.
+fn first_line(text: &str) -> Option<String> {
+    let line = text.lines().map(str::trim).find(|line| !line.is_empty())?;
+    Some(line.chars().take(MAX_TARGET_CHARS).collect())
 }

@@ -1,13 +1,14 @@
 //! O projeto em disco: a pasta na Biblioteca e o `projeto.json` dela (ADR 0007).
 
-use std::fs::{self, File};
-use std::io::{self, Write};
+use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use time::{Date, OffsetDateTime};
 
+use crate::files::write_json;
 use crate::{EstadoDaEtapa, Etapa};
 
 const FILE_NAME: &str = "projeto.json";
@@ -123,7 +124,7 @@ impl ProjetoJson {
     }
 
     pub fn gravar(&self, pasta: &Path) -> io::Result<()> {
-        gravar_json(&pasta.join(FILE_NAME), self)
+        write_json(&pasta.join(FILE_NAME), self)
     }
 
     pub fn marcar(&mut self, etapa: Etapa, estado: EstadoDaEtapa) {
@@ -131,17 +132,6 @@ impl ProjetoJson {
             item.estado = estado;
         }
     }
-}
-
-/// Grava num arquivo temporário e troca pelo definitivo: um app fechado no meio da gravação
-/// deixa o arquivo antigo inteiro, nunca um pela metade.
-pub(crate) fn gravar_json(path: &Path, valor: &impl Serialize) -> io::Result<()> {
-    let temporary = path.with_extension("json.tmp");
-    let mut file = File::create(&temporary)?;
-    serde_json::to_writer_pretty(&mut file, valor)?;
-    file.write_all(b"\n")?;
-    file.sync_all()?;
-    fs::rename(&temporary, path)
 }
 
 /// Cria a pasta nova do projeto, `<título até 40 caracteres> (AAAA-MM-DD)`, com ` (2)`, ` (3)`

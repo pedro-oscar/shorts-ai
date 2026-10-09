@@ -108,7 +108,14 @@ export const en: typeof ptBR = {
   gerando: {
     titulo: "Generating",
     etapaNdeM: "stage {{n}}/{{m}}",
+    percentual: "{{percentual}}%",
     progresso: "Progress of {{nome}}",
+    acoesDoClaude: "Claude's actions",
+    acao: "→ {{ferramenta}} {{alvo}}",
+    acaoSemAlvo: "→ {{ferramenta}}",
+    textoDoClaude: "“{{texto}}”",
+    tokens:
+      "Session tokens: {{entrada, number}} input and {{cache, number}} cache",
     estados: {
       naFila: "Queued",
       emAndamento: "In progress",

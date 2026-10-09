@@ -6,8 +6,8 @@
 use std::path::PathBuf;
 
 use nucleo::transcricao::{
-    PalavraTranscrita, SegmentoDoVad, compactar, para_o_original, percentual_do_progresso, prompt,
-    segmentos_do_vad,
+    PalavraTranscrita, VadSegment, compactar, progress_percent, prompt, to_original_time,
+    vad_segments,
 };
 
 fn gravado(nome: &str) -> PathBuf {
@@ -16,8 +16,8 @@ fn gravado(nome: &str) -> PathBuf {
         .join(nome)
 }
 
-fn vad_gravado() -> Vec<SegmentoDoVad> {
-    segmentos_do_vad(&std::fs::read_to_string(gravado("whisper.log")).unwrap())
+fn vad_gravado() -> Vec<VadSegment> {
+    vad_segments(&std::fs::read_to_string(gravado("whisper.log")).unwrap())
 }
 
 fn palavra(texto: &str, inicio: f64, fim: f64) -> PalavraTranscrita {
@@ -38,19 +38,19 @@ fn a_tabela_do_vad_sai_do_stderr_em_centesimos() {
     assert_eq!(vad.len(), 6);
     assert_eq!(
         vad[1],
-        SegmentoDoVad {
-            inicio_original: 10613,
-            fim_original: 20562,
-            inicio_cortado: 10492,
-            fim_cortado: 20441,
+        VadSegment {
+            original_start: 10613,
+            original_end: 20562,
+            vad_start: 10492,
+            vad_end: 20441,
         }
     );
 }
 
 #[test]
 fn sem_a_tabela_do_vad_os_tempos_ficam_como_estao() {
-    assert_eq!(segmentos_do_vad("whisper_init: nada\n"), []);
-    assert_eq!(para_o_original(12345, &[]), 12345);
+    assert_eq!(vad_segments("whisper_init: nada\n"), []);
+    assert_eq!(to_original_time(12345, &[]), 12345);
 }
 
 #[test]
@@ -58,27 +58,27 @@ fn o_tempo_do_audio_cortado_volta_ao_original_pela_regra_do_whisper_cpp() {
     let vad = vad_gravado();
 
     // Dentro do primeiro segmento nada muda; no segundo, soma o silêncio removido (1,21 s).
-    assert_eq!(para_o_original(5000, &vad), 5000);
-    assert_eq!(para_o_original(15000, &vad), 15121);
+    assert_eq!(to_original_time(5000, &vad), 5000);
+    assert_eq!(to_original_time(15000, &vad), 15121);
     // No silêncio removido encosta na borda mais próxima: entre 104,92 e 104,82 cortado.
-    assert_eq!(para_o_original(10482, &vad), 10472);
-    assert_eq!(para_o_original(10490, &vad), 10613);
+    assert_eq!(to_original_time(10482, &vad), 10472);
+    assert_eq!(to_original_time(10490, &vad), 10613);
     // Antes do primeiro e depois do último.
-    assert_eq!(para_o_original(0, &vad), 0);
-    assert_eq!(para_o_original(99999, &vad), 74384);
+    assert_eq!(to_original_time(0, &vad), 0);
+    assert_eq!(to_original_time(99999, &vad), 74384);
 }
 
 #[test]
 fn o_progresso_sai_da_linha_do_callback_do_whisper_cpp() {
     assert_eq!(
-        percentual_do_progresso("whisper_print_progress_callback: progress =  10%"),
+        progress_percent("whisper_print_progress_callback: progress =  10%"),
         Some(10.0)
     );
     assert_eq!(
-        percentual_do_progresso("whisper_print_progress_callback: progress = 100%"),
+        progress_percent("whisper_print_progress_callback: progress = 100%"),
         Some(100.0)
     );
-    assert_eq!(percentual_do_progresso("whisper_vad: nada"), None);
+    assert_eq!(progress_percent("whisper_vad: nada"), None);
 }
 
 #[test]
@@ -142,25 +142,23 @@ for ultimo; do :; done
 head -c 3200000 /dev/zero > "$ultimo"
 "#;
 
-    /// O whisper-cli falso lê o arquivo de resposta, devolve a gravação do spike no `-of` e o
-    /// log dela no stderr, com o progresso do `-pp`.
+    /// O whisper-cli falso (o de Vulkan, `whisper-cli`, e o de CPU, `whisper-cli-cpu`) lê o
+    /// arquivo de resposta, anota a chamada com o próprio nome, devolve a gravação do spike no
+    /// `-of` e o log dela no stderr, com o progresso do `-pp`. A marca `falha` derruba os dois;
+    /// a `gpu-falha`, só o de Vulkan; a `trava` os prende até serem mortos.
     const WHISPER: &str = r#"#!/bin/sh
 dir="$(dirname "$0")"
-case "$1" in
-@*) args="${1#@}" ;;
-*) args="" ;;
-esac
-if [ -n "$args" ]; then
-  cp "$args" "$dir/argumentos-$(date +%s%N).txt"
-  cat "$args" | tr '\n' ' ' >> "$dir/whisper.log"
-  echo >> "$dir/whisper.log"
-  saida="$(grep -A1 '^-of$' "$args" | tail -1)"
-else
-  echo "$@" >> "$dir/whisper.log"
-  while [ $# -gt 0 ]; do [ "$1" = "-of" ] && saida="$2"; shift; done
-fi
+nome="$(basename "$0")"
+args="${1#@}"
+{ printf '%s ' "$nome"; tr '\n' ' ' < "$args"; echo; } >> "$dir/whisper.log"
+saida="$(grep -A1 '^-of$' "$args" | tail -1)"
 case "$saida" in *sleep-forever*) exec sleep 30 ;; esac
+[ -f "$dir/trava" ] && exec sleep 30
 [ -f "$dir/falha" ] && { echo "falha de teste" >&2; exit 3; }
+if [ "$nome" = whisper-cli ] && [ -f "$dir/gpu-falha" ]; then
+  echo "ggml_vulkan: device lost" >&2
+  exit 1
+fi
 cp "$dir/gravado.json" "$saida.json"
 echo "whisper_print_progress_callback: progress =  10%" >&2
 echo "whisper_print_progress_callback: progress =  50%" >&2
@@ -180,7 +178,11 @@ echo "whisper_print_progress_callback: progress = 100%" >&2
             let tmp = tempfile::tempdir().unwrap();
             let bin = tmp.path().join("bin");
             fs::create_dir(&bin).unwrap();
-            for (nome, conteudo) in [("ffmpeg", FFMPEG), ("whisper-cli", WHISPER)] {
+            for (nome, conteudo) in [
+                ("ffmpeg", FFMPEG),
+                ("whisper-cli", WHISPER),
+                ("whisper-cli-cpu", WHISPER),
+            ] {
                 let caminho = bin.join(nome);
                 fs::write(&caminho, conteudo).unwrap();
                 fs::set_permissions(&caminho, fs::Permissions::from_mode(0o755)).unwrap();
@@ -194,7 +196,8 @@ echo "whisper_print_progress_callback: progress = 100%" >&2
                 bin.join("whisper-cli"),
                 "modelo.bin".into(),
                 "vad.bin".into(),
-            );
+            )
+            .with_cpu_fallback(bin.join("whisper-cli-cpu"));
             let edit = tmp.path().join("edit");
             Self {
                 tmp,
@@ -206,6 +209,10 @@ echo "whisper_print_progress_callback: progress = 100%" >&2
 
         fn bin(&self) -> PathBuf {
             self.tmp.path().join("bin")
+        }
+
+        fn marcar(&self, nome: &str) {
+            fs::write(self.bin().join(nome), "").unwrap();
         }
 
         fn chamadas_do_whisper(&self) -> Vec<String> {
@@ -391,7 +398,7 @@ echo "whisper_print_progress_callback: progress = 100%" >&2
     #[test]
     fn falha_do_whisper_vira_erro_com_a_ultima_linha_do_stderr() {
         let cenario = Cenario::novo();
-        fs::write(cenario.bin().join("falha"), "").unwrap();
+        cenario.marcar("falha");
 
         let erro = cenario
             .transcrever(Some("pt"), &mut Vec::new())
@@ -402,6 +409,125 @@ echo "whisper_print_progress_callback: progress = 100%" >&2
             ErroDaTranscricao::Falhou { programa: "whisper-cli", detalhe } if detalhe == "falha de teste"
         ));
         assert!(!cenario.edit.join("transcricao.json").exists());
+        // A reserva de CPU também foi tentada, e o erro é o dela.
+        let chamadas = cenario.chamadas_do_whisper();
+        assert_eq!(chamadas.len(), 2, "{chamadas:?}");
+        assert!(chamadas[1].starts_with("whisper-cli-cpu "), "{chamadas:?}");
+    }
+
+    #[test]
+    fn quando_o_vulkan_falha_a_transcricao_roda_de_novo_so_na_cpu() {
+        let cenario = Cenario::novo();
+        cenario.marcar("gpu-falha");
+
+        let transcricao = cenario.transcrever(Some("pt"), &mut Vec::new()).unwrap();
+
+        assert!(transcricao.palavras.len() > 1600);
+        let chamadas = cenario.chamadas_do_whisper();
+        assert_eq!(chamadas.len(), 2, "{chamadas:?}");
+        assert!(chamadas[0].starts_with("whisper-cli "), "{}", chamadas[0]);
+        assert!(!chamadas[0].contains(" -ng"), "{}", chamadas[0]);
+        assert!(
+            chamadas[1].starts_with("whisper-cli-cpu "),
+            "{}",
+            chamadas[1]
+        );
+        // O mesmo pedido, só que sem GPU.
+        assert_eq!(
+            chamadas[1].trim_end(),
+            format!(
+                "whisper-cli-cpu {} -ng",
+                chamadas[0].trim_end().trim_start_matches("whisper-cli ")
+            )
+        );
+    }
+
+    #[test]
+    fn sem_o_whisper_de_vulkan_a_cpu_assume() {
+        let cenario = Cenario::novo();
+        fs::remove_file(cenario.bin().join("whisper-cli")).unwrap();
+
+        let transcricao = cenario.transcrever(Some("pt"), &mut Vec::new()).unwrap();
+
+        assert!(transcricao.palavras.len() > 1600);
+        let chamadas = cenario.chamadas_do_whisper();
+        assert_eq!(chamadas.len(), 1, "{chamadas:?}");
+        assert!(
+            chamadas[0].starts_with("whisper-cli-cpu "),
+            "{}",
+            chamadas[0]
+        );
+    }
+
+    #[test]
+    fn depois_que_o_vulkan_falha_na_deteccao_a_transcricao_vai_direto_para_a_cpu() {
+        let cenario = Cenario::novo();
+        cenario.marcar("gpu-falha");
+
+        let transcricao = cenario.transcrever(None, &mut Vec::new()).unwrap();
+
+        assert_eq!(transcricao.idioma, "pt");
+        let chamadas = cenario.chamadas_do_whisper();
+        let programas: Vec<_> = chamadas
+            .iter()
+            .map(|chamada| chamada.split(' ').next().unwrap())
+            .collect();
+        assert_eq!(
+            programas,
+            ["whisper-cli", "whisper-cli-cpu", "whisper-cli-cpu"],
+            "{chamadas:?}"
+        );
+        assert!(chamadas[2].contains("-l pt "), "{}", chamadas[2]);
+    }
+
+    #[test]
+    fn sem_a_reserva_de_cpu_a_falha_do_vulkan_e_o_erro() {
+        let cenario = Cenario::novo();
+        cenario.marcar("gpu-falha");
+        let transcritor = Transcritor::new(
+            cenario.bin().join("ffmpeg"),
+            cenario.bin().join("whisper-cli"),
+            "modelo.bin".into(),
+            "vad.bin".into(),
+        );
+
+        let erro = transcritor
+            .transcrever(
+                &Pedido {
+                    video: &cenario.video,
+                    pasta_de_saida: &cenario.edit,
+                    idioma: Some("pt"),
+                    nomes_proprios: &[],
+                },
+                &AtomicBool::new(false),
+                &mut |_| {},
+            )
+            .unwrap_err();
+
+        assert!(matches!(
+            &erro,
+            ErroDaTranscricao::Falhou { programa: "whisper-cli", detalhe } if detalhe == "ggml_vulkan: device lost"
+        ));
+        assert_eq!(cenario.chamadas_do_whisper().len(), 1);
+    }
+
+    #[test]
+    fn um_programa_que_falta_diz_onde_foi_procurado() {
+        let cenario = Cenario::novo();
+        fs::remove_file(cenario.bin().join("ffmpeg")).unwrap();
+
+        let erro = cenario
+            .transcrever(Some("pt"), &mut Vec::new())
+            .unwrap_err();
+
+        let ErroDaTranscricao::Falhou { programa, detalhe } = &erro else {
+            panic!("esperava a falha do ffmpeg: {erro:?}");
+        };
+        assert_eq!(*programa, "ffmpeg");
+        assert!(
+            detalhe.contains(&cenario.bin().join("ffmpeg").display().to_string()),
+            "{detalhe}"
+        );
     }
 
     #[test]
@@ -436,6 +562,37 @@ echo "whisper_print_progress_callback: progress = 100%" >&2
         assert!(matches!(erro, ErroDaTranscricao::Cancelado), "{erro:?}");
         assert!(inicio.elapsed() < Duration::from_secs(10));
     }
+
+    #[test]
+    fn cancelar_o_whisper_de_vulkan_nao_passa_para_a_cpu() {
+        let cenario = Cenario::novo();
+        cenario.marcar("trava");
+        let cancelar = AtomicBool::new(false);
+
+        let erro = std::thread::scope(|escopo| {
+            let tarefa = escopo.spawn(|| {
+                cenario.transcritor.transcrever(
+                    &Pedido {
+                        video: &cenario.video,
+                        pasta_de_saida: &cenario.edit,
+                        idioma: Some("pt"),
+                        nomes_proprios: &[],
+                    },
+                    &cancelar,
+                    &mut |_| {},
+                )
+            });
+            std::thread::sleep(Duration::from_millis(500));
+            cancelar.store(true, Ordering::Relaxed);
+            tarefa.join().unwrap()
+        })
+        .unwrap_err();
+
+        assert!(matches!(erro, ErroDaTranscricao::Cancelado), "{erro:?}");
+        let chamadas = cenario.chamadas_do_whisper();
+        assert_eq!(chamadas.len(), 1, "{chamadas:?}");
+        assert!(chamadas[0].starts_with("whisper-cli "), "{chamadas:?}");
+    }
 }
 
 #[cfg(unix)]
@@ -446,11 +603,12 @@ mod na_fila {
     use std::sync::mpsc;
     use std::time::Duration;
 
-    use nucleo::transcricao::Transcritor;
     use nucleo::{Config, EstadoDaEtapa, Etapa, Evento, Nucleo};
 
     use super::gravado;
 
+    /// O núcleo acha o ffmpeg e o whisper-cli na pasta dos sidecars e os modelos nos dados do
+    /// app.
     #[test]
     fn a_etapa_transcreve_grava_o_idioma_no_projeto_e_avisa_o_progresso() {
         let tmp = tempfile::tempdir().unwrap();
@@ -464,10 +622,9 @@ mod na_fila {
         fs::write(
             bin.join("whisper-cli"),
             format!(
-                "#!/bin/sh\ncase \"$1\" in\n\
-                 @*) saida=\"$(grep -A1 '^-of$' \"${{1#@}}\" | tail -1)\" ;;\n\
-                 *) while [ $# -gt 0 ]; do [ \"$1\" = \"-of\" ] && saida=\"$2\"; shift; done ;;\n\
-                 esac\n\
+                "#!/bin/sh\nresposta=\"${{1#@}}\"\n\
+                 cp \"$resposta\" \"$(dirname \"$0\")/resposta.txt\"\n\
+                 saida=\"$(grep -A1 '^-of$' \"$resposta\" | tail -1)\"\n\
                  cp '{}' \"$saida.json\"\n\
                  echo 'progress =  40%' >&2\ncat '{}' >&2\n",
                 gravado("transcricao.json").display(),
@@ -480,16 +637,12 @@ mod na_fila {
         }
         let (envio, eventos) = mpsc::channel();
         let envio = Mutex::new(envio);
+        let dados = tmp.path().join("dados");
         let nucleo = Nucleo::new(
             Config {
-                app_data_dir: tmp.path().join("dados"),
+                app_data_dir: dados.clone(),
                 pasta_de_videos: Some(tmp.path().join("Videos")),
-                transcritor: Some(Transcritor::new(
-                    bin.join("ffmpeg"),
-                    bin.join("whisper-cli"),
-                    "modelo.bin".into(),
-                    "vad.bin".into(),
-                )),
+                sidecar_dir: Some(bin.clone()),
                 ..Config::default()
             },
             move |evento| {
@@ -541,6 +694,16 @@ mod na_fila {
         assert_eq!(json["idiomaDoVideo"], "pt");
         assert!(pasta.join("edit/transcricao.json").is_file());
         assert!(pasta.join("edit/transcricao-compactada.txt").is_file());
+        // Os modelos do spike, nos dados do app, onde a preparação os baixa.
+        let resposta = fs::read_to_string(bin.join("resposta.txt")).unwrap();
+        let modelos = dados.join("modelos");
+        for (opcao, modelo) in [
+            ("-m", "ggml-large-v3-q5_0.bin"),
+            ("-vm", "ggml-silero-v6.2.0.bin"),
+        ] {
+            let linha = format!("{opcao}\n{}\n", modelos.join(modelo).display());
+            assert!(resposta.contains(&linha), "faltou {linha}: {resposta}");
+        }
     }
 }
 

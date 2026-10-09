@@ -205,6 +205,8 @@ export function createFakeNucleo(
     drop: (caminhos: string[]) => {
       for (const dropper of droppers) dropper(caminhos);
     },
+    /** O núcleo emite este evento, como o progresso da etapa ou uma ação do Claude. */
+    emitir: emit,
     /** O núcleo avisa que a etapa do projeto mudou de estado. */
     etapa: (
       projeto: string,

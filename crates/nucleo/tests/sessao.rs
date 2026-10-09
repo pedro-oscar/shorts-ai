@@ -1,6 +1,14 @@
 //! A sessão do Claude do Roteiro pela interface pública do núcleo, com um `claude` falso (um
 //! script de shell) que repete uma sessão gravada, recortada: os eventos, o roteiro, o log e o
 //! `custos.json`. Variações: vários `result`, sessão que cai e roteiro inválido.
+//!
+//! As gravações são sessões reais de roteiro do CLI (`~/ai-editor/edit/logs/`), recortadas:
+//! ficam algumas linhas, na ordem, e cada texto com mais de 200 caracteres é cortado com `…`;
+//! números, ids e tipos ficam como vieram.
+//! - `sessao-roteiro.jsonl`: `20261006-150110-roteirizar.jsonl`, do KGfmaHnBQx4, cujo roteiro
+//!   final é o da referência que o `claude` falso escreve.
+//! - `sessao-roteiro-varios-results.jsonl`: `20261007-145036-roteirizar.jsonl`, outro vídeo, em
+//!   que os sub-agentes em segundo plano fazem a sessão terminar com quatro `result`.
 #![cfg(unix)]
 
 use std::fs;
@@ -8,7 +16,8 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 
-use nucleo::sessao::{ErroDoRoteiro, EventoDaSessao, Pedido, Roteirista, Skill, preparar_skill};
+use nucleo::ClaudeCode;
+use nucleo::sessao::{ErroDoRoteiro, EventoDaSessao, Pedido, Roteirista, preparar_skill};
 use serde_json::{Value, json};
 
 /// O `claude` falso guarda como foi chamado, devolve a sessão gravada e, conforme as marcas
@@ -27,8 +36,17 @@ cat "$dir/stream.jsonl"
 exit 0
 "#;
 
+/// O `total_cost_usd` do `result` da sessão gravada do KGfmaHnBQx4.
+const CUSTO_GRAVADO: f64 = 2.4658704000000005;
+
 fn raiz() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
+}
+
+fn gravacao(nome: &str) -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/dados")
+        .join(nome)
 }
 
 struct Cenario {
@@ -46,32 +64,23 @@ impl Cenario {
         let claude = bin.join("claude");
         fs::write(&claude, CLAUDE).unwrap();
         fs::set_permissions(&claude, fs::Permissions::from_mode(0o755)).unwrap();
-        fs::copy(
-            concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/tests/dados/sessao-roteiro.jsonl"
-            ),
-            bin.join("stream.jsonl"),
-        )
-        .unwrap();
+        fs::copy(gravacao("sessao-roteiro.jsonl"), bin.join("stream.jsonl")).unwrap();
         let referencia = raiz().join(".scratch/shorts-ai-mvp/referencia-kgfmahnbqx4");
         fs::copy(referencia.join("roteiro.json"), bin.join("roteiro.json")).unwrap();
         fs::write(bin.join("roteiro-valido"), "").unwrap();
 
         let dados = tmp.path().join("dados");
-        let Skill {
-            skill,
-            aprendizados,
-        } = preparar_skill(&raiz().join("assets"), &dados).unwrap();
         let roteirista = Roteirista::new(
-            claude,
-            dados.join("claude"),
-            Skill {
-                skill,
-                aprendizados: aprendizados.clone(),
-            },
+            ClaudeCode::new(
+                Some(bin.clone().into_os_string()),
+                None,
+                dados.join("claude"),
+            ),
+            raiz().join("assets"),
+            dados.clone(),
             Some(tmp.path().join("cli")),
         );
+        let aprendizados = dados.join("aprendizados");
 
         let pasta = tmp.path().join("projeto");
         fs::create_dir_all(pasta.join("edit")).unwrap();
@@ -138,6 +147,11 @@ impl Cenario {
         self.custos().pop().unwrap()
     }
 
+    /// O `claude` falso passa a repetir outra gravação.
+    fn usar_gravacao(&self, nome: &str) {
+        fs::copy(gravacao(nome), self.bin().join("stream.jsonl")).unwrap();
+    }
+
     fn acrescentar_ao_stream(&self, linha: &str) {
         let caminho = self.bin().join("stream.jsonl");
         let mut texto = fs::read_to_string(&caminho).unwrap();
@@ -154,6 +168,10 @@ fn acao(ferramenta: &str, alvo: &str) -> EventoDaSessao {
     }
 }
 
+fn tokens(entrada: u32, cache: u32) -> EventoDaSessao {
+    EventoDaSessao::Tokens { entrada, cache }
+}
+
 #[test]
 fn cada_linha_do_stream_vira_um_evento_com_os_tokens_somados_por_mensagem() {
     let cenario = Cenario::novo();
@@ -164,27 +182,44 @@ fn cada_linha_do_stream_vira_um_evento_com_os_tokens_somados_por_mensagem() {
     assert_eq!(
         eventos,
         [
-            acao("texto", "Vou ler a skill e a transcrição."),
-            EventoDaSessao::Tokens {
-                entrada: 6,
-                cache: 12_000
-            },
-            acao("Read", "/dados/skill/corte-viral/SKILL.md"),
+            // Um bloco de raciocínio não é ação, mas a mensagem já conta os tokens.
+            tokens(2, 22_947),
+            // O alvo é a primeira linha, em até 120 caracteres.
+            acao(
+                "Bash",
+                "cat /home/pomsan/.claude/skills/corte-viral/SKILL.md; echo ======; \
+                 cat /home/pomsan/.claude/skills/corte-viral/reference"
+            ),
             // A mesma mensagem repete o `usage`: a soma não dobra.
-            EventoDaSessao::Tokens {
-                entrada: 6,
-                cache: 12_000
-            },
-            acao("Bash", "head -n 20 edit/transcricao-compactada.txt"),
-            EventoDaSessao::Tokens {
-                entrada: 9,
-                cache: 24_800
-            },
-            acao("Write", "/projeto/edit/roteiro.json"),
-            EventoDaSessao::Tokens {
-                entrada: 11,
-                cache: 37_900
-            },
+            tokens(2, 22_947),
+            acao("Grep", "/home/pomsan/ai-editor/edit/takes_packed.md"),
+            tokens(4, 58_137),
+            acao("texto", "Short video (12 min). Reading the whole section."),
+            tokens(6, 94_392),
+            acao("Read", "/home/pomsan/ai-editor/edit/takes_packed.md"),
+            tokens(6, 94_392),
+            acao(
+                "texto",
+                "Seleção feita (6 para produzir + 5 reservas), reaproveitando as cenas já \
+                 existentes. Escrevendo o roteiro."
+            ),
+            tokens(8, 188_813),
+            acao(
+                "Write",
+                "/home/pomsan/ai-editor/edit/roteiros/KGfmaHnBQx4.json"
+            ),
+            tokens(8, 188_813),
+            acao(
+                "Bash",
+                "./ae validar edit/roteiros/KGfmaHnBQx4.json 2>&1 | tail -60"
+            ),
+            tokens(10, 298_628),
+            acao(
+                "texto",
+                "O roteiro está pronto em `edit/roteiros/KGfmaHnBQx4.json`. `./ae validar` passa \
+                 sem erros e sem avisos, e o resumo legív"
+            ),
+            tokens(12, 427_892),
         ]
     );
 }
@@ -216,7 +251,7 @@ fn a_nova_tentativa_acrescenta_ao_log_sem_apagar_a_sessao_anterior() {
 }
 
 #[test]
-fn o_custo_vem_do_ultimo_result_sem_somar() {
+fn o_custo_vem_do_result_da_sessao() {
     let cenario = Cenario::novo();
 
     cenario.rodar(None).0.unwrap();
@@ -225,7 +260,7 @@ fn o_custo_vem_do_ultimo_result_sem_somar() {
     assert_eq!(custos.len(), 1);
     let roteiro = &custos[0];
     assert_eq!(roteiro["etapa"], "roteiro");
-    assert_eq!(roteiro["sessionId"], "s1");
+    assert_eq!(roteiro["sessionId"], "c941c34d-e576-40f8-b77f-3ae19bf3fabc");
     assert!(
         time::OffsetDateTime::parse(
             roteiro["inicio"].as_str().unwrap(),
@@ -234,21 +269,52 @@ fn o_custo_vem_do_ultimo_result_sem_somar() {
         .is_ok(),
         "{roteiro}"
     );
-    assert_eq!(roteiro["custoUsd"], 0.42);
-    assert_eq!(roteiro["turnos"], 6);
-    assert_eq!(roteiro["duracaoMs"], 52_000);
+    assert_eq!(roteiro["custoUsd"], CUSTO_GRAVADO);
+    assert_eq!(roteiro["turnos"], 35);
+    assert_eq!(roteiro["duracaoMs"], 591_837);
     assert_eq!(roteiro["parcial"], false);
-    assert_eq!(roteiro["modelos"].as_object().unwrap().len(), 2);
+    assert_eq!(
+        roteiro["modelos"],
+        json!({
+            "claude-opus-5-5": {
+                "entrada": 64,
+                "saida": 54_169,
+                "cacheLeitura": 2_283_532,
+                "cacheCriacao": 115_691,
+                "custoUsd": CUSTO_GRAVADO
+            }
+        })
+    );
+}
+
+/// Os sub-agentes em segundo plano reabrem a sessão: quatro `result`, cada um com o
+/// `total_cost_usd` acumulado. Vale o último, sem somar.
+#[test]
+fn com_varios_results_o_custo_vem_do_ultimo_sem_somar() {
+    let cenario = Cenario::novo();
+    cenario.usar_gravacao("sessao-roteiro-varios-results.jsonl");
+
+    let (resultado, eventos) = cenario.rodar(None);
+
+    resultado.unwrap();
+    let roteiro = cenario.ultimo_custo();
+    assert_eq!(roteiro["sessionId"], "8ccee9ed-900d-4708-af6e-2821e0f506ad");
+    assert_eq!(roteiro["custoUsd"], 13.655_747_6);
+    assert_eq!(roteiro["turnos"], 8);
+    assert_eq!(roteiro["duracaoMs"], 42_452);
+    assert_eq!(roteiro["parcial"], false);
     assert_eq!(
         roteiro["modelos"]["claude-opus-5-5"],
         json!({
-            "entrada": 11,
-            "saida": 1100,
-            "cacheLeitura": 24_800,
-            "cacheCriacao": 13_100,
-            "custoUsd": 0.35
+            "entrada": 197,
+            "saida": 348_469,
+            "cacheLeitura": 13_117_193,
+            "cacheCriacao": 651_999,
+            "custoUsd": 13.655_747_6
         })
     );
+    // Os tokens ao vivo somam as mensagens das quatro voltas.
+    assert_eq!(eventos.last(), Some(&tokens(15, 1_646_923)));
 }
 
 #[test]
@@ -261,13 +327,13 @@ fn result_final_com_erro_e_custo_zerado_usa_o_anterior_e_marca_parcial() {
     cenario.rodar(None).0.unwrap();
 
     let roteiro = cenario.ultimo_custo();
-    assert_eq!(roteiro["custoUsd"], 0.42);
-    assert_eq!(roteiro["turnos"], 6);
+    assert_eq!(roteiro["custoUsd"], CUSTO_GRAVADO);
+    assert_eq!(roteiro["turnos"], 35);
     assert_eq!(roteiro["parcial"], true);
 }
 
 #[test]
-fn result_final_com_erro_e_custo_proprio_vale_e_sai_parcial() {
+fn result_final_com_erro_e_custo_proprio_vale_e_nao_e_parcial() {
     let cenario = Cenario::novo();
     cenario.acrescentar_ao_stream(
         r#"{"type":"result","subtype":"error_during_execution","is_error":true,"duration_ms":70000,"num_turns":9,"total_cost_usd":0.6,"modelUsage":{"claude-opus-5-5":{"inputTokens":1,"outputTokens":2,"cacheReadInputTokens":3,"cacheCreationInputTokens":4,"costUSD":0.6}}}"#,
@@ -277,6 +343,28 @@ fn result_final_com_erro_e_custo_proprio_vale_e_sai_parcial() {
 
     let roteiro = cenario.ultimo_custo();
     assert_eq!(roteiro["custoUsd"], 0.6);
+    assert_eq!(roteiro["turnos"], 9);
+    assert_eq!(roteiro["parcial"], false);
+}
+
+#[test]
+fn unico_result_com_erro_e_custo_zerado_fica_zerado_e_parcial() {
+    let cenario = Cenario::novo();
+    fs::write(
+        cenario.bin().join("stream.jsonl"),
+        concat!(
+            r#"{"type":"system","subtype":"init","session_id":"s9"}"#,
+            "\n",
+            r#"{"type":"result","subtype":"error_during_execution","is_error":true,"duration_ms":10,"num_turns":0,"total_cost_usd":0,"modelUsage":{}}"#,
+            "\n"
+        ),
+    )
+    .unwrap();
+
+    cenario.rodar(None).0.unwrap();
+
+    let roteiro = cenario.ultimo_custo();
+    assert_eq!(roteiro["custoUsd"], 0.0);
     assert_eq!(roteiro["parcial"], true);
 }
 
@@ -300,7 +388,7 @@ fn cada_sessao_acrescenta_uma_linha_ao_custos_json_sem_apagar_as_anteriores() {
     assert_eq!(custos[0], json!({"etapa": "revisao", "custoUsd": 1.5}));
     for custo in &custos[1..] {
         assert_eq!(custo["etapa"], "roteiro");
-        assert_eq!(custo["custoUsd"], 0.42);
+        assert_eq!(custo["custoUsd"], CUSTO_GRAVADO);
     }
 }
 
@@ -419,7 +507,7 @@ fn sessao_que_cai_falha_com_o_stderr_e_ainda_registra_o_custo() {
         matches!(&erro, ErroDoRoteiro::SessaoCaiu(detalhe) if detalhe.contains("Claude derrubou a sessão")),
         "{erro:?}"
     );
-    assert_eq!(cenario.ultimo_custo()["custoUsd"], 0.42);
+    assert_eq!(cenario.ultimo_custo()["custoUsd"], CUSTO_GRAVADO);
 }
 
 #[test]
@@ -476,6 +564,34 @@ fn roteiro_invalido_falha_com_os_erros_e_a_nova_tentativa_os_recebe() {
             .lido("prompt.log")
             .contains("Erros da tentativa anterior")
     );
+}
+
+#[test]
+fn sem_o_claude_code_instalado_a_sessao_falha_sem_rodar() {
+    let cenario = Cenario::novo();
+    let dados = cenario.tmp.path().join("dados");
+    let roteirista = Roteirista::new(
+        ClaudeCode::new(Some("/nao/existe".into()), None, dados.join("claude")),
+        raiz().join("assets"),
+        dados,
+        None,
+    );
+
+    let resultado = roteirista.roteirizar(
+        &Pedido {
+            pasta: &cenario.pasta,
+            video: "aula.mp4",
+            idioma: "pt",
+            cortes: 6,
+            pedido: "",
+            modelo: None,
+        },
+        &AtomicBool::new(false),
+        &mut |_| {},
+    );
+
+    assert!(matches!(resultado, Err(ErroDoRoteiro::ClaudeNaoEncontrado)));
+    assert!(!cenario.pasta.join("edit/sessao-roteiro.jsonl").exists());
 }
 
 #[test]
@@ -568,26 +684,16 @@ mod na_fila {
         for nome in ["ffmpeg", "whisper-cli"] {
             fs::set_permissions(bin.join(nome), fs::Permissions::from_mode(0o755)).unwrap();
         }
-        let dados = tmp.join("dados-do-nucleo");
-        let skill = preparar_skill(&raiz().join("assets"), &dados).unwrap();
         let (envio, eventos) = mpsc::channel();
         let envio = Mutex::new(envio);
+        // O ffmpeg e o whisper-cli vêm da pasta dos sidecars; o `claude`, do PATH.
         let nucleo = Nucleo::new(
             Config {
-                app_data_dir: dados.clone(),
+                app_data_dir: tmp.join("dados-do-nucleo"),
                 pasta_de_videos: Some(tmp.join("Videos")),
-                transcritor: Some(nucleo::transcricao::Transcritor::new(
-                    bin.join("ffmpeg"),
-                    bin.join("whisper-cli"),
-                    "modelo.bin".into(),
-                    "vad.bin".into(),
-                )),
-                roteirista: Some(Roteirista::new(
-                    cenario.bin().join("claude"),
-                    dados.join("claude"),
-                    skill,
-                    None,
-                )),
+                path_env: Some(cenario.bin().into_os_string()),
+                assets_dir: Some(raiz().join("assets")),
+                sidecar_dir: Some(bin.clone()),
                 ..Config::default()
             },
             move |evento| {
@@ -634,8 +740,8 @@ mod na_fila {
             }
         };
 
-        assert_eq!(acoes, 4);
-        assert_eq!(ultimos_tokens, Some((11, 37_900)));
+        assert_eq!(acoes, 8);
+        assert_eq!(ultimos_tokens, Some((12, 427_892)));
         assert!(falha.contains("o corte não tem trechos"), "{falha}");
         let pasta = PathBuf::from(&projeto.pasta);
         let json: Value =
@@ -646,7 +752,7 @@ mod na_fila {
         assert_eq!(
             serde_json::from_slice::<Value>(&fs::read(pasta.join("edit/custos.json")).unwrap())
                 .unwrap()[0]["custoUsd"],
-            0.42
+            CUSTO_GRAVADO
         );
     }
 }
