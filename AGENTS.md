@@ -26,4 +26,4 @@ Depois de clonar, rode `npm ci`: é ele que liga o hook (`.husky/pre-commit`, po
 
 ## Loop AFK
 
-Tickets: `npm run -s tickets -- all`. Fábrica: `npm run afk`, sempre num branch afk/*; o merge no main é humano.
+Tickets: `npm run -s tickets -- all`. Fábrica: `npm run afk` (até 10 tickets; `npm run afk -- N` para até N), sempre num branch afk/*; o merge no main é humano.

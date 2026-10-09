@@ -19,7 +19,8 @@
 // phase that produces no commits).
 //
 // Usage:
-//   npm run afk
+//   npm run afk          # up to DEFAULT_MAX_ITERATIONS issues
+//   npm run afk -- 2     # up to 2 issues
 //
 // The run's commits land on a new branch, afk/<timestamp>; merging it into
 // main is a human's job.
@@ -32,14 +33,28 @@ import { docker } from "@ai-hero/sandcastle/sandboxes/docker";
 // ---------------------------------------------------------------------------
 
 // Maximum number of implement→review cycles to run before stopping.
-// Each cycle works on one issue. Raise this to process more issues per run.
-const MAX_ITERATIONS = 10;
+// Each cycle works on one issue. The run's first argument overrides it
+// (`npm run afk -- 2`).
+const DEFAULT_MAX_ITERATIONS = 10;
+
+const maxIterationsArg = process.argv[2];
+const MAX_ITERATIONS =
+  maxIterationsArg === undefined
+    ? DEFAULT_MAX_ITERATIONS
+    : Number(maxIterationsArg);
+if (!Number.isInteger(MAX_ITERATIONS) || MAX_ITERATIONS < 1) {
+  throw new Error(
+    `Expected a positive whole number of issues, got "${String(maxIterationsArg)}". Usage: npm run afk -- <issues>`,
+  );
+}
 
 // Hooks run inside the sandbox once, when it is created.
 // npm install ensures the sandbox has fresh dependencies (and, through the
-// `prepare` script, the git hooks that gate every commit).
+// `prepare` script, the git hooks that gate every commit). --no-save keeps the
+// image's npm from rewriting package-lock.json: a dirty worktree is preserved
+// on close instead of removed, so every run would leave its worktree behind.
 const hooks = {
-  sandbox: { onSandboxReady: [{ command: "npm install" }] },
+  sandbox: { onSandboxReady: [{ command: "npm install --no-save" }] },
 };
 
 // Copy node_modules from the host into the worktree before the sandbox
