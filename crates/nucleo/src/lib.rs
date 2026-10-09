@@ -11,6 +11,7 @@ mod fila;
 mod files;
 mod preferencias;
 mod process;
+pub mod producao;
 mod projeto;
 mod remotion;
 pub mod rosto;
@@ -32,9 +33,11 @@ use time::OffsetDateTime;
 pub use crate::claude_code::ClaudeCode;
 use crate::conta::Conta;
 pub use crate::conta::{Cobranca, EstadoDaConta, ModoDeLogin, VERSAO_MINIMA_DO_CLAUDE_CODE};
+use crate::corte::Ffmpeg;
 use crate::fila::Fila;
 use crate::preferencias::{PreferencesFile, Preferencias};
 use crate::process::hide_console;
+use crate::producao::Producao;
 pub use crate::projeto::{EtapaDoProjeto, ModoDeImportacao};
 use crate::projeto::{Origem, ProjetoJson};
 use crate::remotion::Remotion;
@@ -70,6 +73,9 @@ pub struct Config {
     pub assets_dir: Option<PathBuf>,
     /// O `npm` que instala as dependências do Remotion; `None` procura `npm` no `PATH`.
     pub npm: Option<PathBuf>,
+    /// O `node` que empacota e renderiza os reels; `None` procura `node` nos sidecars e no
+    /// `PATH`.
+    pub node: Option<PathBuf>,
     /// A pasta dos programas que vão com o app (sidecars): `ffmpeg`, `ffprobe`, `whisper-cli`
     /// (Vulkan), `whisper-cli-cpu` e `shorts-cli`. Cada um é procurado ali e, na falta, no
     /// `PATH`. Sem ela, a Transcrição e o Roteiro ficam pendentes; o Roteiro também precisa
@@ -360,9 +366,19 @@ impl Nucleo {
             )),
             _ => None,
         };
+        let producao = config.sidecar_dir.as_deref().map(|dir| {
+            let programa = |nome: &str| {
+                find_program(nome, Some(dir), config.path_env.as_deref())
+                    .unwrap_or_else(|| PathBuf::from(nome))
+            };
+            Producao::new(
+                Ffmpeg::new(programa("ffmpeg"), programa("ffprobe")),
+                config.node.clone().unwrap_or_else(|| programa("node")),
+            )
+        });
         Self {
             biblioteca,
-            fila: Fila::new(Arc::clone(&emit), ligar, transcritor, roteirista),
+            fila: Fila::new(Arc::clone(&emit), ligar, transcritor, roteirista, producao),
             remotion: Remotion::new(config.assets_dir, &config.app_data_dir, config.npm),
             path_env: config.path_env,
             sidecar_dir: config.sidecar_dir,

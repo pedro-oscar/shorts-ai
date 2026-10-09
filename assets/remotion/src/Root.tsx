@@ -41,6 +41,17 @@ const clipIds = (): string[] => {
 export const RemotionRoot: React.FC = () => {
   return (
     <>
+      {/* A Produção do app renderiza daqui: os dados do corte entram no pacote na hora do render. */}
+      <Composition
+        id="reel"
+        component={Reel}
+        width={WIDTH}
+        height={HEIGHT}
+        fps={FPS}
+        durationInFrames={FPS * 10}
+        defaultProps={{clipId: ''} as ReelProps}
+        calculateMetadata={calculateMetadata}
+      />
       {clipIds().map((id) => (
         <Composition
           key={id}

@@ -1,0 +1,539 @@
+//! A Produção pela interface pública do núcleo: corte, rosto, dados do reel e render no
+//! Remotion do projeto, com `ffmpeg`, `ffprobe` e `node` falsos (scripts de shell). O teste
+//! lento (`--ignored`) usa os programas reais num vídeo de 20 s.
+#![cfg(unix)]
+
+use std::fs;
+use std::os::unix::fs::PermissionsExt;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicBool;
+
+use nucleo::corte::Ffmpeg;
+use nucleo::producao::{ErroDaProducao, Pedido, Producao, Qualidade};
+use serde_json::{Value, json};
+
+const FFPROBE: &str = r#"#!/bin/sh
+case "$*" in
+*format=duration*) echo 2.0 ;;
+*) echo '{"streams":[{"width":256,"height":128}]}' ;;
+esac
+"#;
+
+/// Registra os argumentos; entrega quadros crus para o rosto e, no resto, imita o corte.
+const FFMPEG: &str = r#"#!/bin/sh
+dir="$(dirname "$0")"
+echo "$@" >> "$dir/ffmpeg.log"
+case "$*" in
+*rawvideo*)
+  for i in 1 2 3 4 5 6 7 8 9 10; do cat "$dir/quadro.rgb"; done
+  exit 0 ;;
+*signalstats*)
+  echo "lavfi.signalstats.YLOW=10"
+  echo "lavfi.signalstats.YAVG=120"
+  echo "lavfi.signalstats.YHIGH=230"
+  echo "lavfi.signalstats.SATAVG=60"
+  exit 0 ;;
+*print_format=json*)
+  cat "$dir/loudnorm.json" >&2
+  exit 0 ;;
+*"-f null"*) exit 0 ;;
+esac
+for ultimo; do :; done
+echo dados > "$ultimo"
+"#;
+
+/// Registra os argumentos. `pacote` cria a pasta do pacote; `render` anuncia o progresso e
+/// grava a saída (o penúltimo argumento é a saída, o último, a escala).
+const NODE: &str = r#"#!/bin/sh
+dir="$(dirname "$0")"
+echo "$PWD: $@" >> "$dir/node.log"
+[ -f "$dir/node-falha" ] && { echo 'chrome não abriu' >&2; exit 1; }
+case "$2" in
+pacote) mkdir -p "$3" ;;
+render)
+  echo "progresso 0.250"
+  echo "progresso 1.000"
+  saida="$6"
+  echo reel > "$saida" ;;
+esac
+"#;
+
+const LOUDNORM: &str = r#"{"input_i":"-20.0","input_tp":"-3.0","input_lra":"5.0","input_thresh":"-30.0","target_offset":"0.5"}"#;
+
+struct Cenario {
+    tmp: tempfile::TempDir,
+    producao: Producao,
+    pasta: PathBuf,
+}
+
+impl Cenario {
+    fn novo() -> Self {
+        let tmp = tempfile::tempdir().unwrap();
+        let bin = tmp.path().join("bin");
+        fs::create_dir(&bin).unwrap();
+        for (nome, conteudo) in [("ffmpeg", FFMPEG), ("ffprobe", FFPROBE), ("node", NODE)] {
+            let caminho = bin.join(nome);
+            fs::write(&caminho, conteudo).unwrap();
+            fs::set_permissions(&caminho, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        fs::write(bin.join("loudnorm.json"), LOUDNORM).unwrap();
+        fs::copy(
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/dados/dois-rostos-256x128.rgb"
+            ),
+            bin.join("quadro.rgb"),
+        )
+        .unwrap();
+        let pasta = tmp.path().join("projeto");
+        fs::create_dir_all(pasta.join("edit")).unwrap();
+        fs::create_dir_all(pasta.join("remotion/src/scenes")).unwrap();
+        fs::create_dir_all(pasta.join("remotion/public/clips/demo")).unwrap();
+        fs::write(pasta.join("remotion/src/Root.tsx"), "root").unwrap();
+        fs::write(pasta.join("remotion/src/scenes/index.ts"), "cenas").unwrap();
+        fs::write(pasta.join("remotion/package.json"), "{}").unwrap();
+        fs::write(pasta.join("remotion/public/clips/demo/clip.json"), "{}").unwrap();
+        fs::write(pasta.join("original.mp4"), b"video").unwrap();
+        let palavras: Vec<Value> = (0..10)
+            .map(|n| {
+                let inicio = f64::from(n) * 0.5;
+                json!({"text": if n % 5 == 4 { "fim." } else { "oi" }, "start": inicio, "end": inicio + 0.4, "type": "word"})
+            })
+            .collect();
+        fs::write(
+            pasta.join("edit/transcricao.json"),
+            json!({"words": palavras}).to_string(),
+        )
+        .unwrap();
+        let cenario = Self {
+            producao: Producao::new(
+                Ffmpeg::new(bin.join("ffmpeg"), bin.join("ffprobe")),
+                bin.join("node"),
+            ),
+            tmp,
+            pasta,
+        };
+        cenario.roteiro(&[
+            ("c01", "Negociar salário tem regra", (0.0, 2.4)),
+            ("c02", "Dois / três: o que importa?", (2.5, 4.9)),
+        ]);
+        cenario
+    }
+
+    fn roteiro(&self, cortes: &[(&str, &str, (f64, f64))]) {
+        let cortes: Vec<Value> = cortes
+            .iter()
+            .map(|(id, titulo, (a, b))| {
+                json!({"id": id, "status": "produzir", "titulo": titulo, "trechos": [[a, b]]})
+            })
+            .collect();
+        fs::write(
+            self.pasta.join("edit/roteiro.json"),
+            json!({"versao": 1, "fonte": "original.mp4", "cortes": cortes}).to_string(),
+        )
+        .unwrap();
+    }
+
+    fn bin(&self) -> PathBuf {
+        self.tmp.path().join("bin")
+    }
+
+    fn produzir(
+        &self,
+        qualidade: Qualidade,
+    ) -> Result<Vec<nucleo::producao::Reel>, ErroDaProducao> {
+        self.produzir_com(qualidade, &mut |_| {})
+    }
+
+    fn produzir_com(
+        &self,
+        qualidade: Qualidade,
+        progresso: &mut dyn FnMut(f64),
+    ) -> Result<Vec<nucleo::producao::Reel>, ErroDaProducao> {
+        self.producao.produzir(
+            &Pedido {
+                pasta: &self.pasta,
+                video: &self.pasta.join("original.mp4"),
+                qualidade,
+            },
+            &AtomicBool::new(false),
+            progresso,
+        )
+    }
+
+    fn chamadas(&self, programa: &str) -> Vec<String> {
+        fs::read_to_string(self.bin().join(format!("{programa}.log")))
+            .unwrap_or_default()
+            .lines()
+            .map(str::to_owned)
+            .collect()
+    }
+
+    fn renders(&self) -> Vec<String> {
+        self.chamadas("node")
+            .into_iter()
+            .filter(|c| c.contains(" render "))
+            .collect()
+    }
+
+    fn pacotes(&self) -> usize {
+        self.chamadas("node")
+            .iter()
+            .filter(|c| c.contains(" pacote "))
+            .count()
+    }
+
+    fn ffmpeg_de_corte(&self) -> usize {
+        self.chamadas("ffmpeg")
+            .iter()
+            .filter(|c| c.contains("libx264") && !c.contains("rawvideo"))
+            .count()
+    }
+}
+
+fn nomes(pasta: &Path) -> Vec<String> {
+    let mut nomes: Vec<String> = fs::read_dir(pasta)
+        .map(|entradas| {
+            entradas
+                .filter_map(Result::ok)
+                .filter(|e| e.path().is_file())
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .collect()
+        })
+        .unwrap_or_default();
+    nomes.sort();
+    nomes
+}
+
+#[test]
+fn a_versao_final_sai_em_publicar_com_o_titulo_no_nome_e_um_reel_por_corte() {
+    let cenario = Cenario::novo();
+
+    let reels = cenario.produzir(Qualidade::Final).unwrap();
+
+    assert_eq!(
+        nomes(&cenario.pasta.join("publicar")),
+        [
+            "c01 - Negociar salário tem regra.mp4",
+            "c02 - Dois três o que importa.mp4",
+        ]
+    );
+    assert_eq!(reels.len(), 2);
+    assert_eq!(reels[0].id, "c01");
+    assert_eq!(
+        reels[0].arquivo,
+        cenario
+            .pasta
+            .join("publicar/c01 - Negociar salário tem regra.mp4")
+    );
+    assert!(!cenario.pasta.join("publicar/prévias").exists());
+}
+
+#[test]
+fn a_previa_sai_em_publicar_previas_em_escala_meia() {
+    let cenario = Cenario::novo();
+
+    cenario.produzir(Qualidade::Previa).unwrap();
+
+    assert_eq!(
+        nomes(&cenario.pasta.join("publicar/prévias")),
+        [
+            "c01 - Negociar salário tem regra.mp4",
+            "c02 - Dois três o que importa.mp4",
+        ]
+    );
+    assert!(
+        !cenario
+            .pasta
+            .join("publicar/c01 - Negociar salário tem regra.mp4")
+            .exists()
+    );
+    let renders = cenario.renders();
+    assert!(renders.iter().all(|c| c.ends_with(" 0.5")), "{renders:?}");
+}
+
+#[test]
+fn o_projeto_e_empacotado_uma_vez_e_cada_corte_e_renderizado_do_pacote() {
+    let cenario = Cenario::novo();
+
+    cenario.produzir(Qualidade::Final).unwrap();
+
+    assert_eq!(cenario.pacotes(), 1);
+    let renders = cenario.renders();
+    assert_eq!(renders.len(), 2);
+    assert!(renders[0].contains("remotion: "), "{renders:?}");
+    assert!(renders[0].contains("render.mjs render "), "{renders:?}");
+    assert!(renders[0].ends_with(" 1"), "{renders:?}");
+}
+
+#[test]
+fn o_template_recebe_video_legendas_rosto_motions_e_estilo_de_cada_reel() {
+    let cenario = Cenario::novo();
+
+    cenario.produzir(Qualidade::Final).unwrap();
+
+    let render = &cenario.renders()[0];
+    let pasta_dos_dados = render
+        .split_whitespace()
+        .find(|argumento| argumento.ends_with("/clip"))
+        .unwrap();
+    let dados = Path::new(pasta_dos_dados);
+    let lido = |nome: &str| -> Value {
+        serde_json::from_str(&fs::read_to_string(dados.join(nome)).unwrap()).unwrap()
+    };
+    assert!(dados.join("corte.mp4").is_file());
+    let clip = lido("clip.json");
+    assert_eq!(clip["video"], "corte.mp4");
+    assert_eq!(clip["width"], 256);
+    assert_eq!(clip["height"], 128);
+    assert!((clip["durationSec"].as_f64().unwrap() - 2.7).abs() < 0.5);
+    assert_eq!(lido("captions.json").as_array().unwrap().len(), 5);
+    assert!(!lido("face.json")["keys"].as_array().unwrap().is_empty());
+    let motion = lido("motion.json");
+    assert_eq!(motion["motions"][0]["type"], "title");
+    assert_eq!(motion["motions"][0]["text"], "Negociar salário tem regra");
+    assert!(motion["style"].is_object());
+}
+
+#[test]
+fn refazer_sem_mudar_nada_nao_corta_nem_renderiza_de_novo() {
+    let cenario = Cenario::novo();
+    cenario.produzir(Qualidade::Final).unwrap();
+    let cortes = cenario.ffmpeg_de_corte();
+    assert!(cortes > 0);
+
+    cenario.produzir(Qualidade::Final).unwrap();
+
+    assert_eq!(cenario.ffmpeg_de_corte(), cortes);
+    assert_eq!(cenario.renders().len(), 2);
+    assert_eq!(cenario.pacotes(), 1);
+}
+
+#[test]
+fn mudar_um_corte_refaz_so_ele() {
+    let cenario = Cenario::novo();
+    cenario.produzir(Qualidade::Final).unwrap();
+    let cortes = cenario.ffmpeg_de_corte();
+
+    cenario.roteiro(&[
+        ("c01", "Negociar salário tem regra", (0.0, 2.4)),
+        ("c02", "Dois / três: o que importa?", (2.5, 4.4)),
+    ]);
+    cenario.produzir(Qualidade::Final).unwrap();
+
+    let renders = cenario.renders();
+    assert_eq!(renders.len(), 3, "{renders:?}");
+    assert!(renders[2].contains("c02"), "{renders:?}");
+    assert!(cenario.ffmpeg_de_corte() > cortes);
+    assert_eq!(cenario.pacotes(), 1);
+}
+
+#[test]
+fn mudar_so_o_texto_de_um_motion_renderiza_sem_cortar_de_novo() {
+    let cenario = Cenario::novo();
+    cenario.produzir(Qualidade::Final).unwrap();
+    let cortes = cenario.ffmpeg_de_corte();
+    let rastreios = cenario
+        .chamadas("ffmpeg")
+        .iter()
+        .filter(|c| c.contains("rawvideo"))
+        .count();
+
+    cenario.roteiro(&[
+        ("c01", "Outro título", (0.0, 2.4)),
+        ("c02", "Dois / três: o que importa?", (2.5, 4.9)),
+    ]);
+    cenario.produzir(Qualidade::Final).unwrap();
+
+    assert_eq!(cenario.ffmpeg_de_corte(), cortes);
+    let rastreios_depois = cenario
+        .chamadas("ffmpeg")
+        .iter()
+        .filter(|c| c.contains("rawvideo"))
+        .count();
+    assert_eq!(rastreios_depois, rastreios);
+    assert_eq!(cenario.renders().len(), 3);
+    assert_eq!(
+        nomes(&cenario.pasta.join("publicar")),
+        [
+            "c01 - Outro título.mp4",
+            "c02 - Dois três o que importa.mp4",
+        ]
+    );
+}
+
+#[test]
+fn mudar_o_codigo_do_remotion_do_projeto_empacota_e_renderiza_tudo_de_novo() {
+    let cenario = Cenario::novo();
+    cenario.produzir(Qualidade::Final).unwrap();
+
+    fs::write(
+        cenario.pasta.join("remotion/src/scenes/index.ts"),
+        "nova cena",
+    )
+    .unwrap();
+    cenario.produzir(Qualidade::Final).unwrap();
+
+    assert_eq!(cenario.pacotes(), 2);
+    assert_eq!(cenario.renders().len(), 4);
+}
+
+#[test]
+fn os_dados_do_reel_gerados_nao_contam_como_codigo_do_remotion() {
+    let cenario = Cenario::novo();
+    cenario.produzir(Qualidade::Final).unwrap();
+
+    fs::write(
+        cenario.pasta.join("remotion/public/clips/demo/clip.json"),
+        "{\"a\":1}",
+    )
+    .unwrap();
+    cenario.produzir(Qualidade::Final).unwrap();
+
+    assert_eq!(cenario.pacotes(), 1);
+    assert_eq!(cenario.renders().len(), 2);
+}
+
+#[test]
+fn a_previa_e_a_versao_final_tem_caches_separados() {
+    let cenario = Cenario::novo();
+    cenario.produzir(Qualidade::Previa).unwrap();
+    let cortes = cenario.ffmpeg_de_corte();
+
+    cenario.produzir(Qualidade::Final).unwrap();
+
+    assert_eq!(cenario.renders().len(), 4);
+    assert_eq!(cenario.ffmpeg_de_corte(), cortes);
+    assert_eq!(nomes(&cenario.pasta.join("publicar")).len(), 2);
+    assert_eq!(nomes(&cenario.pasta.join("publicar/prévias")).len(), 2);
+}
+
+#[test]
+fn o_progresso_avanca_por_reel_e_termina_em_um() {
+    let cenario = Cenario::novo();
+    let mut fracoes = Vec::new();
+
+    cenario
+        .produzir_com(Qualidade::Final, &mut |f| fracoes.push(f))
+        .unwrap();
+
+    assert!(
+        fracoes.windows(2).all(|par| par[0] <= par[1]),
+        "{fracoes:?}"
+    );
+    assert!(
+        fracoes.iter().any(|f| (*f - 0.5).abs() < 1e-9),
+        "{fracoes:?}"
+    );
+    assert!((fracoes.last().unwrap() - 1.0).abs() < 1e-9, "{fracoes:?}");
+}
+
+#[test]
+fn falha_do_render_vira_erro_com_a_ultima_linha_do_stderr() {
+    let cenario = Cenario::novo();
+    fs::write(cenario.bin().join("node-falha"), "").unwrap();
+
+    let Err(erro) = cenario.produzir(Qualidade::Final) else {
+        panic!("devia falhar");
+    };
+
+    assert!(erro.to_string().contains("chrome não abriu"), "{erro}");
+}
+
+#[test]
+fn roteiro_invalido_nao_produz_nada() {
+    let cenario = Cenario::novo();
+    fs::write(
+        cenario.pasta.join("edit/roteiro.json"),
+        r#"{"cortes":[{"id":"c01","trechos":[]}]}"#,
+    )
+    .unwrap();
+
+    let Err(erro) = cenario.produzir(Qualidade::Final) else {
+        panic!("devia falhar");
+    };
+
+    assert!(erro.to_string().contains("roteiro inválido"), "{erro}");
+    assert!(cenario.chamadas("node").is_empty());
+}
+
+#[test]
+fn cancelar_antes_de_comecar_devolve_cancelado() {
+    let cenario = Cenario::novo();
+    let cancelar = AtomicBool::new(true);
+
+    let resultado = cenario.producao.produzir(
+        &Pedido {
+            pasta: &cenario.pasta,
+            video: &cenario.pasta.join("original.mp4"),
+            qualidade: Qualidade::Final,
+        },
+        &cancelar,
+        &mut |_| {},
+    );
+
+    assert!(matches!(resultado, Err(ErroDaProducao::Cancelada)));
+}
+
+fn copiar(origem: &Path, destino: &Path) {
+    fs::create_dir_all(destino).unwrap();
+    for entrada in fs::read_dir(origem).unwrap().map(Result::unwrap) {
+        let alvo = destino.join(entrada.file_name());
+        if entrada.path().is_dir() {
+            copiar(&entrada.path(), &alvo);
+        } else {
+            fs::copy(entrada.path(), alvo).unwrap();
+        }
+    }
+}
+
+/// Com `ffmpeg`, `ffprobe`, `node` no `PATH`, as dependências do Remotion instaladas em
+/// `SHORTS_REMOTION` (uma pasta de projeto montada) e um vídeo de 20 s com fala em
+/// `SHORTS_VIDEO_20S`: `cargo test -- --ignored`.
+#[test]
+#[ignore = "precisa de ffmpeg, node, Remotion instalado e um vídeo de 20 s"]
+fn com_os_programas_reais_um_video_de_20_s_gera_um_reel() {
+    let (Some(remotion), Some(video)) = (
+        std::env::var_os("SHORTS_REMOTION"),
+        std::env::var_os("SHORTS_VIDEO_20S"),
+    ) else {
+        panic!("defina SHORTS_REMOTION e SHORTS_VIDEO_20S");
+    };
+    let tmp = tempfile::tempdir().unwrap();
+    let pasta = tmp.path().join("projeto");
+    fs::create_dir_all(pasta.join("edit")).unwrap();
+    copiar(Path::new(&remotion), &pasta.join("remotion"));
+    let palavras: Vec<Value> = (0..20)
+        .map(|n| json!({"text": if n == 19 { "fim." } else { "oi" }, "start": f64::from(n), "end": f64::from(n) + 0.9, "type": "word"}))
+        .collect();
+    fs::write(
+        pasta.join("edit/transcricao.json"),
+        json!({"words": palavras}).to_string(),
+    )
+    .unwrap();
+    fs::write(
+        pasta.join("edit/roteiro.json"),
+        json!({"versao": 1, "fonte": "v.mp4", "cortes": [
+            {"id": "c01", "status": "produzir", "titulo": "Teste", "trechos": [[0, 19.9]]}
+        ]})
+        .to_string(),
+    )
+    .unwrap();
+
+    let reels = Producao::new(
+        Ffmpeg::new("ffmpeg".into(), "ffprobe".into()),
+        "node".into(),
+    )
+    .produzir(
+        &Pedido {
+            pasta: &pasta,
+            video: Path::new(&video),
+            qualidade: Qualidade::Previa,
+        },
+        &AtomicBool::new(false),
+        &mut |_| {},
+    )
+    .unwrap();
+
+    assert!(reels[0].arquivo.metadata().unwrap().len() > 10_000);
+}

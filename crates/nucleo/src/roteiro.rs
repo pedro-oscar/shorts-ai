@@ -407,6 +407,10 @@ pub struct Plano {
     pub id: String,
     /// O nome do corte nos arquivos: `<prefixo>-<id>`.
     pub chave: String,
+    /// O título do corte, que dá o nome ao arquivo do reel.
+    pub titulo: Option<String>,
+    /// Os `pin` do corte, como o roteiro os escreve.
+    pub pins: Vec<String>,
     /// Os trechos encaixados nas palavras, no tempo do vídeo original.
     pub trechos: Vec<(f64, f64)>,
     pub duracao: f64,
@@ -706,6 +710,8 @@ fn construir(
     Some(Plano {
         id: corte.id.clone(),
         chave: format!("{prefixo}-{}", slug_com(&corte.id, 20)),
+        titulo: corte.titulo.clone(),
+        pins: corte.pin.clone(),
         trechos,
         duracao,
         legendas,

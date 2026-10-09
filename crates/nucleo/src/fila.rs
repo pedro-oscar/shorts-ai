@@ -8,6 +8,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::mpsc::{self, Sender};
 use std::thread;
 
+use crate::producao::{self, Producao, Qualidade};
 use crate::projeto::{ModoDeImportacao, Origem, ProjetoJson};
 use crate::sessao::{self, EventoDaSessao, Roteirista};
 use crate::transcricao::{Pedido, Transcritor};
@@ -25,6 +26,7 @@ impl Fila {
         ligar: LigarArquivo,
         transcritor: Option<Transcritor>,
         roteirista: Option<Roteirista>,
+        producao: Option<Producao>,
     ) -> Self {
         let (envio, recebimento) = mpsc::channel::<PathBuf>();
         thread::spawn(move || {
@@ -35,6 +37,7 @@ impl Fila {
                     &ligar,
                     transcritor.as_ref(),
                     roteirista.as_ref(),
+                    producao.as_ref(),
                 );
             }
         });
@@ -56,6 +59,7 @@ fn rodar(
     ligar: &LigarArquivo,
     transcritor: Option<&Transcritor>,
     roteirista: Option<&Roteirista>,
+    producao: Option<&Producao>,
 ) {
     let id = nome_do_arquivo(pasta);
     let mut projeto = match ProjetoJson::ler(pasta) {
@@ -82,7 +86,8 @@ fn rodar(
             Etapa::Importacao => true,
             Etapa::Transcricao => transcritor.is_some(),
             Etapa::Roteiro => roteirista.is_some(),
-            _ => false,
+            Etapa::Producao => producao.is_some(),
+            Etapa::Revisao => projeto.opcoes.revisoes == 0,
         };
         if !tem_executor {
             return;
@@ -104,13 +109,17 @@ fn rodar(
             });
         };
         transicao(&mut projeto, EstadoDaEtapa::EmAndamento, None);
-        let resultado = match (etapa, transcritor, roteirista) {
-            (Etapa::Transcricao, Some(transcritor), _) => {
+        let resultado = match (etapa, transcritor, roteirista, producao) {
+            (Etapa::Transcricao, Some(transcritor), _, _) => {
                 transcrever(pasta, &mut projeto, transcritor, &id, emit)
             }
-            (Etapa::Roteiro, _, Some(roteirista)) => {
+            (Etapa::Roteiro, _, Some(roteirista), _) => {
                 roteirizar(pasta, &projeto, roteirista, &id, emit)
             }
+            (Etapa::Producao, _, _, Some(producao)) => {
+                produzir(pasta, &projeto, producao, &id, emit)
+            }
+            (Etapa::Revisao, ..) => Ok(()),
             _ => importar(pasta, &mut projeto, ligar).map_err(|error| error.to_string()),
         };
         match resultado {
@@ -155,16 +164,7 @@ fn transcrever(
     id: &str,
     emit: &Emitir,
 ) -> Result<(), String> {
-    let Origem::Arquivo {
-        caminho,
-        nome,
-        modo,
-        ..
-    } = &projeto.origem;
-    let video = match modo {
-        Some(ModoDeImportacao::Hardlink) => pasta.join("bruto").join(nome),
-        _ => PathBuf::from(caminho),
-    };
+    let video = video_original(pasta, projeto);
     let mut ultimo = None;
     let transcricao = transcritor
         .transcrever(
@@ -237,4 +237,59 @@ fn roteirizar(
             },
         )
         .map_err(|error| error.to_string())
+}
+
+/// A Produção: corta, segue o rosto e renderiza cada reel. A prévia (meia escala) vem antes da
+/// versão final quando o projeto a pede. A fila ainda não cancela etapas, então nada liga o
+/// `cancelar`.
+fn produzir(
+    pasta: &Path,
+    projeto: &ProjetoJson,
+    producao: &Producao,
+    id: &str,
+    emit: &Emitir,
+) -> Result<(), String> {
+    let video = video_original(pasta, projeto);
+    let mut ultimo = None;
+    producao
+        .produzir(
+            &producao::Pedido {
+                pasta,
+                video: &video,
+                qualidade: if projeto.opcoes.previa {
+                    Qualidade::Previa
+                } else {
+                    Qualidade::Final
+                },
+            },
+            &AtomicBool::new(false),
+            &mut |fracao| {
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                let percentual = (fracao * 100.0).floor().clamp(0.0, 100.0) as u8;
+                if ultimo != Some(percentual) {
+                    ultimo = Some(percentual);
+                    emit(Evento::ProgressoDaEtapa {
+                        projeto: id.to_owned(),
+                        etapa: Etapa::Producao,
+                        percentual,
+                    });
+                }
+            },
+        )
+        .map(|_| ())
+        .map_err(|error| error.to_string())
+}
+
+/// O vídeo original do projeto: o hardlink em `bruto/` ou o caminho de origem.
+fn video_original(pasta: &Path, projeto: &ProjetoJson) -> PathBuf {
+    let Origem::Arquivo {
+        caminho,
+        nome,
+        modo,
+        ..
+    } = &projeto.origem;
+    match modo {
+        Some(ModoDeImportacao::Hardlink) => pasta.join("bruto").join(nome),
+        _ => PathBuf::from(caminho),
+    }
 }

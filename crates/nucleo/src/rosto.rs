@@ -31,7 +31,7 @@ const FRACAO_DA_AREA_QUE_AINDA_E_GRANDE: f64 = 0.5;
 const ALFA_DA_SUAVIZACAO: f64 = 0.25;
 const ZONA_MORTA: f64 = 0.035;
 /// Abaixo disso de quadros com rosto, o corte merece aviso.
-const PROPORCAO_MINIMA_COM_ROSTO: f64 = 0.6;
+pub(crate) const PROPORCAO_MINIMA_COM_ROSTO: f64 = 0.6;
 const CASAS: f64 = 10_000.0;
 const ROSTO_PADRAO: Deteccao = Deteccao {
     cx: 0.5,
