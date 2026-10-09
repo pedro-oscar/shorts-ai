@@ -22,6 +22,7 @@ const LOG: &str = "edit/sessao-roteiro.jsonl";
 /// Os erros do roteiro inválido, para a próxima tentativa.
 const ERROS: &str = "edit/erros-do-roteiro.txt";
 const CUSTOS: &str = "custos.json";
+const ARQUIVO_DE_APRENDIZADOS: &str = "aprendizados.md";
 /// Quantos caracteres do alvo de uma ação entram no evento.
 const ALVO_MAXIMO: usize = 120;
 /// Quantas linhas do stderr entram no detalhe de uma sessão que caiu.
@@ -168,8 +169,6 @@ pub fn preparar_skill(assets: &Path, app_data_dir: &Path) -> io::Result<Skill> {
         aprendizados,
     })
 }
-
-const ARQUIVO_DE_APRENDIZADOS: &str = "aprendizados.md";
 
 fn copiar_pasta(origem: &Path, destino: &Path) -> io::Result<()> {
     fs::create_dir_all(destino)?;

@@ -321,9 +321,7 @@ fn o_prompt_vai_pela_entrada_padrao_com_idioma_quantidade_e_pastas() {
     assert!(prompt.contains("até **6** cortes"));
     assert!(prompt.contains("shorts-cli validar edit/roteiro.json"));
     assert!(prompt.contains("`descricao`"));
-    assert!(
-        prompt.contains("`\"fonte\": \"aula.mp4\"") || prompt.contains("\"fonte\": \"aula.mp4\"")
-    );
+    assert!(prompt.contains("\"fonte\": \"aula.mp4\""));
     assert!(prompt.contains(&format!(
         "{}/aprendizados.md",
         cenario.aprendizados.display()
