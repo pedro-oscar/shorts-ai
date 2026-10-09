@@ -1,0 +1,179 @@
+//! A Galeria: o que a pessoa vê de um projeto depois da Produção, lido do roteiro e dos
+//! arquivos publicados, e o que ela pode abrir no sistema.
+
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
+use serde::{Deserialize, Serialize};
+use specta::Type;
+
+use crate::process::hide_console;
+use crate::producao::{PREVIAS, PUBLICAR, nome_do_reel};
+use crate::roteiro::{ROTEIRO, Roteiro, StatusDoCorte};
+
+const LOG_DO_ROTEIRO: &str = "edit/sessao-roteiro.jsonl";
+const PASTA_DE_EDICAO: &str = "edit";
+
+/// O que a Galeria abre no sistema.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum AlvoParaAbrir {
+    /// A pasta do projeto, no Explorador ou no gerenciador de arquivos.
+    Pasta,
+    Roteiro,
+    /// O log da sessão do Claude e, sem ele, a pasta `edit/`.
+    Logs,
+}
+
+/// Um corte a produzir, com o arquivo publicado dele se já existe.
+#[derive(Debug, Clone, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ReelDoProjeto {
+    pub id: String,
+    pub titulo: Option<String>,
+    pub duracao_em_segundos: f64,
+    pub nota: Option<f64>,
+    pub categoria: Option<String>,
+    pub gancho: Option<String>,
+    pub payoff: Option<String>,
+    pub porque: Option<String>,
+    /// O texto do post.
+    pub descricao: Option<String>,
+    /// O caminho do reel publicado; `None` enquanto ele não foi renderizado.
+    pub arquivo: Option<String>,
+    /// O arquivo é a prévia em meia resolução, não a versão final.
+    pub previa: bool,
+}
+
+/// Um corte que o Claude deixou de reserva: não é renderizado.
+#[derive(Debug, Clone, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct Reserva {
+    pub id: String,
+    pub titulo: Option<String>,
+    pub nota: Option<f64>,
+    pub porque: Option<String>,
+}
+
+/// Os reels e as reservas de um projeto, na ordem do roteiro.
+#[derive(Debug, Clone, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DadosDoProjeto {
+    pub reels: Vec<ReelDoProjeto>,
+    pub reservas: Vec<Reserva>,
+}
+
+/// Lê o roteiro da pasta do projeto; sem roteiro ainda, a Galeria dele está vazia.
+pub(crate) fn ler(pasta: &Path) -> Result<DadosDoProjeto, String> {
+    let texto = match fs::read_to_string(pasta.join(ROTEIRO)) {
+        Ok(texto) => texto,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(DadosDoProjeto {
+                reels: Vec::new(),
+                reservas: Vec::new(),
+            });
+        }
+        Err(error) => return Err(error.to_string()),
+    };
+    let roteiro: Roteiro = serde_json::from_str(&texto).map_err(|error| error.to_string())?;
+    let mut dados = DadosDoProjeto {
+        reels: Vec::new(),
+        reservas: Vec::new(),
+    };
+    for corte in roteiro.cortes {
+        if corte.status == StatusDoCorte::Reserva {
+            dados.reservas.push(Reserva {
+                id: corte.id,
+                titulo: corte.titulo,
+                nota: corte.nota,
+                porque: corte.porque,
+            });
+            continue;
+        }
+        let nome = nome_do_reel(&corte.id, corte.titulo.as_deref());
+        let publicado = pasta.join(PUBLICAR);
+        let (arquivo, previa) = [
+            (publicado.join(&nome), false),
+            (publicado.join(PREVIAS).join(&nome), true),
+        ]
+        .into_iter()
+        .find(|(caminho, _)| caminho.is_file())
+        .map_or((None, false), |(caminho, previa)| {
+            (Some(caminho.display().to_string()), previa)
+        });
+        dados.reels.push(ReelDoProjeto {
+            duracao_em_segundos: corte
+                .trechos
+                .iter()
+                .map(|(inicio, fim)| fim.0 - inicio.0)
+                .sum(),
+            id: corte.id,
+            titulo: corte.titulo,
+            nota: corte.nota,
+            categoria: corte.categoria,
+            gancho: corte.gancho,
+            payoff: corte.payoff,
+            porque: corte.porque,
+            descricao: corte.descricao,
+            arquivo,
+            previa,
+        });
+    }
+    Ok(dados)
+}
+
+/// O que abrir no sistema para o alvo.
+pub(crate) fn caminho_para_abrir(pasta: &Path, alvo: AlvoParaAbrir) -> PathBuf {
+    match alvo {
+        AlvoParaAbrir::Pasta => pasta.to_owned(),
+        AlvoParaAbrir::Roteiro => pasta.join(ROTEIRO),
+        AlvoParaAbrir::Logs => {
+            let log = pasta.join(LOG_DO_ROTEIRO);
+            if log.is_file() {
+                log
+            } else {
+                pasta.join(PASTA_DE_EDICAO)
+            }
+        }
+    }
+}
+
+/// Entrega o caminho ao programa do sistema que abre arquivos e pastas.
+pub(crate) fn abrir_no_sistema(caminho: &Path) -> std::io::Result<()> {
+    let mut comando = if cfg!(windows) {
+        Command::new("explorer")
+    } else if cfg!(target_os = "macos") {
+        Command::new("open")
+    } else {
+        Command::new("xdg-open")
+    };
+    comando.arg(caminho);
+    hide_console(&mut comando);
+    // O Explorador sai com código 1 mesmo quando abre; só a falha de iniciar vale.
+    comando.spawn().map(|_| ())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn logs_abrem_o_log_da_sessao_e_na_falta_dele_a_pasta_de_edicao() {
+        let pasta = tempfile::tempdir().unwrap();
+        assert_eq!(
+            caminho_para_abrir(pasta.path(), AlvoParaAbrir::Logs),
+            pasta.path().join("edit")
+        );
+        fs::create_dir(pasta.path().join("edit")).unwrap();
+        fs::write(pasta.path().join(LOG_DO_ROTEIRO), "").unwrap();
+        assert_eq!(
+            caminho_para_abrir(pasta.path(), AlvoParaAbrir::Logs),
+            pasta.path().join(LOG_DO_ROTEIRO)
+        );
+        assert_eq!(
+            caminho_para_abrir(pasta.path(), AlvoParaAbrir::Roteiro),
+            pasta.path().join("edit/roteiro.json")
+        );
+    }
+}

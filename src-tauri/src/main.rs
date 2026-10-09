@@ -5,11 +5,13 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use nucleo::{
-    Aceite, ArquivoDeVideo, Config, Erro, EstadoDaConta, EstadoInicial, Evento, ModoDeLogin,
-    NivelDoPlano, Nucleo, PeriodoDeCobranca, PlanoConfirmado, ProjetoResumo,
+    Aceite, AlvoParaAbrir, ArquivoDeVideo, Config, DadosDoProjeto, Erro, EstadoDaConta,
+    EstadoInicial, Evento, ModoDeLogin, NivelDoPlano, Nucleo, PeriodoDeCobranca, PlanoConfirmado,
+    ProjetoResumo,
 };
 use serde::Serialize;
 use specta::Type;
+use std::path::PathBuf;
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 use tauri_specta::{Builder, Event, collect_commands, collect_events};
@@ -144,6 +146,22 @@ async fn criar_lote(
     nucleo.criar_lote(&caminhos)
 }
 
+#[tauri::command]
+#[specta::specta]
+async fn dados_do_projeto(nucleo: State<'_, Nucleo>, id: String) -> Result<DadosDoProjeto, Erro> {
+    nucleo.dados_do_projeto(&id)
+}
+
+#[tauri::command]
+#[specta::specta]
+async fn abrir_no_sistema(
+    nucleo: State<'_, Nucleo>,
+    id: String,
+    alvo: AlvoParaAbrir,
+) -> Result<(), Erro> {
+    nucleo.abrir_no_sistema(&id, alvo)
+}
+
 /// "Sair" no Aviso de uso: fecha o app.
 #[tauri::command]
 #[specta::specta]
@@ -167,6 +185,8 @@ fn bindings() -> Builder<tauri::Wry> {
             escolher_arquivos,
             inspecionar_arquivos,
             criar_lote,
+            dados_do_projeto,
+            abrir_no_sistema,
             sair
         ])
         .events(collect_events![EventoDoNucleo])
@@ -213,6 +233,11 @@ fn main() {
                     }
                 },
             );
+            // Os reels tocam pelo protocolo de arquivos, só com a Biblioteca no escopo.
+            let biblioteca = PathBuf::from(nucleo.estado_inicial().biblioteca);
+            std::fs::create_dir_all(&biblioteca)?;
+            app.asset_protocol_scope()
+                .allow_directory(&biblioteca, true)?;
             app.manage(nucleo);
             Ok(())
         })

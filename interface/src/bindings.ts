@@ -19,6 +19,8 @@ export const commands = {
 	escolherArquivos: () => __TAURI_INVOKE<string[]>("escolher_arquivos"),
 	inspecionarArquivos: (caminhos: string[]) => typedError<ArquivoDeVideo[], Erro>(__TAURI_INVOKE("inspecionar_arquivos", { caminhos })),
 	criarLote: (caminhos: string[]) => typedError<ProjetoResumo[], Erro>(__TAURI_INVOKE("criar_lote", { caminhos })),
+	dadosDoProjeto: (id: string) => typedError<DadosDoProjeto, Erro>(__TAURI_INVOKE("dados_do_projeto", { id })),
+	abrirNoSistema: (id: string, alvo: AlvoParaAbrir) => typedError<null, Erro>(__TAURI_INVOKE("abrir_no_sistema", { id, alvo })),
 	/**  "Sair" no Aviso de uso: fecha o app. */
 	sair: () => __TAURI_INVOKE<void>("sair"),
 };
@@ -40,6 +42,13 @@ export type Aceite = {
 	data: string,
 };
 
+/**  O que a Galeria abre no sistema. */
+export type AlvoParaAbrir = 
+/**  A pasta do projeto, no Explorador ou no gerenciador de arquivos. */
+"pasta" | "roteiro" | 
+/**  O log da sessão do Claude e, sem ele, a pasta `edit/`. */
+"logs";
+
 /**  Um arquivo de vídeo escolhido, para a lista do passo Vídeos. */
 export type ArquivoDeVideo = {
 	caminho: string,
@@ -55,11 +64,17 @@ export type Cobranca = "assinatura" |
 /**  Conta do Console e plano Enterprise contam como preço de API. */
 "porUso";
 
+/**  Os reels e as reservas de um projeto, na ordem do roteiro. */
+export type DadosDoProjeto = {
+	reels: ReelDoProjeto[],
+	reservas: Reserva[],
+};
+
 /**
  *  Os erros do núcleo, como código e parâmetros. `detalhe` é a mensagem do sistema, para
  *  diagnóstico.
  */
-export type Erro = { codigo: "preferenciasIlegiveis"; caminho: string; detalhe: string } | { codigo: "preferenciasNaoGravadas"; caminho: string; detalhe: string } | { codigo: "loginNaoConcluido"; detalhe: string } | { codigo: "instalacaoFalhou"; detalhe: string } | { codigo: "atualizacaoFalhou"; detalhe: string } | { codigo: "claudeNaoRespondeu"; detalhe: string } | { codigo: "arquivoInvalido"; caminho: string } | { codigo: "projetoNaoCriado"; caminho: string; detalhe: string } | { codigo: "dependenciasDoRemotionNaoInstaladas"; detalhe: string };
+export type Erro = { codigo: "preferenciasIlegiveis"; caminho: string; detalhe: string } | { codigo: "preferenciasNaoGravadas"; caminho: string; detalhe: string } | { codigo: "loginNaoConcluido"; detalhe: string } | { codigo: "instalacaoFalhou"; detalhe: string } | { codigo: "atualizacaoFalhou"; detalhe: string } | { codigo: "claudeNaoRespondeu"; detalhe: string } | { codigo: "arquivoInvalido"; caminho: string } | { codigo: "projetoNaoCriado"; caminho: string; detalhe: string } | { codigo: "dependenciasDoRemotionNaoInstaladas"; detalhe: string } | { codigo: "projetoNaoLido"; id: string; detalhe: string };
 
 /**  Em que pé está a conta Claude do app. */
 export type EstadoDaConta = { tipo: "naoInstalado" } | { tipo: "versaoAntiga"; versao: string; minima: string } | { tipo: "semLogin"; versao: string } | { tipo: "logado"; versao: string; 
@@ -155,6 +170,32 @@ export type ProjetoResumo = {
 	etapas: EtapaDoProjeto[],
 	/**  Por que a etapa que falhou falhou, como a mensagem do sistema. */
 	falha: string | null,
+};
+
+/**  Um corte a produzir, com o arquivo publicado dele se já existe. */
+export type ReelDoProjeto = {
+	id: string,
+	titulo: string | null,
+	duracaoEmSegundos: number | null,
+	nota: number | null,
+	categoria: string | null,
+	gancho: string | null,
+	payoff: string | null,
+	porque: string | null,
+	/**  O texto do post. */
+	descricao: string | null,
+	/**  O caminho do reel publicado; `None` enquanto ele não foi renderizado. */
+	arquivo: string | null,
+	/**  O arquivo é a prévia em meia resolução, não a versão final. */
+	previa: boolean,
+};
+
+/**  Um corte que o Claude deixou de reserva: não é renderizado. */
+export type Reserva = {
+	id: string,
+	titulo: string | null,
+	nota: number | null,
+	porque: string | null,
 };
 
 /* Tauri Specta runtime */

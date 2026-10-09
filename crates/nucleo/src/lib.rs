@@ -9,6 +9,7 @@ mod conta;
 pub mod corte;
 mod fila;
 mod files;
+mod galeria;
 mod preferencias;
 mod process;
 pub mod producao;
@@ -35,6 +36,7 @@ use crate::conta::Conta;
 pub use crate::conta::{Cobranca, EstadoDaConta, ModoDeLogin, VERSAO_MINIMA_DO_CLAUDE_CODE};
 use crate::corte::Ffmpeg;
 use crate::fila::Fila;
+pub use crate::galeria::{AlvoParaAbrir, DadosDoProjeto, ReelDoProjeto, Reserva};
 use crate::preferencias::{PreferencesFile, Preferencias};
 use crate::process::hide_console;
 use crate::producao::Producao;
@@ -335,6 +337,8 @@ pub enum Erro {
     ProjetoNaoCriado { caminho: String, detalhe: String },
     #[error("dependências do Remotion não instaladas: {detalhe}")]
     DependenciasDoRemotionNaoInstaladas { detalhe: String },
+    #[error("projeto {id} não lido: {detalhe}")]
+    ProjetoNaoLido { id: String, detalhe: String },
 }
 
 impl Nucleo {
@@ -615,6 +619,40 @@ impl Nucleo {
             "projetos": projetos.iter().map(|projeto| &projeto.id).collect::<Vec<_>>(),
         });
         files::write_json(&arquivo, &lote).map_err(|error| lote_nao_criado(&arquivo, &error))
+    }
+
+    /// Os reels e as reservas do projeto, para a Galeria.
+    pub fn dados_do_projeto(&self, id: &str) -> Result<DadosDoProjeto, Erro> {
+        let pasta = self.pasta_do_projeto(id)?;
+        galeria::ler(&pasta).map_err(|detalhe| Erro::ProjetoNaoLido {
+            id: id.to_owned(),
+            detalhe,
+        })
+    }
+
+    /// Abre a pasta, o roteiro ou os logs do projeto no programa padrão do sistema.
+    pub fn abrir_no_sistema(&self, id: &str, alvo: AlvoParaAbrir) -> Result<(), Erro> {
+        let pasta = self.pasta_do_projeto(id)?;
+        galeria::abrir_no_sistema(&galeria::caminho_para_abrir(&pasta, alvo)).map_err(|error| {
+            Erro::ProjetoNaoLido {
+                id: id.to_owned(),
+                detalhe: error.to_string(),
+            }
+        })
+    }
+
+    /// A pasta do projeto `id`, que tem de ser uma pasta direta da Biblioteca.
+    fn pasta_do_projeto(&self, id: &str) -> Result<PathBuf, Erro> {
+        let simples = !id.is_empty() && !id.starts_with('.') && !id.contains(['/', '\\']);
+        let pasta = self.biblioteca.join(id);
+        if simples && pasta.is_dir() {
+            Ok(pasta)
+        } else {
+            Err(Erro::ProjetoNaoLido {
+                id: id.to_owned(),
+                detalhe: "não é um projeto da Biblioteca".to_owned(),
+            })
+        }
     }
 
     /// A duração, em segundos, pelo `ffprobe`; `None` sem ele ou sem resposta.

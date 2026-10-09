@@ -1,6 +1,8 @@
 import { createStore } from "zustand/vanilla";
 import type {
   Aceite,
+  AlvoParaAbrir,
+  DadosDoProjeto,
   ArquivoDeVideo,
   Erro,
   EstadoDaConta,
@@ -68,6 +70,9 @@ export interface AppState {
   erroDeArquivos: Erro | null;
   /** Os projetos criados, com o estado de cada etapa, em ordem de criação. */
   projetos: ProjetoNaFila[];
+  /** Os reels e as reservas de cada projeto, lidos pelo núcleo ao abrir o passo Reels. */
+  galeria: Record<string, DadosDoProjeto>;
+  erroDaGaleria: Erro | null;
 }
 
 export interface AppStore extends AppState {
@@ -88,6 +93,10 @@ export interface AppStore extends AppState {
   adicionarArquivos: (caminhos: string[]) => Promise<void>;
   escolherArquivos: () => Promise<void>;
   removerArquivo: (caminho: string) => void;
+  carregarGaleria: (id: string) => Promise<void>;
+  abrirNoSistema: (id: string, alvo: AlvoParaAbrir) => Promise<void>;
+  /** O endereço pelo qual o player toca o reel. */
+  urlDoArquivo: (caminho: string) => string;
   /** Cria o lote com os vídeos da lista; devolve se criou. */
   gerar: () => Promise<boolean>;
 }
@@ -204,6 +213,8 @@ export function createAppStore(nucleo: Nucleo) {
       arquivos: [],
       erroDeArquivos: null,
       projetos: [],
+      galeria: {},
+      erroDaGaleria: null,
 
       connect: () => {
         let connected = true;
@@ -322,6 +333,25 @@ export function createAppStore(nucleo: Nucleo) {
           arquivos: current.arquivos.filter((a) => a.caminho !== caminho),
         }));
       },
+
+      carregarGaleria: async (id) => {
+        const result = await nucleo.dadosDoProjeto(id);
+        if (result.status === "error") {
+          set({ erroDaGaleria: result.error });
+          return;
+        }
+        set((current) => ({
+          erroDaGaleria: null,
+          galeria: { ...current.galeria, [id]: result.data },
+        }));
+      },
+
+      abrirNoSistema: async (id, alvo) => {
+        const result = await nucleo.abrirNoSistema(id, alvo);
+        if (result.status === "error") set({ erroDaGaleria: result.error });
+      },
+
+      urlDoArquivo: nucleo.urlDoArquivo,
 
       gerar: async () => {
         const result = await nucleo.criarLote(

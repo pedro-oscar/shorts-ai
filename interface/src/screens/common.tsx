@@ -81,9 +81,10 @@ export function TextoDoAviso({ headingLevel }: { headingLevel: 2 | 3 }) {
 export function ErrorMessage({ erro }: { erro: Erro }) {
   const { t } = useTranslation();
   const caminho = "caminho" in erro ? erro.caminho : undefined;
+  const id = "id" in erro ? erro.id : undefined;
   return (
     <div role="alert" className="error">
-      <p>{t(`erros.${erro.codigo}`, { caminho })}</p>
+      <p>{t(`erros.${erro.codigo}`, { caminho, id })}</p>
       {"detalhe" in erro && (
         <p className="detail">
           {t("erros.detalhe", { detalhe: erro.detalhe })}

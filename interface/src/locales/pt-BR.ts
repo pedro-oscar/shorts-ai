@@ -118,6 +118,7 @@ export const ptBR = {
     textoDoClaude: "“{{texto}}”",
     tokens:
       "Tokens da sessão: {{entrada, number}} de entrada e {{cache, number}} de cache",
+    verReels: "Ver reels",
     estados: {
       naFila: "Na fila",
       emAndamento: "Em andamento",
@@ -137,6 +138,26 @@ export const ptBR = {
       concluida: "concluída",
       falhou: "falhou",
     },
+  },
+  reels: {
+    titulo: "Reels",
+    voltar: "Voltar para Gerando",
+    vazio: "Nenhum projeto com reels ainda.",
+    semReels: "Este projeto ainda não tem reels.",
+    previa: "Prévia",
+    nota: "Nota {{nota, number}}",
+    gancho: "Gancho",
+    payoff: "Payoff",
+    porque: "Por quê",
+    semArquivo: "Reel ainda não renderizado.",
+    copiarDescricao: "Copiar descrição",
+    copiarDescricaoDe: "Copiar descrição de {{titulo}}",
+    copiada: "Descrição copiada",
+    abrirPasta: "Abrir pasta",
+    abrirRoteiro: "Abrir roteiro",
+    abrirLogs: "Abrir logs",
+    reservas: "Reservas",
+    semTitulo: "Sem título",
   },
   preferencias: {
     corrompidas:
@@ -161,6 +182,8 @@ export const ptBR = {
       "Não foi possível criar o projeto em {{caminho}}. Confira se há espaço e permissão nessa pasta e tente de novo.",
     dependenciasDoRemotionNaoInstaladas:
       "Não foi possível instalar as dependências do Remotion. Confira a conexão com a internet e tente de novo.",
+    projetoNaoLido:
+      "Não foi possível ler o projeto {{id}}. Confira se a pasta dele ainda está na Biblioteca e tente de novo.",
     detalhe: "Detalhe técnico (do sistema): {{detalhe}}",
   },
 };

@@ -116,6 +116,7 @@ export const en: typeof ptBR = {
     textoDoClaude: "“{{texto}}”",
     tokens:
       "Session tokens: {{entrada, number}} input and {{cache, number}} cache",
+    verReels: "View reels",
     estados: {
       naFila: "Queued",
       emAndamento: "In progress",
@@ -135,6 +136,26 @@ export const en: typeof ptBR = {
       concluida: "done",
       falhou: "failed",
     },
+  },
+  reels: {
+    titulo: "Reels",
+    voltar: "Back to Generating",
+    vazio: "No projects with reels yet.",
+    semReels: "This project has no reels yet.",
+    previa: "Preview",
+    nota: "Score {{nota, number}}",
+    gancho: "Hook",
+    payoff: "Payoff",
+    porque: "Why",
+    semArquivo: "Reel not rendered yet.",
+    copiarDescricao: "Copy description",
+    copiarDescricaoDe: "Copy description of {{titulo}}",
+    copiada: "Description copied",
+    abrirPasta: "Open folder",
+    abrirRoteiro: "Open script",
+    abrirLogs: "Open logs",
+    reservas: "Reserves",
+    semTitulo: "Untitled",
   },
   preferencias: {
     corrompidas:
@@ -159,6 +180,8 @@ export const en: typeof ptBR = {
       "Could not create the project in {{caminho}}. Check that the folder has space and permission, and try again.",
     dependenciasDoRemotionNaoInstaladas:
       "Could not install the Remotion dependencies. Check your internet connection and try again.",
+    projetoNaoLido:
+      "Could not read project {{id}}. Check that its folder is still in the Library and try again.",
     detalhe: "Technical details (from the system): {{detalhe}}",
   },
 };

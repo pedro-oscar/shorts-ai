@@ -27,8 +27,8 @@ const HASH_DO_PACOTE: &str = ".pacote.hash";
 /// O que, além de `src/` e de `public/` (sem `clips/`), é código do Remotion do projeto.
 const ARQUIVOS_DE_CODIGO: [&str; 3] = ["package.json", "remotion.config.ts", "tsconfig.json"];
 /// Os reels prontos e as prévias.
-const PUBLICAR: &str = "publicar";
-const PREVIAS: &str = "prévias";
+pub(crate) const PUBLICAR: &str = "publicar";
+pub(crate) const PREVIAS: &str = "prévias";
 /// Os intermediários de cada corte (`edit/cortes/<chave>/`).
 const CORTES: &str = "edit/cortes";
 const FPS: u32 = 30;
@@ -241,7 +241,7 @@ impl Producao {
             Qualidade::Final => pedido.pasta.join(PUBLICAR),
             Qualidade::Previa => pedido.pasta.join(PUBLICAR).join(PREVIAS),
         };
-        let nome = nome_do_reel(plano);
+        let nome = nome_do_reel(&plano.id, plano.titulo.as_deref());
         let arquivo = pasta_final.join(&nome);
         let marca = pasta.join(format!("render-{}.hash", pedido.qualidade.nome()));
         let reel = Reel {
@@ -458,10 +458,8 @@ fn rosto_raro(rosto: &Path) -> bool {
 }
 
 /// `c01 - <título até 50 caracteres>.mp4`, sem o que o sistema de arquivos não aceita.
-fn nome_do_reel(plano: &Plano) -> String {
-    let limpo: String = plano
-        .titulo
-        .as_deref()
+pub(crate) fn nome_do_reel(id: &str, titulo: Option<&str>) -> String {
+    let limpo: String = titulo
         .unwrap_or_default()
         .chars()
         .filter(|c| !c.is_control() && !"/\\:*?\"<>|".contains(*c))
@@ -470,8 +468,8 @@ fn nome_do_reel(plano: &Plano) -> String {
     let titulo: String = junto.chars().take(TITULO_MAXIMO).collect();
     let titulo = titulo.trim_end_matches(|c: char| c.is_whitespace() || c == '.');
     if titulo.is_empty() {
-        format!("{}.mp4", plano.id)
+        format!("{id}.mp4")
     } else {
-        format!("{} - {titulo}.mp4", plano.id)
+        format!("{id} - {titulo}.mp4")
     }
 }

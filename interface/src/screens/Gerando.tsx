@@ -3,6 +3,7 @@ import type { ProjetoResumo } from "../bindings";
 import { useAppStore } from "../context";
 import type { AcaoDoClaude } from "../store";
 import { Screen, Topo } from "./common";
+import { producaoConcluida } from "./formatos";
 
 /** O estado do projeto e a etapa N/5 em que ele está (a próxima a rodar, se parou). */
 function resumir(projeto: ProjetoResumo) {
@@ -38,13 +39,24 @@ function Acao({ acao }: { acao: AcaoDoClaude }) {
 }
 
 /** O passo Gerando: cada projeto do lote com o estado e as etapas, ao vivo. */
-export function Gerando({ onOpenSobre }: { onOpenSobre: () => void }) {
+export function Gerando({
+  onOpenSobre,
+  onVerReels,
+}: {
+  onOpenSobre: () => void;
+  onVerReels: () => void;
+}) {
   const { t } = useTranslation();
   const projetos = useAppStore((store) => store.projetos);
   return (
     <>
       <Topo onOpenSobre={onOpenSobre} />
       <Screen title={t("gerando.titulo")}>
+        {projetos.some(producaoConcluida) && (
+          <button type="button" onClick={onVerReels}>
+            {t("gerando.verReels")}
+          </button>
+        )}
         <ul className="project-list">
           {projetos.map((projeto) => {
             const resumo = resumir(projeto);

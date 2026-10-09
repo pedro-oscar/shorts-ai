@@ -1,6 +1,8 @@
 import type {
   Aceite,
+  AlvoParaAbrir,
   ArquivoDeVideo,
+  DadosDoProjeto,
   Erro,
   EstadoDaConta,
   EstadoInicial,
@@ -47,6 +49,7 @@ export function createFakeNucleo(
   const droppers = new Set<(caminhos: string[]) => void>();
   let picked: string[] = [];
   let projetos: ProjetoResumo[] = [];
+  const dados = new Map<string, DadosDoProjeto>();
   const calls = {
     sair: 0,
     entrar: 0,
@@ -57,12 +60,15 @@ export function createFakeNucleo(
     lotes: [] as string[][],
     /** Os argumentos de cada `entrarNoClaudeCode`. */
     logins: [] as { modo: ModoDeLogin; porTerminal: boolean }[],
+    /** O que cada `abrirNoSistema` pediu. */
+    abertos: [] as { id: string; alvo: AlvoParaAbrir }[],
   };
   let commandError: Erro | null = null;
   let loginError: Erro | null = null;
   let testError: Erro | null = null;
   let acceptanceError: Erro | null = null;
   let batchError: Erro | null = null;
+  let readError: Erro | null = null;
 
   const emit = (evento: Evento) => {
     for (const listener of listeners) listener(evento);
@@ -159,6 +165,19 @@ export function createFakeNucleo(
       for (const projeto of projetos) emit({ tipo: "projetoCriado", projeto });
       return Promise.resolve({ status: "ok", data: projetos });
     },
+    dadosDoProjeto: (id) => {
+      if (readError)
+        return Promise.resolve({ status: "error", error: readError });
+      return Promise.resolve({
+        status: "ok",
+        data: dados.get(id) ?? { reels: [], reservas: [] },
+      });
+    },
+    abrirNoSistema: (id, alvo) => {
+      calls.abertos.push({ id, alvo });
+      return Promise.resolve({ status: "ok", data: null });
+    },
+    urlDoArquivo: (caminho) => `asset://${caminho}`,
     sair: () => {
       calls.sair++;
       return Promise.resolve();
@@ -196,6 +215,14 @@ export function createFakeNucleo(
     },
     failBatch: (erro: Erro) => {
       batchError = erro;
+    },
+    /** Os reels e as reservas que o núcleo lê do projeto `id`. */
+    definirDados: (id: string, projeto: DadosDoProjeto) => {
+      dados.set(id, projeto);
+    },
+    /** A leitura dos dados de qualquer projeto falha com este erro. */
+    falharLeitura: (erro: Erro) => {
+      readError = erro;
     },
     /** O que o seletor de arquivos devolve na próxima vez. */
     pick: (caminhos: string[]) => {

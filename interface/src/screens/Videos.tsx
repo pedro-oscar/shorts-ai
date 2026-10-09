@@ -1,18 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { useAppStore } from "../context";
 import { ErrorMessage, Screen, Topo } from "./common";
-
-/** `m:ss`, ou `h:mm:ss` a partir de uma hora; `—` quando a duração não é conhecida. */
-function formatarDuracao(segundos: number | null): string {
-  if (segundos === null) return "—";
-  const total = Math.round(segundos);
-  const horas = Math.floor(total / 3600);
-  const minutos = Math.floor((total % 3600) / 60);
-  const resto = String(total % 60).padStart(2, "0");
-  return horas > 0
-    ? `${String(horas)}:${String(minutos).padStart(2, "0")}:${resto}`
-    : `${String(minutos)}:${resto}`;
-}
+import { formatarDuracao } from "./formatos";
 
 /** O passo Vídeos: os arquivos do computador que viram um lote ao apertar Gerar. */
 export function Videos({
