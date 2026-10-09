@@ -4,24 +4,28 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::ffi::OsString;
-use std::fs::{self, File};
+use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf, Prefix};
 use std::process::Command;
 use std::sync::atomic::AtomicBool;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use time::OffsetDateTime;
 
+use crate::Etapa;
 use crate::processo::{self, Fluxo, Interrompido};
 use crate::projeto::gravar_json;
 use crate::roteiro::{ROTEIRO, validar_na_pasta};
 
-/// O log da sessão: uma linha do `stream-json` por linha, como o Claude as emitiu.
+/// O log das sessões: uma linha do `stream-json` por linha, como o Claude as emitiu. Cada
+/// tentativa acrescenta a sua, que começa no `init` com o `session_id`.
 const LOG: &str = "edit/sessao-roteiro.jsonl";
 /// Os erros do roteiro inválido, para a próxima tentativa.
 const ERROS: &str = "edit/erros-do-roteiro.txt";
-const CUSTOS: &str = "custos.json";
+/// Uma linha por sessão, de todas as etapas (ADR 0007).
+const CUSTOS: &str = "edit/custos.json";
 const ARQUIVO_DE_APRENDIZADOS: &str = "aprendizados.md";
 /// Quantos caracteres do alvo de uma ação entram no evento.
 const ALVO_MAXIMO: usize = 120;
@@ -86,10 +90,14 @@ pub struct UsoDoModelo {
     pub custo_usd: f64,
 }
 
-/// O custo de uma sessão, como o último `result` o informa.
+/// O custo de uma sessão, como o último `result` o informa: uma linha do `custos.json`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Custo {
+    pub etapa: Etapa,
+    pub session_id: Option<String>,
+    #[serde(with = "time::serde::rfc3339")]
+    pub inicio: OffsetDateTime,
     pub custo_usd: f64,
     pub turnos: u32,
     pub duracao_ms: u64,
@@ -218,7 +226,11 @@ impl Roteirista {
         evento: &mut dyn FnMut(EventoDaSessao),
     ) -> Result<(), ErroDoRoteiro> {
         let prompt = self.prompt(pedido)?;
-        let mut log = File::create(pedido.pasta.join(LOG))?;
+        let inicio = OffsetDateTime::now_utc();
+        let mut log = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(pedido.pasta.join(LOG))?;
         let mut acompanhante = Acompanhante::default();
         let saida = processo::executar_com_entrada(
             self.comando(pedido)?,
@@ -231,7 +243,7 @@ impl Roteirista {
                 }
             },
         )?;
-        if let Some(custo) = acompanhante.custo() {
+        if let Some(custo) = acompanhante.custo(Etapa::Roteiro, inicio) {
             registrar_custo(pedido.pasta, &custo)?;
         }
         if !saida.sucesso {
@@ -267,7 +279,16 @@ impl Roteirista {
             .arg("--allowedTools")
             .arg(FERRAMENTAS_LIBERADAS.join(","))
             .arg("--disallowedTools")
-            .arg(FERRAMENTAS_NEGADAS.join(","));
+            .arg(
+                FERRAMENTAS_NEGADAS
+                    .iter()
+                    .map(|&ferramenta| ferramenta.to_owned())
+                    // A negação vence o `acceptEdits` e o `--add-dir`: a skill fica somente
+                    // leitura, e os aprendizados seguem graváveis.
+                    .chain([format!("Edit(/{}/**)", permission_path(&self.skill.skill))])
+                    .collect::<Vec<_>>()
+                    .join(","),
+            );
         if let Some(modelo) = pedido.modelo {
             comando.args(["--model", modelo]);
         }
@@ -341,15 +362,35 @@ fn validar_roteiro(pasta: &Path) -> Result<(), ErroDoRoteiro> {
     }
 }
 
-/// O `custos.json` guarda o custo de cada etapa pelo nome dela; a sessão regrava a sua.
+/// Acrescenta a linha da sessão ao `custos.json`, sem tocar nas das sessões anteriores.
 fn registrar_custo(pasta: &Path, custo: &Custo) -> io::Result<()> {
     let caminho = pasta.join(CUSTOS);
-    let mut custos: BTreeMap<String, Value> = fs::read(&caminho)
+    let mut custos: Vec<Value> = fs::read(&caminho)
         .ok()
         .and_then(|bytes| serde_json::from_slice(&bytes).ok())
         .unwrap_or_default();
-    custos.insert("roteiro".to_owned(), serde_json::to_value(custo)?);
+    custos.push(serde_json::to_value(custo)?);
     gravar_json(&caminho, &custos)
+}
+
+/// The path in the form Claude Code's permission rules match: forward slashes from the root,
+/// with a Windows drive as `/c`.
+fn permission_path(path: &Path) -> String {
+    let mut parts = Vec::new();
+    for component in path.components() {
+        match component {
+            Component::Prefix(prefix) => match prefix.kind() {
+                Prefix::Disk(drive) | Prefix::VerbatimDisk(drive) => {
+                    parts.push(char::from(drive).to_ascii_lowercase().to_string());
+                }
+                _ => parts.push(prefix.as_os_str().to_string_lossy().into_owned()),
+            },
+            Component::RootDir | Component::CurDir => {}
+            Component::ParentDir => parts.push("..".to_owned()),
+            Component::Normal(name) => parts.push(name.to_string_lossy().into_owned()),
+        }
+    }
+    format!("/{}", parts.join("/"))
 }
 
 fn detalhe_da_falha(stderr: &str, acompanhante: &Acompanhante) -> String {
@@ -373,6 +414,7 @@ struct Acompanhante {
     /// bloco da mesma mensagem, então a soma é sobre as mensagens, não sobre as linhas.
     usos: HashMap<String, (u32, u32)>,
     resultados: Vec<Value>,
+    session_id: Option<String>,
 }
 
 impl Acompanhante {
@@ -380,6 +422,9 @@ impl Acompanhante {
         let Ok(valor) = serde_json::from_str::<Value>(linha) else {
             return;
         };
+        if self.session_id.is_none() {
+            self.session_id = valor["session_id"].as_str().map(str::to_owned);
+        }
         match valor["type"].as_str() {
             Some("assistant") => self.mensagem(&valor["message"], evento),
             Some("result") => self.resultados.push(valor),
@@ -429,7 +474,7 @@ impl Acompanhante {
     /// O custo vem do **último** `result` (inclui os sub-agentes) e nunca se soma. Um último
     /// `error_during_execution` com tudo zerado cede o lugar ao `result` anterior; em
     /// qualquer caso o valor sai marcado como parcial.
-    fn custo(&self) -> Option<Custo> {
+    fn custo(&self, etapa: Etapa, inicio: OffsetDateTime) -> Option<Custo> {
         let ultimo = self.resultados.last()?;
         let com_erro = ultimo["subtype"] == "error_during_execution";
         let escolhido = if com_erro && zerado(ultimo) && self.resultados.len() > 1 {
@@ -456,6 +501,9 @@ impl Acompanhante {
             })
             .collect();
         Some(Custo {
+            etapa,
+            session_id: self.session_id.clone(),
+            inicio,
             custo_usd: escolhido["total_cost_usd"].as_f64().unwrap_or(0.0),
             turnos: u32::try_from(escolhido["num_turns"].as_u64().unwrap_or(0)).unwrap_or(u32::MAX),
             duracao_ms: escolhido["duration_ms"].as_u64().unwrap_or(0),

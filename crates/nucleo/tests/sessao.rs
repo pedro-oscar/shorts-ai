@@ -127,8 +127,15 @@ impl Cenario {
         (resultado, eventos)
     }
 
-    fn custos(&self) -> Value {
-        serde_json::from_str(&fs::read_to_string(self.pasta.join("custos.json")).unwrap()).unwrap()
+    /// As linhas do `custos.json`, uma por sessão.
+    fn custos(&self) -> Vec<Value> {
+        serde_json::from_str(&fs::read_to_string(self.pasta.join("edit/custos.json")).unwrap())
+            .unwrap()
+    }
+
+    /// A linha da última sessão no `custos.json`.
+    fn ultimo_custo(&self) -> Value {
+        self.custos().pop().unwrap()
     }
 
     fn acrescentar_ao_stream(&self, linha: &str) {
@@ -195,12 +202,38 @@ fn o_log_da_sessao_guarda_as_linhas_do_stream_no_projeto() {
 }
 
 #[test]
+fn a_nova_tentativa_acrescenta_ao_log_sem_apagar_a_sessao_anterior() {
+    let cenario = Cenario::novo();
+
+    cenario.rodar(None).0.unwrap();
+    cenario.rodar(None).0.unwrap();
+
+    let stream = cenario.lido("stream.jsonl");
+    assert_eq!(
+        fs::read_to_string(cenario.pasta.join("edit/sessao-roteiro.jsonl")).unwrap(),
+        format!("{stream}{stream}")
+    );
+}
+
+#[test]
 fn o_custo_vem_do_ultimo_result_sem_somar() {
     let cenario = Cenario::novo();
 
     cenario.rodar(None).0.unwrap();
 
-    let roteiro = &cenario.custos()["roteiro"];
+    let custos = cenario.custos();
+    assert_eq!(custos.len(), 1);
+    let roteiro = &custos[0];
+    assert_eq!(roteiro["etapa"], "roteiro");
+    assert_eq!(roteiro["sessionId"], "s1");
+    assert!(
+        time::OffsetDateTime::parse(
+            roteiro["inicio"].as_str().unwrap(),
+            &time::format_description::well_known::Rfc3339
+        )
+        .is_ok(),
+        "{roteiro}"
+    );
     assert_eq!(roteiro["custoUsd"], 0.42);
     assert_eq!(roteiro["turnos"], 6);
     assert_eq!(roteiro["duracaoMs"], 52_000);
@@ -227,7 +260,7 @@ fn result_final_com_erro_e_custo_zerado_usa_o_anterior_e_marca_parcial() {
 
     cenario.rodar(None).0.unwrap();
 
-    let roteiro = &cenario.custos()["roteiro"];
+    let roteiro = cenario.ultimo_custo();
     assert_eq!(roteiro["custoUsd"], 0.42);
     assert_eq!(roteiro["turnos"], 6);
     assert_eq!(roteiro["parcial"], true);
@@ -242,25 +275,33 @@ fn result_final_com_erro_e_custo_proprio_vale_e_sai_parcial() {
 
     cenario.rodar(None).0.unwrap();
 
-    let roteiro = &cenario.custos()["roteiro"];
+    let roteiro = cenario.ultimo_custo();
     assert_eq!(roteiro["custoUsd"], 0.6);
     assert_eq!(roteiro["parcial"], true);
 }
 
 #[test]
-fn o_custo_de_outras_etapas_no_custos_json_e_preservado() {
+fn cada_sessao_acrescenta_uma_linha_ao_custos_json_sem_apagar_as_anteriores() {
     let cenario = Cenario::novo();
     fs::write(
-        cenario.pasta.join("custos.json"),
-        r#"{"revisao": {"custoUsd": 1.5}}"#,
+        cenario.pasta.join("edit/custos.json"),
+        r#"[{"etapa": "revisao", "custoUsd": 1.5}]"#,
     )
     .unwrap();
 
+    // Uma tentativa que cai e a nova tentativa que passa: as duas custaram.
+    cenario.marcar("cai");
+    cenario.rodar(None).0.unwrap_err();
+    cenario.desmarcar("cai");
     cenario.rodar(None).0.unwrap();
 
     let custos = cenario.custos();
-    assert_eq!(custos["revisao"]["custoUsd"], 1.5);
-    assert_eq!(custos["roteiro"]["custoUsd"], 0.42);
+    assert_eq!(custos.len(), 3);
+    assert_eq!(custos[0], json!({"etapa": "revisao", "custoUsd": 1.5}));
+    for custo in &custos[1..] {
+        assert_eq!(custo["etapa"], "roteiro");
+        assert_eq!(custo["custoUsd"], 0.42);
+    }
 }
 
 #[test]
@@ -286,6 +327,13 @@ fn a_sessao_roda_na_pasta_do_projeto_com_as_flags_e_as_ferramentas_da_spec() {
         "--add-dir {0}/skill/corte-viral --add-dir {0}/aprendizados",
         dados.display()
     )));
+    // A skill é somente leitura: a negação vence o `acceptEdits`, e os aprendizados seguem
+    // graváveis.
+    assert!(
+        args.contains(&format!("Edit(/{}/skill/corte-viral/**)", dados.display())),
+        "{args}"
+    );
+    assert!(!args.contains("aprendizados/**"), "{args}");
     assert_eq!(
         Path::new(cenario.lido("cwd.log").trim()),
         fs::canonicalize(&cenario.pasta).unwrap()
@@ -371,7 +419,7 @@ fn sessao_que_cai_falha_com_o_stderr_e_ainda_registra_o_custo() {
         matches!(&erro, ErroDoRoteiro::SessaoCaiu(detalhe) if detalhe.contains("Claude derrubou a sessão")),
         "{erro:?}"
     );
-    assert_eq!(cenario.custos()["roteiro"]["custoUsd"], 0.42);
+    assert_eq!(cenario.ultimo_custo()["custoUsd"], 0.42);
 }
 
 #[test]
@@ -386,7 +434,7 @@ fn sessao_sem_nenhum_result_falha() {
     let (resultado, _) = cenario.rodar(None);
 
     assert!(matches!(resultado, Err(ErroDoRoteiro::SessaoCaiu(_))));
-    assert!(!cenario.pasta.join("custos.json").exists());
+    assert!(!cenario.pasta.join("edit/custos.json").exists());
 }
 
 #[test]
@@ -596,8 +644,8 @@ mod na_fila {
         assert_eq!(json["etapas"][2]["estado"], "falhou");
         assert!(pasta.join("edit/sessao-roteiro.jsonl").is_file());
         assert_eq!(
-            serde_json::from_slice::<Value>(&fs::read(pasta.join("custos.json")).unwrap()).unwrap()
-                ["roteiro"]["custoUsd"],
+            serde_json::from_slice::<Value>(&fs::read(pasta.join("edit/custos.json")).unwrap())
+                .unwrap()[0]["custoUsd"],
             0.42
         );
     }
