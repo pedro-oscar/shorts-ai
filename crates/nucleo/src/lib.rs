@@ -13,6 +13,7 @@ mod preferencias;
 mod process;
 mod projeto;
 mod remotion;
+pub mod rosto;
 pub mod roteiro;
 pub mod sessao;
 pub mod transcricao;

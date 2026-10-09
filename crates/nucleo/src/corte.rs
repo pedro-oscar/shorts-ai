@@ -434,7 +434,39 @@ impl Ffmpeg {
         Ok(())
     }
 
-    fn sondar(&self, origem: &Path, cancelar: &AtomicBool) -> Result<InfoDoVideo, ErroDoCorte> {
+    pub(crate) fn caminho_do_ffmpeg(&self) -> &Path {
+        &self.ffmpeg
+    }
+
+    /// A duração do arquivo em segundos, pelo ffprobe.
+    pub(crate) fn duracao(&self, origem: &Path, cancelar: &AtomicBool) -> Result<f64, ErroDoCorte> {
+        let mut comando = Command::new(&self.ffprobe);
+        comando
+            .args([
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "csv=p=0",
+            ])
+            .arg(origem);
+        let saida = executar(comando, cancelar, &mut |_| {})?;
+        if let Some(erro) = saida.erro("ffprobe") {
+            return Err(erro);
+        }
+        saida
+            .stdout
+            .first()
+            .and_then(|linha| linha.trim().parse().ok())
+            .ok_or_else(|| ErroDoCorte::VideoIlegivel(origem.display().to_string()))
+    }
+
+    pub(crate) fn sondar(
+        &self,
+        origem: &Path,
+        cancelar: &AtomicBool,
+    ) -> Result<InfoDoVideo, ErroDoCorte> {
         let mut comando = Command::new(&self.ffprobe);
         comando
             .args([
