@@ -133,7 +133,7 @@ impl Transcritor {
         progresso: &mut dyn FnMut(f64),
     ) -> Result<Transcricao, ErroDaTranscricao> {
         fs::create_dir_all(pedido.pasta_de_saida)?;
-        let trabalho = tempfile_dir(pedido.pasta_de_saida)?;
+        let trabalho = pasta_de_trabalho(pedido.pasta_de_saida)?;
         let resultado = self.transcrever_em(pedido, &trabalho, cancelar, progresso);
         let _ = fs::remove_dir_all(&trabalho);
         let transcricao = resultado?;
@@ -207,10 +207,7 @@ impl Transcritor {
         if !saida.sucesso {
             return Err(falhou("whisper-cli", &saida.stderr));
         }
-        let json = fs::read_to_string(base.with_extension("json"))
-            .map_err(|erro| ErroDaTranscricao::SaidaIlegivel(erro.to_string()))?;
-        let whisper: SaidaDoWhisper = serde_json::from_str(&json)
-            .map_err(|erro| ErroDaTranscricao::SaidaIlegivel(erro.to_string()))?;
+        let whisper = ler_saida(&base)?;
         let vad = segmentos_do_vad(&saida.stderr);
         let idioma = whisper.result.language.unwrap_or(idioma);
         Ok(Transcricao {
@@ -284,10 +281,7 @@ impl Transcritor {
         if !saida.sucesso {
             return Err(falhou("whisper-cli", &saida.stderr));
         }
-        let json = fs::read_to_string(base.with_extension("json"))
-            .map_err(|erro| ErroDaTranscricao::SaidaIlegivel(erro.to_string()))?;
-        let whisper: SaidaDoWhisper = serde_json::from_str(&json)
-            .map_err(|erro| ErroDaTranscricao::SaidaIlegivel(erro.to_string()))?;
+        let whisper = ler_saida(&base)?;
         whisper
             .result
             .language
@@ -308,6 +302,14 @@ impl Transcritor {
     }
 }
 
+/// Lê o JSON que o whisper-cli gravou em `<base>.json`.
+fn ler_saida(base: &Path) -> Result<SaidaDoWhisper, ErroDaTranscricao> {
+    let ilegivel =
+        |erro: &dyn std::fmt::Display| ErroDaTranscricao::SaidaIlegivel(erro.to_string());
+    let json = fs::read_to_string(base.with_extension("json")).map_err(|erro| ilegivel(&erro))?;
+    serde_json::from_str(&json).map_err(|erro| ilegivel(&erro))
+}
+
 fn falhou(programa: &'static str, stderr: &str) -> ErroDaTranscricao {
     ErroDaTranscricao::Falhou {
         programa,
@@ -316,7 +318,7 @@ fn falhou(programa: &'static str, stderr: &str) -> ErroDaTranscricao {
 }
 
 /// Uma pasta de trabalho só desta transcrição, dentro de `base`.
-fn tempfile_dir(base: &Path) -> io::Result<PathBuf> {
+fn pasta_de_trabalho(base: &Path) -> io::Result<PathBuf> {
     let pasta = base.join(".transcricao");
     let _ = fs::remove_dir_all(&pasta);
     fs::create_dir_all(&pasta)?;
