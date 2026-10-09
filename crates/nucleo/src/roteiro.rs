@@ -35,6 +35,8 @@ const CENAS_DE_TELA_CHEIA: f64 = 0.6;
 const TITULO_INICIO: f64 = 0.1;
 const TITULO_FIM: f64 = 2.8;
 const LEGENDA_MINIMA: f64 = 0.12;
+/// O motion de uma palavra entra um pouco antes dela.
+const ANTECEDENCIA_DA_PALAVRA: f64 = 0.1;
 
 const TIPOS_DE_MOTION: [&str; 7] = [
     "title", "keyword", "counter", "zoom", "shake", "scene", "flash",
@@ -338,10 +340,15 @@ pub struct Validacao {
 }
 
 impl Validacao {
-    pub fn tem_erros(&self) -> bool {
+    /// Os problemas do roteiro e, em seguida, os de cada corte.
+    pub fn todos_os_problemas(&self) -> impl Iterator<Item = &Problema> {
         self.problemas
             .iter()
             .chain(self.cortes.iter().flat_map(|c| &c.problemas))
+    }
+
+    pub fn tem_erros(&self) -> bool {
+        self.todos_os_problemas()
             .any(|p| p.gravidade() == Gravidade::Erro)
     }
 }
@@ -828,7 +835,7 @@ fn inicio_do_motion(
                 distancia: (escolhida - perto).abs(),
             });
         }
-        return Some((escolhida - 0.1).max(0.0));
+        return Some((escolhida - ANTECEDENCIA_DA_PALAVRA).max(0.0));
     }
     if let Some(perto) = perto {
         return Some(perto);

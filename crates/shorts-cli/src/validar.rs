@@ -76,9 +76,7 @@ fn relatorio(validacao: &Validacao) -> String {
 
 fn contar(validacao: &Validacao, gravidade: Gravidade) -> usize {
     validacao
-        .problemas
-        .iter()
-        .chain(validacao.cortes.iter().flat_map(|c| &c.problemas))
+        .todos_os_problemas()
         .filter(|p| p.gravidade() == gravidade)
         .count()
 }
