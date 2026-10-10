@@ -2,7 +2,11 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ReelDoProjeto } from "../bindings";
 import { useAppStore } from "../context";
-import type { LeituraDoProjeto, ProjetoNaFila } from "../store";
+import type {
+  LeituraDoProjeto,
+  ProjetoNaFila,
+  VersaoFinalDoProjeto,
+} from "../store";
 import { ErrorMessage, Screen, Topo } from "./common";
 import { formatarDuracao, producaoConcluida } from "./formatos";
 
@@ -125,16 +129,21 @@ function temPrevia(leitura: LeituraDoProjeto | undefined) {
   );
 }
 
+/** O render da versão final está na fila ou em andamento. */
+function renderizando(
+  versao: VersaoFinalDoProjeto | undefined,
+): versao is VersaoFinalDoProjeto {
+  return versao?.estado === "pendente" || versao?.estado === "emAndamento";
+}
+
 /** O render da versão final do projeto: o botão que o pede, ou o andamento dele. */
 function VersaoFinal({ projeto, titulo }: { projeto: string; titulo: string }) {
   const { t } = useTranslation();
   const gerarVersaoFinal = useAppStore((store) => store.gerarVersaoFinal);
   const versao = useAppStore((store) => store.versoesFinais[projeto]);
-  const rodando =
-    versao?.estado === "pendente" || versao?.estado === "emAndamento";
   return (
     <>
-      {rodando ? (
+      {renderizando(versao) ? (
         <p role="status">
           {versao.percentual === null
             ? t("reels.versaoFinal")
@@ -252,9 +261,7 @@ export function Reels({
   const paraRenderizar = comReels.filter(
     (projeto) =>
       temPrevia(galeria[projeto.id]) &&
-      !["pendente", "emAndamento"].includes(
-        versoesFinais[projeto.id]?.estado ?? "",
-      ),
+      !renderizando(versoesFinais[projeto.id]),
   );
   return (
     <>
