@@ -254,6 +254,10 @@ fieldset label {
   text-align: center;
 }
 
+.reel .chip {
+  margin-left: 0.5rem;
+}
+
 .reel dt {
   font-weight: 600;
 }
