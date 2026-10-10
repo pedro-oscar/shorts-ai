@@ -162,6 +162,12 @@ async fn abrir_no_sistema(
     nucleo.abrir_no_sistema(&id, alvo)
 }
 
+#[tauri::command]
+#[specta::specta]
+async fn gerar_versao_final(nucleo: State<'_, Nucleo>, ids: Vec<String>) -> Result<(), Erro> {
+    nucleo.gerar_versao_final(&ids)
+}
+
 /// "Sair" no Aviso de uso: fecha o app.
 #[tauri::command]
 #[specta::specta]
@@ -187,6 +193,7 @@ fn bindings() -> Builder<tauri::Wry> {
             criar_lote,
             dados_do_projeto,
             abrir_no_sistema,
+            gerar_versao_final,
             sair
         ])
         .events(collect_events![EventoDoNucleo])

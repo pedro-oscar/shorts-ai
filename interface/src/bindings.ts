@@ -21,6 +21,7 @@ export const commands = {
 	criarLote: (caminhos: string[]) => typedError<ProjetoResumo[], Erro>(__TAURI_INVOKE("criar_lote", { caminhos })),
 	dadosDoProjeto: (id: string) => typedError<DadosDoProjeto, Erro>(__TAURI_INVOKE("dados_do_projeto", { id })),
 	abrirNoSistema: (id: string, alvo: AlvoParaAbrir) => typedError<null, Erro>(__TAURI_INVOKE("abrir_no_sistema", { id, alvo })),
+	gerarVersaoFinal: (ids: string[]) => typedError<null, Erro>(__TAURI_INVOKE("gerar_versao_final", { ids })),
 	/**  "Sair" no Aviso de uso: fecha o app. */
 	sair: () => __TAURI_INVOKE<void>("sair"),
 };
@@ -130,6 +131,13 @@ export type Evento = { tipo: "avisoAceito"; aceite: Aceite } | { tipo: "planoCon
 { tipo: "etapaMudou"; projeto: string; etapa: Etapa; estado: EstadoDaEtapa; falha: string | null } | 
 /**  O progresso de uma etapa que o mede, de 0 a 100. */
 { tipo: "progressoDaEtapa"; projeto: string; etapa: Etapa; percentual: number } | 
+/**
+ *  O render da versão final de um projeto mudou de estado: `pendente` na fila,
+ *  `emAndamento`, `concluida` ou `falhou`.
+ */
+{ tipo: "versaoFinalMudou"; projeto: string; estado: EstadoDaEtapa; falha: string | null } | 
+/**  O progresso do render da versão final, de 0 a 100. */
+{ tipo: "progressoDaVersaoFinal"; projeto: string; percentual: number } | 
 /**
  *  Uma ação do Claude numa sessão: a ferramenta (`Read`, `Bash`...) ou `texto`, e o que ela
  *  toca.

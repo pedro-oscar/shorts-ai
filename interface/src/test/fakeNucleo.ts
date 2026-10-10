@@ -60,6 +60,8 @@ export function createFakeNucleo(
     lotes: [] as string[][],
     /** Os argumentos de cada `entrarNoClaudeCode`. */
     logins: [] as { modo: ModoDeLogin; porTerminal: boolean }[],
+    /** Os projetos de cada `gerarVersaoFinal`. */
+    versoesFinais: [] as string[][],
     /** O que cada `abrirNoSistema` pediu. */
     abertos: [] as { id: string; alvo: AlvoParaAbrir }[],
   };
@@ -179,6 +181,17 @@ export function createFakeNucleo(
       calls.abertos.push({ id, alvo });
       if (openError)
         return Promise.resolve({ status: "error", error: openError });
+      return Promise.resolve({ status: "ok", data: null });
+    },
+    gerarVersaoFinal: (ids) => {
+      calls.versoesFinais.push(ids);
+      for (const projeto of ids)
+        emit({
+          tipo: "versaoFinalMudou",
+          projeto,
+          estado: "pendente",
+          falha: null,
+        });
       return Promise.resolve({ status: "ok", data: null });
     },
     urlDoArquivo: (caminho) => `asset://${caminho}`,

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ReelDoProjeto } from "../bindings";
 import { useAppStore } from "../context";
-import type { ProjetoNaFila } from "../store";
+import type { LeituraDoProjeto, ProjetoNaFila } from "../store";
 import { ErrorMessage, Screen, Topo } from "./common";
 import { formatarDuracao, producaoConcluida } from "./formatos";
 
@@ -118,6 +118,50 @@ function Reel({ projeto, reel }: { projeto: string; reel: ReelDoProjeto }) {
   );
 }
 
+/** Um projeto em que ainda há prévia no lugar da versão final. */
+function temPrevia(leitura: LeituraDoProjeto | undefined) {
+  return (
+    leitura?.status === "ok" && leitura.data.reels.some((reel) => reel.previa)
+  );
+}
+
+/** O render da versão final do projeto: o botão que o pede, ou o andamento dele. */
+function VersaoFinal({ projeto, titulo }: { projeto: string; titulo: string }) {
+  const { t } = useTranslation();
+  const gerarVersaoFinal = useAppStore((store) => store.gerarVersaoFinal);
+  const versao = useAppStore((store) => store.versoesFinais[projeto]);
+  const rodando =
+    versao?.estado === "pendente" || versao?.estado === "emAndamento";
+  return (
+    <>
+      {rodando ? (
+        <p role="status">
+          {versao.percentual === null
+            ? t("reels.versaoFinal")
+            : t("reels.versaoFinalComProgresso", {
+                percentual: versao.percentual,
+              })}
+        </p>
+      ) : (
+        <button
+          type="button"
+          aria-label={t("reels.gerarVersaoFinalDe", { titulo })}
+          onClick={() => {
+            void gerarVersaoFinal([projeto]);
+          }}
+        >
+          {t("reels.gerarVersaoFinal")}
+        </button>
+      )}
+      {versao?.estado === "falhou" && (
+        <p role="alert">
+          {t("reels.versaoFinalFalhou", { titulo, falha: versao.falha })}
+        </p>
+      )}
+    </>
+  );
+}
+
 /** Os reels e as reservas de um projeto, com o que abrir no sistema. */
 function Projeto({ projeto }: { projeto: ProjetoNaFila }) {
   const { t } = useTranslation();
@@ -155,6 +199,9 @@ function Projeto({ projeto }: { projeto: ProjetoNaFila }) {
             </button>
           ))}
         </div>
+      )}
+      {temPrevia(leitura) && (
+        <VersaoFinal projeto={projeto.id} titulo={projeto.titulo} />
       )}
       {erroAoAbrir && <ErrorMessage erro={erroAoAbrir} />}
       {erro && <ErrorMessage erro={erro} />}
@@ -198,6 +245,17 @@ export function Reels({
   const { t } = useTranslation();
   const projetos = useAppStore((store) => store.projetos);
   const comReels = projetos.filter(producaoConcluida);
+  const gerarVersaoFinal = useAppStore((store) => store.gerarVersaoFinal);
+  const erroDaVersaoFinal = useAppStore((store) => store.erroDaVersaoFinal);
+  const galeria = useAppStore((store) => store.galeria);
+  const versoesFinais = useAppStore((store) => store.versoesFinais);
+  const paraRenderizar = comReels.filter(
+    (projeto) =>
+      temPrevia(galeria[projeto.id]) &&
+      !["pendente", "emAndamento"].includes(
+        versoesFinais[projeto.id]?.estado ?? "",
+      ),
+  );
   return (
     <>
       <Topo onOpenSobre={onOpenSobre} />
@@ -205,6 +263,19 @@ export function Reels({
         <button type="button" onClick={onVoltar}>
           {t("reels.voltar")}
         </button>
+        {paraRenderizar.length > 0 && (
+          <button
+            type="button"
+            onClick={() => {
+              void gerarVersaoFinal(
+                paraRenderizar.map((projeto) => projeto.id),
+              );
+            }}
+          >
+            {t("reels.gerarVersaoFinalDoLote")}
+          </button>
+        )}
+        {erroDaVersaoFinal && <ErrorMessage erro={erroDaVersaoFinal} />}
         {comReels.length === 0 && <p>{t("reels.vazio")}</p>}
         {comReels.map((projeto) => (
           <Projeto key={projeto.id} projeto={projeto} />

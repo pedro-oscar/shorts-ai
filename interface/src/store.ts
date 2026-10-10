@@ -5,6 +5,7 @@ import type {
   ArquivoDeVideo,
   Erro,
   EstadoDaConta,
+  EstadoDaEtapa,
   Evento,
   IdiomaDaInterface,
   ModoDeLogin,
@@ -37,6 +38,14 @@ export interface ProjetoNaFila extends ProjetoResumo {
   acoes: AcaoDoClaude[];
   /** Os tokens de entrada e de cache que a sessão do Claude já usou. */
   tokens: { entrada: number; cache: number } | null;
+}
+
+/** O render da versão final de um projeto, da fila até o fim. */
+export interface VersaoFinalDoProjeto {
+  estado: EstadoDaEtapa;
+  /** O percentual do render, quando ele já começou. */
+  percentual: number | null;
+  falha: string | null;
 }
 
 export interface AppState {
@@ -76,6 +85,10 @@ export interface AppState {
   galeria: Record<string, LeituraDoProjeto>;
   /** O que o sistema não abriu, por projeto; some quando ele abre. */
   errosAoAbrir: Record<string, Erro | null>;
+  /** O render da versão final de cada projeto que a pessoa pediu. */
+  versoesFinais: Record<string, VersaoFinalDoProjeto>;
+  /** Por que o núcleo não aceitou o pedido de versão final. */
+  erroDaVersaoFinal: Erro | null;
 }
 
 export interface AppStore extends AppState {
@@ -98,6 +111,8 @@ export interface AppStore extends AppState {
   removerArquivo: (caminho: string) => void;
   carregarGaleria: (id: string) => Promise<void>;
   abrirNoSistema: (id: string, alvo: AlvoParaAbrir) => Promise<void>;
+  /** Pede a versão final dos reels dos projetos `ids`: é só render, sem custo de tokens. */
+  gerarVersaoFinal: (ids: string[]) => Promise<void>;
   /** O endereço pelo qual o player toca o reel. */
   urlDoArquivo: (caminho: string) => string;
   /** Cria o lote com os vídeos da lista; devolve se criou. */
@@ -161,6 +176,40 @@ export function createAppStore(nucleo: Nucleo) {
             percentual: evento.percentual,
           }));
           break;
+        case "versaoFinalMudou":
+          set((current) => ({
+            versoesFinais: {
+              ...current.versoesFinais,
+              [evento.projeto]: {
+                estado: evento.estado,
+                percentual:
+                  evento.estado === "emAndamento"
+                    ? (current.versoesFinais[evento.projeto]?.percentual ?? 0)
+                    : null,
+                falha: evento.falha,
+              },
+            },
+          }));
+          // A Galeria passa a mostrar os arquivos da versão final.
+          if (evento.estado === "concluida")
+            void get().carregarGaleria(evento.projeto);
+          break;
+        case "progressoDaVersaoFinal":
+          set((current) => {
+            const atual = current.versoesFinais[evento.projeto];
+            return atual
+              ? {
+                  versoesFinais: {
+                    ...current.versoesFinais,
+                    [evento.projeto]: {
+                      ...atual,
+                      percentual: evento.percentual,
+                    },
+                  },
+                }
+              : {};
+          });
+          break;
         case "acaoDoClaude":
           mudarProjeto(evento.projeto, (projeto) => {
             const numero = (projeto.acoes.at(-1)?.numero ?? 0) + 1;
@@ -218,6 +267,8 @@ export function createAppStore(nucleo: Nucleo) {
       projetos: [],
       galeria: {},
       errosAoAbrir: {},
+      versoesFinais: {},
+      erroDaVersaoFinal: null,
 
       connect: () => {
         let connected = true;
@@ -350,6 +401,13 @@ export function createAppStore(nucleo: Nucleo) {
             [id]: result.status === "error" ? result.error : null,
           },
         }));
+      },
+
+      gerarVersaoFinal: async (ids) => {
+        const result = await nucleo.gerarVersaoFinal(ids);
+        set({
+          erroDaVersaoFinal: result.status === "error" ? result.error : null,
+        });
       },
 
       urlDoArquivo: nucleo.urlDoArquivo,

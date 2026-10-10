@@ -16,8 +16,16 @@ use crate::{EstadoDaEtapa, Etapa, Evento, LigarArquivo, nome_do_arquivo};
 
 pub(crate) type Emitir = Arc<dyn Fn(Evento) + Send + Sync>;
 
+/// O que o trabalhador faz com um projeto.
+enum Trabalho {
+    /// As etapas do projeto, da primeira não concluída em diante.
+    Etapas(PathBuf),
+    /// Só o render da versão final, sem sessão do Claude.
+    VersaoFinal(PathBuf),
+}
+
 pub(crate) struct Fila {
-    envio: Sender<PathBuf>,
+    envio: Sender<Trabalho>,
 }
 
 impl Fila {
@@ -28,17 +36,22 @@ impl Fila {
         roteirista: Option<Roteirista>,
         producao: Option<Producao>,
     ) -> Self {
-        let (envio, recebimento) = mpsc::channel::<PathBuf>();
+        let (envio, recebimento) = mpsc::channel::<Trabalho>();
         thread::spawn(move || {
-            for pasta in recebimento {
-                rodar(
-                    &pasta,
-                    &emit,
-                    &ligar,
-                    transcritor.as_ref(),
-                    roteirista.as_ref(),
-                    producao.as_ref(),
-                );
+            for trabalho in recebimento {
+                match trabalho {
+                    Trabalho::Etapas(pasta) => rodar(
+                        &pasta,
+                        &emit,
+                        &ligar,
+                        transcritor.as_ref(),
+                        roteirista.as_ref(),
+                        producao.as_ref(),
+                    ),
+                    Trabalho::VersaoFinal(pasta) => {
+                        renderizar_versao_final(&pasta, &emit, producao.as_ref());
+                    }
+                }
             }
         });
         Self { envio }
@@ -47,7 +60,47 @@ impl Fila {
     /// Põe o projeto no fim da fila.
     pub fn enfileirar(&self, pasta: PathBuf) {
         // O trabalhador só sai quando a fila é largada.
-        let _ = self.envio.send(pasta);
+        let _ = self.envio.send(Trabalho::Etapas(pasta));
+    }
+
+    /// Põe no fim da fila o render da versão final dos reels do projeto.
+    pub fn enfileirar_versao_final(&self, pasta: PathBuf) {
+        let _ = self.envio.send(Trabalho::VersaoFinal(pasta));
+    }
+}
+
+/// O render da versão final de um projeto cuja Produção já rodou. Os cortes e os rostos vêm do
+/// cache da Produção; nenhuma sessão do Claude é aberta. A falha vai só no evento: as etapas
+/// do projeto continuam como estavam.
+fn renderizar_versao_final(pasta: &Path, emit: &Emitir, producao: Option<&Producao>) {
+    let id = nome_do_arquivo(pasta);
+    let mudou = |estado, falha| {
+        emit(Evento::VersaoFinalMudou {
+            projeto: id.clone(),
+            estado,
+            falha,
+        });
+    };
+    mudou(EstadoDaEtapa::EmAndamento, None);
+    let resultado = match (ProjetoJson::ler(pasta), producao) {
+        (Ok(projeto), Some(producao)) => produzir_em(
+            pasta,
+            &projeto,
+            producao,
+            Qualidade::Final,
+            &mut |percentual| {
+                emit(Evento::ProgressoDaVersaoFinal {
+                    projeto: id.clone(),
+                    percentual,
+                });
+            },
+        ),
+        (Err(error), _) => Err(error.to_string()),
+        (_, None) => Err("a Produção não está disponível".to_owned()),
+    };
+    match resultado {
+        Ok(()) => mudou(EstadoDaEtapa::Concluida, None),
+        Err(falha) => mudou(EstadoDaEtapa::Falhou, Some(falha)),
     }
 }
 
@@ -249,6 +302,29 @@ fn produzir(
     id: &str,
     emit: &Emitir,
 ) -> Result<(), String> {
+    let qualidade = if projeto.opcoes.previa {
+        Qualidade::Previa
+    } else {
+        Qualidade::Final
+    };
+    produzir_em(pasta, projeto, producao, qualidade, &mut |percentual| {
+        emit(Evento::ProgressoDaEtapa {
+            projeto: id.to_owned(),
+            etapa: Etapa::Producao,
+            percentual,
+        });
+    })
+}
+
+/// Produz os reels do projeto na `qualidade`; `progresso` recebe o percentual (0 a 100) cada
+/// vez que ele muda.
+fn produzir_em(
+    pasta: &Path,
+    projeto: &ProjetoJson,
+    producao: &Producao,
+    qualidade: Qualidade,
+    progresso: &mut dyn FnMut(u8),
+) -> Result<(), String> {
     let video = video_original(pasta, projeto);
     let mut ultimo = None;
     producao
@@ -256,11 +332,7 @@ fn produzir(
             &producao::Pedido {
                 pasta,
                 video: &video,
-                qualidade: if projeto.opcoes.previa {
-                    Qualidade::Previa
-                } else {
-                    Qualidade::Final
-                },
+                qualidade,
             },
             &AtomicBool::new(false),
             &mut |fracao| {
@@ -268,11 +340,7 @@ fn produzir(
                 let percentual = (fracao * 100.0).floor().clamp(0.0, 100.0) as u8;
                 if ultimo != Some(percentual) {
                     ultimo = Some(percentual);
-                    emit(Evento::ProgressoDaEtapa {
-                        projeto: id.to_owned(),
-                        etapa: Etapa::Producao,
-                        percentual,
-                    });
+                    progresso(percentual);
                 }
             },
         )

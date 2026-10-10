@@ -297,6 +297,18 @@ pub enum Evento {
         etapa: Etapa,
         percentual: u8,
     },
+    /// O render da versão final de um projeto mudou de estado: `pendente` na fila,
+    /// `emAndamento`, `concluida` ou `falhou`.
+    VersaoFinalMudou {
+        projeto: String,
+        estado: EstadoDaEtapa,
+        falha: Option<String>,
+    },
+    /// O progresso do render da versão final, de 0 a 100.
+    ProgressoDaVersaoFinal {
+        projeto: String,
+        percentual: u8,
+    },
     /// Uma ação do Claude numa sessão: a ferramenta (`Read`, `Bash`...) ou `texto`, e o que ela
     /// toca.
     AcaoDoClaude {
@@ -653,6 +665,31 @@ impl Nucleo {
             caminho: caminho.display().to_string(),
             detalhe: error.to_string(),
         })
+    }
+
+    /// Põe na fila o render da versão final dos reels dos projetos `ids`: só render, sem
+    /// sessão do Claude. Nada entra na fila se algum projeto não for lido.
+    pub fn gerar_versao_final(&self, ids: &[String]) -> Result<(), Erro> {
+        let pastas = ids
+            .iter()
+            .map(|id| {
+                let pasta = self.pasta_do_projeto(id)?;
+                ProjetoJson::ler(&pasta).map_err(|error| Erro::ProjetoNaoLido {
+                    id: id.clone(),
+                    detalhe: error.to_string(),
+                })?;
+                Ok((id, pasta))
+            })
+            .collect::<Result<Vec<_>, Erro>>()?;
+        for (id, pasta) in pastas {
+            (self.emit)(Evento::VersaoFinalMudou {
+                projeto: id.clone(),
+                estado: EstadoDaEtapa::Pendente,
+                falha: None,
+            });
+            self.fila.enfileirar_versao_final(pasta);
+        }
+        Ok(())
     }
 
     /// A pasta do projeto `id`, que tem de ser uma pasta direta da Biblioteca.

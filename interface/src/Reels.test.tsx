@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
-import { expect, test } from "vitest";
-import type { DadosDoProjeto } from "./bindings";
+import { expect, test, vi } from "vitest";
+import type { DadosDoProjeto, ReelDoProjeto } from "./bindings";
 import { App } from "./App";
 import { ACCEPTED_AT, createFakeNucleo } from "./test/fakeNucleo";
 
@@ -230,4 +230,101 @@ test("onde o app não toca o reel, Assistir o abre no player do sistema", async 
   expect(calls.abertos).toEqual([{ id: AULA, alvo: { reel: "c01" } }]);
   const outro = screen.getByRole("article", { name: "Final pronta" });
   expect(outro.querySelector("video")).not.toBeNull();
+});
+
+const [PREVIA, PRONTA] = DADOS.reels as [ReelDoProjeto, ReelDoProjeto];
+const FINAL = `/Biblioteca/${AULA}/publicar/c01 - Negociar salário tem regra.mp4`;
+
+test("Gerar versão final pede o render do projeto, mostra o andamento e depois a versão final", async () => {
+  const { user, calls, emitir, definirDados } = await abrirReels();
+  const aula = screen.getByRole("region", { name: "aula" });
+  await within(aula).findByRole("article", {
+    name: "Negociar salário tem regra",
+  });
+
+  await user.click(
+    within(aula).getByRole("button", {
+      name: "Gerar versão final de aula",
+    }),
+  );
+
+  expect(calls.versoesFinais).toEqual([[AULA]]);
+  expect(await within(aula).findByText("Versão final…")).toBeVisible();
+  expect(
+    within(aula).queryByRole("button", { name: /Gerar versão final de/ }),
+  ).toBeNull();
+
+  emitir({
+    tipo: "versaoFinalMudou",
+    projeto: AULA,
+    estado: "emAndamento",
+    falha: null,
+  });
+  emitir({ tipo: "progressoDaVersaoFinal", projeto: AULA, percentual: 40 });
+  expect(await within(aula).findByText("Versão final… 40%")).toBeVisible();
+
+  definirDados(AULA, {
+    ...DADOS,
+    reels: [{ ...PREVIA, arquivo: FINAL, previa: false }, PRONTA],
+  });
+  emitir({
+    tipo: "versaoFinalMudou",
+    projeto: AULA,
+    estado: "concluida",
+    falha: null,
+  });
+
+  const primeiro = await within(aula).findByRole("article", {
+    name: "Negociar salário tem regra",
+  });
+  await vi.waitFor(() => {
+    expect(primeiro.querySelector("video")?.getAttribute("src")).toBe(
+      `asset://${FINAL}`,
+    );
+  });
+  expect(within(primeiro).queryByText("Prévia")).toBeNull();
+  expect(
+    within(aula).queryByRole("button", { name: /Gerar versão final de/ }),
+  ).toBeNull();
+});
+
+test("Gerar versão final do lote pede todos os projetos que ainda têm prévia", async () => {
+  const { user, calls } = await abrirReels(
+    (fake) => {
+      fake.definirDados(LIVE, { ...DADOS, reels: [PRONTA] });
+    },
+    ["/v/aula.mp4", "/v/live.mp4"],
+  );
+  await screen.findByRole("article", { name: "Negociar salário tem regra" });
+
+  await user.click(
+    screen.getByRole("button", { name: "Gerar versão final do lote" }),
+  );
+
+  expect(calls.versoesFinais).toEqual([[AULA]]);
+  expect(
+    screen.queryByRole("button", { name: "Gerar versão final do lote" }),
+  ).toBeNull();
+});
+
+test("a falha do render aparece no projeto e deixa pedir de novo", async () => {
+  const { emitir } = await abrirReels();
+  const aula = screen.getByRole("region", { name: "aula" });
+  await within(aula).findByRole("article", {
+    name: "Negociar salário tem regra",
+  });
+
+  emitir({
+    tipo: "versaoFinalMudou",
+    projeto: AULA,
+    estado: "falhou",
+    falha: "chrome não abriu",
+  });
+
+  expect(await within(aula).findByRole("alert")).toHaveTextContent(
+    "A versão final de aula falhou: chrome não abriu",
+  );
+  expect(
+    within(aula).getByRole("button", { name: "Gerar versão final de aula" }),
+  ).toBeVisible();
 });
