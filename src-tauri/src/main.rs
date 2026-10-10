@@ -226,6 +226,7 @@ fn main() {
                         .and_then(|exe| exe.parent().map(std::path::Path::to_path_buf)),
                     chave_de_api_no_ambiente: std::env::var_os("ANTHROPIC_API_KEY")
                         .is_some_and(|chave| !chave.is_empty()),
+                    abrir_com: None,
                 },
                 move |evento| {
                     if let Err(error) = EventoDoNucleo(evento).emit(&handle) {

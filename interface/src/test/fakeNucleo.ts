@@ -68,7 +68,8 @@ export function createFakeNucleo(
   let testError: Erro | null = null;
   let acceptanceError: Erro | null = null;
   let batchError: Erro | null = null;
-  let readError: Erro | null = null;
+  const readErrors = new Map<string, Erro>();
+  let openError: Erro | null = null;
 
   const emit = (evento: Evento) => {
     for (const listener of listeners) listener(evento);
@@ -166,6 +167,7 @@ export function createFakeNucleo(
       return Promise.resolve({ status: "ok", data: projetos });
     },
     dadosDoProjeto: (id) => {
+      const readError = readErrors.get(id);
       if (readError)
         return Promise.resolve({ status: "error", error: readError });
       return Promise.resolve({
@@ -175,6 +177,8 @@ export function createFakeNucleo(
     },
     abrirNoSistema: (id, alvo) => {
       calls.abertos.push({ id, alvo });
+      if (openError)
+        return Promise.resolve({ status: "error", error: openError });
       return Promise.resolve({ status: "ok", data: null });
     },
     urlDoArquivo: (caminho) => `asset://${caminho}`,
@@ -220,9 +224,13 @@ export function createFakeNucleo(
     definirDados: (id: string, projeto: DadosDoProjeto) => {
       dados.set(id, projeto);
     },
-    /** A leitura dos dados de qualquer projeto falha com este erro. */
-    falharLeitura: (erro: Erro) => {
-      readError = erro;
+    /** A leitura dos dados do projeto `id` falha com este erro. */
+    falharLeitura: (id: string, erro: Erro) => {
+      readErrors.set(id, erro);
+    },
+    /** Abrir qualquer coisa no sistema falha com este erro. */
+    falharAbertura: (erro: Erro) => {
+      openError = erro;
     },
     /** O que o seletor de arquivos devolve na próxima vez. */
     pick: (caminhos: string[]) => {

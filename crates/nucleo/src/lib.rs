@@ -83,6 +83,9 @@ pub struct Config {
     /// `PATH`. Sem ela, a Transcrição e o Roteiro ficam pendentes; o Roteiro também precisa
     /// dos assets, de onde vem a skill.
     pub sidecar_dir: Option<PathBuf>,
+    /// O programa que abre pastas e arquivos no programa padrão do sistema; `None` usa o do
+    /// sistema (`explorer`, `open` ou `xdg-open`).
+    pub abrir_com: Option<PathBuf>,
 }
 
 /// Onde ficam, nos dados do app, os modelos da Transcrição (o do Whisper e o do VAD).
@@ -92,6 +95,7 @@ pub struct Nucleo {
     biblioteca: PathBuf,
     path_env: Option<OsString>,
     sidecar_dir: Option<PathBuf>,
+    abrir_com: PathBuf,
     fila: Fila,
     remotion: Remotion,
     idioma_da_interface: IdiomaDaInterface,
@@ -339,6 +343,11 @@ pub enum Erro {
     DependenciasDoRemotionNaoInstaladas { detalhe: String },
     #[error("projeto {id} não lido: {detalhe}")]
     ProjetoNaoLido { id: String, detalhe: String },
+    /// A pasta do projeto foi apagada ou movida.
+    #[error("projeto {id} não encontrado na Biblioteca")]
+    ProjetoNaoEncontrado { id: String },
+    #[error("{caminho} não aberto: {detalhe}")]
+    NaoAbriu { caminho: String, detalhe: String },
 }
 
 impl Nucleo {
@@ -386,6 +395,7 @@ impl Nucleo {
             remotion: Remotion::new(config.assets_dir, &config.app_data_dir, config.npm),
             path_env: config.path_env,
             sidecar_dir: config.sidecar_dir,
+            abrir_com: config.abrir_com.unwrap_or_else(galeria::programa_de_abrir),
             idioma_da_interface: IdiomaDaInterface::of_locale(config.system_locale.as_deref()),
             chave_de_api_no_ambiente: config.chave_de_api_no_ambiente,
             preferencias: Mutex::new(PreferencesFile::in_dir(&config.app_data_dir)),
@@ -632,26 +642,27 @@ impl Nucleo {
 
     /// Abre a pasta, o roteiro ou os logs do projeto no programa padrão do sistema.
     pub fn abrir_no_sistema(&self, id: &str, alvo: AlvoParaAbrir) -> Result<(), Erro> {
-        let pasta = self.pasta_do_projeto(id)?;
-        galeria::abrir_no_sistema(&galeria::caminho_para_abrir(&pasta, alvo)).map_err(|error| {
-            Erro::ProjetoNaoLido {
-                id: id.to_owned(),
-                detalhe: error.to_string(),
-            }
+        let caminho = galeria::caminho_para_abrir(&self.pasta_do_projeto(id)?, alvo);
+        galeria::abrir_no_sistema(&self.abrir_com, &caminho).map_err(|error| Erro::NaoAbriu {
+            caminho: caminho.display().to_string(),
+            detalhe: error.to_string(),
         })
     }
 
     /// A pasta do projeto `id`, que tem de ser uma pasta direta da Biblioteca.
     fn pasta_do_projeto(&self, id: &str) -> Result<PathBuf, Erro> {
         let simples = !id.is_empty() && !id.starts_with('.') && !id.contains(['/', '\\']);
-        let pasta = self.biblioteca.join(id);
-        if simples && pasta.is_dir() {
-            Ok(pasta)
-        } else {
-            Err(Erro::ProjetoNaoLido {
+        if !simples {
+            return Err(Erro::ProjetoNaoLido {
                 id: id.to_owned(),
                 detalhe: "não é um projeto da Biblioteca".to_owned(),
-            })
+            });
+        }
+        let pasta = self.biblioteca.join(id);
+        if pasta.is_dir() {
+            Ok(pasta)
+        } else {
+            Err(Erro::ProjetoNaoEncontrado { id: id.to_owned() })
         }
     }
 

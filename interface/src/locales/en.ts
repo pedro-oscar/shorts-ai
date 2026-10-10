@@ -182,6 +182,9 @@ export const en: typeof ptBR = {
       "Could not install the Remotion dependencies. Check your internet connection and try again.",
     projetoNaoLido:
       "Could not read project {{id}}. Check that its folder is still in the Library and try again.",
+    projetoNaoEncontrado:
+      "Project {{id}} was not found in the Library: its folder was deleted or moved.",
+    naoAbriu: "Could not open {{caminho}}.",
     detalhe: "Technical details (from the system): {{detalhe}}",
   },
 };

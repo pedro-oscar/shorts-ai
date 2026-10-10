@@ -51,19 +51,29 @@ const DADOS: DadosDoProjeto = {
   ],
 };
 
-async function abrirReels() {
+const LIVE = "live (2026-10-09)";
+
+type Fake = ReturnType<typeof createFakeNucleo>;
+
+/** Gera um lote com os vídeos, conclui a Produção de cada projeto e abre o passo Reels. */
+async function abrirReels(
+  preparar: (fake: Fake) => void = () => undefined,
+  videos = ["/v/aula.mp4"],
+) {
   const fake = createFakeNucleo(COM_PLANO);
   fake.definirDados(AULA, DADOS);
+  preparar(fake);
   render(<App nucleo={fake.nucleo} />);
   const user = userEvent.setup();
   await user.click(await screen.findByRole("button", { name: "Continuar" }));
-  fake.pick(["/v/aula.mp4"]);
+  fake.pick(videos);
   await user.click(screen.getByRole("button", { name: "Escolher arquivos" }));
   await screen.findByRole("list", { name: "Vídeos escolhidos" });
   await user.click(screen.getByRole("button", { name: "Gerar" }));
   await screen.findByRole("heading", { name: "Gerando" });
   expect(screen.queryByRole("button", { name: "Ver reels" })).toBeNull();
-  fake.etapa(AULA, "producao", "concluida");
+  for (const id of [AULA, LIVE].slice(0, videos.length))
+    fake.etapa(id, "producao", "concluida");
   await user.click(await screen.findByRole("button", { name: "Ver reels" }));
   await screen.findByRole("heading", { name: "Reels" });
   return { ...fake, user };
@@ -136,19 +146,62 @@ test("Abrir pasta, roteiro e logs pedem ao núcleo para abrir o projeto", async 
   ]);
 });
 
-test("se o núcleo não lê o projeto, a tela mostra o erro", async () => {
-  const fake = createFakeNucleo(COM_PLANO);
-  fake.falharLeitura({ codigo: "projetoNaoLido", id: AULA, detalhe: "sumiu" });
-  render(<App nucleo={fake.nucleo} />);
-  const user = userEvent.setup();
-  await user.click(await screen.findByRole("button", { name: "Continuar" }));
-  fake.pick(["/v/aula.mp4"]);
-  await user.click(screen.getByRole("button", { name: "Escolher arquivos" }));
-  await screen.findByRole("list", { name: "Vídeos escolhidos" });
-  await user.click(screen.getByRole("button", { name: "Gerar" }));
-  fake.etapa(AULA, "producao", "concluida");
-  await user.click(await screen.findByRole("button", { name: "Ver reels" }));
+test("o erro de leitura aparece no projeto que falhou, e os outros seguem com os reels", async () => {
+  await abrirReels(
+    (fake) => {
+      fake.falharLeitura(LIVE, {
+        codigo: "projetoNaoLido",
+        id: LIVE,
+        detalhe: "roteiro ilegível",
+      });
+    },
+    ["/v/aula.mp4", "/v/live.mp4"],
+  );
 
-  const alerta = await screen.findByRole("alert");
-  expect(alerta).toHaveTextContent("Não foi possível ler o projeto");
+  const live = screen.getByRole("region", { name: "live" });
+  expect(await within(live).findByRole("alert")).toHaveTextContent(
+    `Não foi possível ler o projeto ${LIVE}`,
+  );
+  const aula = screen.getByRole("region", { name: "aula" });
+  expect(
+    await within(aula).findByRole("article", { name: "Final pronta" }),
+  ).toBeVisible();
+  expect(within(aula).queryByRole("alert")).toBeNull();
+});
+
+test("projeto cuja pasta sumiu aparece como não encontrado, sem nada para abrir", async () => {
+  await abrirReels((fake) => {
+    fake.falharLeitura(AULA, { codigo: "projetoNaoEncontrado", id: AULA });
+  });
+
+  const aula = screen.getByRole("region", { name: "aula" });
+  expect(await within(aula).findByRole("alert")).toHaveTextContent(
+    `O projeto ${AULA} não foi encontrado na Biblioteca`,
+  );
+  expect(
+    within(aula).queryByRole("button", { name: "Abrir pasta" }),
+  ).toBeNull();
+  expect(
+    within(aula).queryByRole("button", { name: "Abrir roteiro" }),
+  ).toBeNull();
+  expect(within(aula).queryByRole("button", { name: "Abrir logs" })).toBeNull();
+});
+
+test("se o sistema não abre, o erro aparece no projeto", async () => {
+  const roteiro = `/Biblioteca/${AULA}/edit/roteiro.json`;
+  const { user } = await abrirReels((fake) => {
+    fake.falharAbertura({
+      codigo: "naoAbriu",
+      caminho: roteiro,
+      detalhe: "No such file or directory (os error 2)",
+    });
+  });
+  const aula = screen.getByRole("region", { name: "aula" });
+  await within(aula).findByRole("article", { name: "Final pronta" });
+
+  await user.click(within(aula).getByRole("button", { name: "Abrir roteiro" }));
+
+  expect(await within(aula).findByRole("alert")).toHaveTextContent(
+    `Não foi possível abrir ${roteiro}`,
+  );
 });

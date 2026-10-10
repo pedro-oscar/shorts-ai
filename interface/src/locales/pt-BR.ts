@@ -184,6 +184,9 @@ export const ptBR = {
       "Não foi possível instalar as dependências do Remotion. Confira a conexão com a internet e tente de novo.",
     projetoNaoLido:
       "Não foi possível ler o projeto {{id}}. Confira se a pasta dele ainda está na Biblioteca e tente de novo.",
+    projetoNaoEncontrado:
+      "O projeto {{id}} não foi encontrado na Biblioteca: a pasta dele foi apagada ou movida.",
+    naoAbriu: "Não foi possível abrir {{caminho}}.",
     detalhe: "Detalhe técnico (do sistema): {{detalhe}}",
   },
 };

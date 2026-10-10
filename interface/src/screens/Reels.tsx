@@ -77,32 +77,41 @@ function Projeto({ projeto }: { projeto: ProjetoNaFila }) {
   const { t } = useTranslation();
   const carregarGaleria = useAppStore((store) => store.carregarGaleria);
   const abrirNoSistema = useAppStore((store) => store.abrirNoSistema);
-  const dados = useAppStore((store) => store.galeria[projeto.id]);
+  const leitura = useAppStore((store) => store.galeria[projeto.id]);
+  const erroAoAbrir = useAppStore((store) => store.errosAoAbrir[projeto.id]);
   useEffect(() => {
     void carregarGaleria(projeto.id);
   }, [carregarGaleria, projeto.id]);
+  const dados = leitura?.status === "ok" ? leitura.data : undefined;
+  const erro = leitura?.status === "error" ? leitura.error : undefined;
+  // Sem a pasta, não há o que abrir.
+  const naoEncontrado = erro?.codigo === "projetoNaoEncontrado";
   return (
     <section aria-label={projeto.titulo}>
       <h2>{projeto.titulo}</h2>
-      <div className="actions">
-        {(
-          [
-            ["pasta", "abrirPasta"],
-            ["roteiro", "abrirRoteiro"],
-            ["logs", "abrirLogs"],
-          ] as const
-        ).map(([alvo, texto]) => (
-          <button
-            key={alvo}
-            type="button"
-            onClick={() => {
-              void abrirNoSistema(projeto.id, alvo);
-            }}
-          >
-            {t(`reels.${texto}`)}
-          </button>
-        ))}
-      </div>
+      {!naoEncontrado && (
+        <div className="actions">
+          {(
+            [
+              ["pasta", "abrirPasta"],
+              ["roteiro", "abrirRoteiro"],
+              ["logs", "abrirLogs"],
+            ] as const
+          ).map(([alvo, texto]) => (
+            <button
+              key={alvo}
+              type="button"
+              onClick={() => {
+                void abrirNoSistema(projeto.id, alvo);
+              }}
+            >
+              {t(`reels.${texto}`)}
+            </button>
+          ))}
+        </div>
+      )}
+      {erroAoAbrir && <ErrorMessage erro={erroAoAbrir} />}
+      {erro && <ErrorMessage erro={erro} />}
       {dados && dados.reels.length === 0 && (
         <p className="detail">{t("reels.semReels")}</p>
       )}
@@ -142,7 +151,6 @@ export function Reels({
 }) {
   const { t } = useTranslation();
   const projetos = useAppStore((store) => store.projetos);
-  const erro = useAppStore((store) => store.erroDaGaleria);
   const comReels = projetos.filter(producaoConcluida);
   return (
     <>
@@ -151,7 +159,6 @@ export function Reels({
         <button type="button" onClick={onVoltar}>
           {t("reels.voltar")}
         </button>
-        {erro && <ErrorMessage erro={erro} />}
         {comReels.length === 0 && <p>{t("reels.vazio")}</p>}
         {comReels.map((projeto) => (
           <Projeto key={projeto.id} projeto={projeto} />

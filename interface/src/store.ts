@@ -3,7 +3,6 @@ import type {
   Aceite,
   AlvoParaAbrir,
   ArquivoDeVideo,
-  DadosDoProjeto,
   Erro,
   EstadoDaConta,
   Evento,
@@ -26,6 +25,9 @@ export interface AcaoDoClaude {
   ferramenta: string;
   alvo: string | null;
 }
+
+/** Os reels e as reservas do projeto, ou o erro de quando o núcleo não os leu. */
+export type LeituraDoProjeto = Awaited<ReturnType<Nucleo["dadosDoProjeto"]>>;
 
 /** Um projeto na fila, com o que a etapa em andamento informa ao vivo. */
 export interface ProjetoNaFila extends ProjetoResumo {
@@ -70,9 +72,10 @@ export interface AppState {
   erroDeArquivos: Erro | null;
   /** Os projetos criados, com o estado de cada etapa, em ordem de criação. */
   projetos: ProjetoNaFila[];
-  /** Os reels e as reservas de cada projeto, lidos pelo núcleo ao abrir o passo Reels. */
-  galeria: Record<string, DadosDoProjeto>;
-  erroDaGaleria: Erro | null;
+  /** A leitura de cada projeto, feita pelo núcleo ao abrir o passo Reels. */
+  galeria: Record<string, LeituraDoProjeto>;
+  /** O que o sistema não abriu, por projeto; some quando ele abre. */
+  errosAoAbrir: Record<string, Erro | null>;
 }
 
 export interface AppStore extends AppState {
@@ -214,7 +217,7 @@ export function createAppStore(nucleo: Nucleo) {
       erroDeArquivos: null,
       projetos: [],
       galeria: {},
-      erroDaGaleria: null,
+      errosAoAbrir: {},
 
       connect: () => {
         let connected = true;
@@ -335,20 +338,18 @@ export function createAppStore(nucleo: Nucleo) {
       },
 
       carregarGaleria: async (id) => {
-        const result = await nucleo.dadosDoProjeto(id);
-        if (result.status === "error") {
-          set({ erroDaGaleria: result.error });
-          return;
-        }
-        set((current) => ({
-          erroDaGaleria: null,
-          galeria: { ...current.galeria, [id]: result.data },
-        }));
+        const leitura = await nucleo.dadosDoProjeto(id);
+        set((current) => ({ galeria: { ...current.galeria, [id]: leitura } }));
       },
 
       abrirNoSistema: async (id, alvo) => {
         const result = await nucleo.abrirNoSistema(id, alvo);
-        if (result.status === "error") set({ erroDaGaleria: result.error });
+        set((current) => ({
+          errosAoAbrir: {
+            ...current.errosAoAbrir,
+            [id]: result.status === "error" ? result.error : null,
+          },
+        }));
       },
 
       urlDoArquivo: nucleo.urlDoArquivo,

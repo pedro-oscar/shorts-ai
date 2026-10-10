@@ -117,35 +117,47 @@ pub(crate) fn ler(pasta: &Path) -> Result<DadosDoProjeto, String> {
     Ok(dados)
 }
 
-/// O que abrir no sistema para o alvo.
+/// O que abrir no sistema para o alvo, com o separador do sistema: o Explorador não entende
+/// `/` no meio do caminho.
 pub(crate) fn caminho_para_abrir(pasta: &Path, alvo: AlvoParaAbrir) -> PathBuf {
+    let dentro = |relativo: &str| pasta.join(Path::new(relativo).iter().collect::<PathBuf>());
     match alvo {
         AlvoParaAbrir::Pasta => pasta.to_owned(),
-        AlvoParaAbrir::Roteiro => pasta.join(ROTEIRO),
+        AlvoParaAbrir::Roteiro => dentro(ROTEIRO),
         AlvoParaAbrir::Logs => {
-            let log = pasta.join(LOG_DO_ROTEIRO);
+            let log = dentro(LOG_DO_ROTEIRO);
             if log.is_file() {
                 log
             } else {
-                pasta.join(PASTA_DE_EDICAO)
+                dentro(PASTA_DE_EDICAO)
             }
         }
     }
 }
 
-/// Entrega o caminho ao programa do sistema que abre arquivos e pastas.
-pub(crate) fn abrir_no_sistema(caminho: &Path) -> std::io::Result<()> {
-    let mut comando = if cfg!(windows) {
-        Command::new("explorer")
+/// O programa do sistema que abre arquivos e pastas no programa padrão de cada um.
+pub(crate) fn programa_de_abrir() -> PathBuf {
+    PathBuf::from(if cfg!(windows) {
+        "explorer"
     } else if cfg!(target_os = "macos") {
-        Command::new("open")
+        "open"
     } else {
-        Command::new("xdg-open")
-    };
+        "xdg-open"
+    })
+}
+
+/// Entrega o caminho, que tem de existir, ao programa de abrir, sem esperar por ele.
+pub(crate) fn abrir_no_sistema(programa: &Path, caminho: &Path) -> std::io::Result<()> {
+    fs::metadata(caminho)?;
+    let mut comando = Command::new(programa);
     comando.arg(caminho);
     hide_console(&mut comando);
-    // O Explorador sai com código 1 mesmo quando abre; só a falha de iniciar vale.
-    comando.spawn().map(|_| ())
+    let mut filho = comando.spawn()?;
+    // O `xdg-open` pode ficar preso ao programa que abriu, e o Explorador sai com código 1
+    // mesmo quando abre: ninguém espera pelo resultado, só colhe o processo para ele não
+    // ficar zumbi.
+    std::thread::spawn(move || filho.wait());
+    Ok(())
 }
 
 #[cfg(test)]

@@ -16,6 +16,11 @@ struct Cenario {
 
 impl Cenario {
     fn novo() -> Self {
+        Self::abrindo_com(|_| None)
+    }
+
+    /// `abrir_com` recebe a pasta temporária do teste e diz com que programa o núcleo abre.
+    fn abrindo_com(abrir_com: impl FnOnce(&std::path::Path) -> Option<PathBuf>) -> Self {
         let tmp = tempfile::tempdir().unwrap();
         let videos = tmp.path().join("Videos");
         let projeto = videos.join("Shorts AI").join("Aula (2026-10-09)");
@@ -25,6 +30,7 @@ impl Cenario {
             Config {
                 app_data_dir: tmp.path().join("dados"),
                 pasta_de_videos: Some(videos),
+                abrir_com: abrir_com(tmp.path()),
                 ..Config::default()
             },
             |_| {},
@@ -166,13 +172,129 @@ fn roteiro_ilegivel_e_projeto_fora_da_biblioteca_sao_erros() {
         Err(Erro::ProjetoNaoLido { .. })
     ));
     assert!(matches!(
-        cenario.nucleo.dados_do_projeto("Outro (2026-10-09)"),
-        Err(Erro::ProjetoNaoLido { .. })
-    ));
-    assert!(matches!(
         cenario
             .nucleo
             .abrir_no_sistema("../fora", AlvoParaAbrir::Pasta),
         Err(Erro::ProjetoNaoLido { .. })
     ));
+}
+
+#[test]
+fn projeto_cuja_pasta_sumiu_nao_e_encontrado() {
+    let cenario = Cenario::novo();
+    fs::remove_dir_all(&cenario.projeto).unwrap();
+
+    assert_eq!(
+        cenario.nucleo.dados_do_projeto(ID),
+        Err(Erro::ProjetoNaoEncontrado { id: ID.to_owned() })
+    );
+    assert_eq!(
+        cenario.nucleo.abrir_no_sistema(ID, AlvoParaAbrir::Pasta),
+        Err(Erro::ProjetoNaoEncontrado { id: ID.to_owned() })
+    );
+}
+
+#[cfg(unix)]
+mod abrir_no_sistema {
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+    use std::path::{Path, PathBuf};
+    use std::time::{Duration, Instant};
+
+    use super::{Cenario, ID};
+    use nucleo::{AlvoParaAbrir, Erro};
+    use serde_json::json;
+
+    /// Grava ao lado de si, em `aberto`, o caminho que recebeu; faz o papel do `xdg-open`.
+    const ABRIR_FALSO: &str = r#"#!/bin/sh
+dir="$(dirname "$0")"
+printf '%s' "$1" > "$dir/aberto.tmp"
+mv "$dir/aberto.tmp" "$dir/aberto"
+"#;
+
+    fn com_abrir_falso() -> (Cenario, PathBuf) {
+        let mut abrir = PathBuf::new();
+        let cenario = Cenario::abrindo_com(|tmp| {
+            abrir = tmp.join("abrir");
+            fs::write(&abrir, ABRIR_FALSO).unwrap();
+            fs::set_permissions(&abrir, fs::Permissions::from_mode(0o755)).unwrap();
+            Some(abrir.clone())
+        });
+        (cenario, abrir)
+    }
+
+    /// O caminho que o programa falso recebeu; ele roda solto, então o teste espera por ele.
+    fn aberto(abrir: &Path) -> String {
+        let arquivo = abrir.with_file_name("aberto");
+        let limite = Instant::now() + Duration::from_secs(10);
+        while !arquivo.is_file() {
+            assert!(Instant::now() < limite, "o programa de abrir não rodou");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let caminho = fs::read_to_string(&arquivo).unwrap();
+        fs::remove_file(&arquivo).unwrap();
+        caminho
+    }
+
+    #[test]
+    fn entrega_ao_programa_do_sistema_a_pasta_o_roteiro_e_os_logs() {
+        let (cenario, abrir) = com_abrir_falso();
+        cenario.roteiro(&json!([]));
+        fs::write(cenario.projeto.join("edit/sessao-roteiro.jsonl"), "").unwrap();
+
+        cenario
+            .nucleo
+            .abrir_no_sistema(ID, AlvoParaAbrir::Pasta)
+            .unwrap();
+        assert_eq!(aberto(&abrir), cenario.projeto.display().to_string());
+
+        cenario
+            .nucleo
+            .abrir_no_sistema(ID, AlvoParaAbrir::Roteiro)
+            .unwrap();
+        assert_eq!(
+            aberto(&abrir),
+            cenario
+                .projeto
+                .join("edit/roteiro.json")
+                .display()
+                .to_string()
+        );
+
+        cenario
+            .nucleo
+            .abrir_no_sistema(ID, AlvoParaAbrir::Logs)
+            .unwrap();
+        assert_eq!(
+            aberto(&abrir),
+            cenario
+                .projeto
+                .join("edit/sessao-roteiro.jsonl")
+                .display()
+                .to_string()
+        );
+    }
+
+    #[test]
+    fn o_que_nao_existe_ou_sem_o_programa_de_abrir_e_erro() {
+        let (cenario, _) = com_abrir_falso();
+        let roteiro = cenario
+            .projeto
+            .join("edit/roteiro.json")
+            .display()
+            .to_string();
+
+        assert!(matches!(
+            cenario.nucleo.abrir_no_sistema(ID, AlvoParaAbrir::Roteiro),
+            Err(Erro::NaoAbriu { caminho, .. }) if caminho == roteiro
+        ));
+
+        let sem_programa = Cenario::abrindo_com(|tmp| Some(tmp.join("nao-existe")));
+        assert!(matches!(
+            sem_programa
+                .nucleo
+                .abrir_no_sistema(ID, AlvoParaAbrir::Pasta),
+            Err(Erro::NaoAbriu { .. })
+        ));
+    }
 }
