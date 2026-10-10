@@ -15,6 +15,7 @@ use sha2::{Digest, Sha256};
 
 use crate::corte::{ErroDoCorte, Ffmpeg, Trecho};
 use crate::process::{self, Interrupted, Stream};
+use crate::revisao;
 use crate::rosto::Pin;
 use crate::roteiro::{Plano, ROTEIRO, validar_na_pasta};
 
@@ -31,6 +32,8 @@ pub(crate) const PUBLICAR: &str = "publicar";
 pub(crate) const PREVIAS: &str = "prévias";
 /// Os intermediários de cada corte (`edit/cortes/<chave>/`).
 const CORTES: &str = "edit/cortes";
+const FOLHA: &str = "revisao.png";
+const RESUMO: &str = "edit/producao.json";
 const FPS: u32 = 30;
 const TITULO_MAXIMO: usize = 50;
 /// Que parte do progresso de cada reel é o corte, o rosto e o render.
@@ -152,6 +155,50 @@ impl Producao {
             progresso((indice + 1) as f64 / total as f64);
         }
         Ok(reels)
+    }
+
+    /// Gera a folha de revisão de cada reel (`edit/cortes/<chave>/revisao.png`) e o
+    /// `edit/producao.json` que a sessão de revisão lê: os reels, os avisos e os erros.
+    pub fn preparar_revisao(
+        &self,
+        pedido: &Pedido,
+        reels: &[Reel],
+        cancelar: &AtomicBool,
+    ) -> Result<(), ErroDaProducao> {
+        let planos = planos(pedido.pasta)?;
+        let mut itens = Vec::new();
+        for reel in reels {
+            let Some(plano) = planos.iter().find(|plano| plano.id == reel.id) else {
+                continue;
+            };
+            let pasta = pedido.pasta.join(CORTES).join(&plano.chave);
+            let instantes = revisao::instantes(plano);
+            self.ffmpeg.folha(
+                &reel.arquivo,
+                &instantes,
+                revisao::COLUNAS,
+                &pasta.join(FOLHA),
+                &pasta.join("folha"),
+                cancelar,
+            )?;
+            let _ = fs::remove_dir_all(pasta.join("folha"));
+            let mut avisos = Vec::new();
+            if reel.rosto_raro {
+                avisos.push("o rosto aparece em menos de 60% do corte");
+            }
+            itens.push(json!({
+                "id": reel.id,
+                "titulo": plano.titulo,
+                "arquivo": reel.arquivo.strip_prefix(pedido.pasta).unwrap_or(&reel.arquivo),
+                "duracao": plano.duracao,
+                "revisao": format!("{CORTES}/{}/{FOLHA}", plano.chave),
+                "instantes": instantes,
+                "avisos": avisos,
+            }));
+        }
+        let resumo = json!({"reels": itens, "avisos": [], "erros": []});
+        crate::files::write_json(&pedido.pasta.join(RESUMO), &resumo)?;
+        Ok(())
     }
 
     /// Empacota o projeto, se o pacote não existe ou o código do Remotion mudou desde então.

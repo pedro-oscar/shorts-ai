@@ -619,6 +619,71 @@ impl Ffmpeg {
         }
     }
 
+    /// Junta em `saida` os quadros do `reel` nos `instantes` (segundos), em grade, cada um com
+    /// o tempo marcado. Se o ffmpeg não souber escrever o tempo (sem fonte), os quadros saem
+    /// sem a marca. Os quadros soltos ficam em `pasta_de_trabalho`.
+    pub(crate) fn folha(
+        &self,
+        reel: &Path,
+        instantes: &[f64],
+        colunas: usize,
+        saida: &Path,
+        pasta_de_trabalho: &Path,
+        cancelar: &AtomicBool,
+    ) -> Result<(), ErroDoCorte> {
+        fs::create_dir_all(pasta_de_trabalho)?;
+        for (indice, instante) in instantes.iter().enumerate() {
+            let quadro = pasta_de_trabalho.join(format!("quadro-{indice:02}.png"));
+            let marca = format!(
+                "scale=-2:480,drawtext=text='{instante:.2}s':x=10:y=10:fontsize=34:\
+                 fontcolor=white:box=1:boxcolor=black@0.65:boxborderw=6"
+            );
+            let mut resultado = Ok(());
+            for filtro in [marca.as_str(), "scale=-2:480"] {
+                resultado = self
+                    .executar_ffmpeg(
+                        &[
+                            "-y".into(),
+                            "-ss".into(),
+                            format!("{instante:.3}").into(),
+                            "-i".into(),
+                            reel.into(),
+                            "-frames:v".into(),
+                            "1".into(),
+                            "-vf".into(),
+                            filtro.into(),
+                            quadro.clone().into(),
+                        ],
+                        cancelar,
+                        &mut |_| {},
+                    )
+                    .map(|_| ());
+                if !matches!(resultado, Err(ErroDoCorte::Falhou { .. })) {
+                    break;
+                }
+            }
+            resultado?;
+        }
+        let linhas = instantes.len().div_ceil(colunas.max(1));
+        self.executar_ffmpeg(
+            &[
+                "-y".into(),
+                "-framerate".into(),
+                "1".into(),
+                "-i".into(),
+                pasta_de_trabalho.join("quadro-%02d.png").into(),
+                "-vf".into(),
+                format!("tile={colunas}x{linhas}:padding=4:color=black").into(),
+                "-frames:v".into(),
+                "1".into(),
+                saida.into(),
+            ],
+            cancelar,
+            &mut |_| {},
+        )?;
+        Ok(())
+    }
+
     fn executar_ffmpeg(
         &self,
         args: &[OsString],

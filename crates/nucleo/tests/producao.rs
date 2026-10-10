@@ -537,3 +537,69 @@ fn com_os_programas_reais_um_video_de_20_s_gera_um_reel() {
 
     assert!(reels[0].arquivo.metadata().unwrap().len() > 10_000);
 }
+
+fn preparar_revisao(cenario: &Cenario, reels: &[nucleo::producao::Reel]) {
+    cenario
+        .producao
+        .preparar_revisao(
+            &Pedido {
+                pasta: &cenario.pasta,
+                video: &cenario.pasta.join("original.mp4"),
+                qualidade: Qualidade::Final,
+            },
+            reels,
+            &AtomicBool::new(false),
+        )
+        .unwrap();
+}
+
+#[test]
+fn a_folha_de_revisao_junta_os_quadros_em_seis_colunas_com_o_tempo_marcado() {
+    let cenario = Cenario::novo();
+    let reels = cenario.produzir(Qualidade::Final).unwrap();
+
+    preparar_revisao(&cenario, &reels);
+
+    assert!(
+        cenario
+            .pasta
+            .join("edit/cortes")
+            .read_dir()
+            .unwrap()
+            .all(|corte| corte.unwrap().path().join("revisao.png").is_file())
+    );
+    let chamadas = cenario.chamadas("ffmpeg");
+    let quadros: Vec<_> = chamadas.iter().filter(|c| c.contains("drawtext")).collect();
+    // Início e fim do c01 e do c02; a duração de cada um é de 2,4 s ou menos, sem motion
+    // além do título automático (0,2 s, perto demais do início para ser outro quadro).
+    assert_eq!(quadros.len(), 4, "{quadros:?}");
+    assert!(quadros[0].contains("-ss 0.000"), "{}", quadros[0]);
+    assert!(quadros[0].contains("text='0.00s'"), "{}", quadros[0]);
+    let folhas: Vec<_> = chamadas.iter().filter(|c| c.contains("tile=")).collect();
+    assert_eq!(folhas.len(), 2);
+    assert!(folhas[0].contains("tile=6x1"), "{}", folhas[0]);
+}
+
+#[test]
+fn o_resumo_da_producao_lista_reels_folhas_e_avisos_para_a_revisao() {
+    let cenario = Cenario::novo();
+    let reels = cenario.produzir(Qualidade::Final).unwrap();
+
+    preparar_revisao(&cenario, &reels);
+
+    let resumo: Value = serde_json::from_str(
+        &fs::read_to_string(cenario.pasta.join("edit/producao.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(resumo["reels"].as_array().unwrap().len(), 2);
+    let primeiro = &resumo["reels"][0];
+    assert_eq!(primeiro["id"], "c01");
+    assert_eq!(primeiro["revisao"], "edit/cortes/original-c01/revisao.png");
+    assert_eq!(
+        primeiro["arquivo"],
+        "publicar/c01 - Negociar salário tem regra.mp4"
+    );
+    assert_eq!(primeiro["instantes"][0], 0.0);
+    assert!(primeiro["avisos"].is_array());
+    assert_eq!(resumo["erros"], json!([]));
+}

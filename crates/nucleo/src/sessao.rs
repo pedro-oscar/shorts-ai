@@ -24,6 +24,8 @@ use crate::roteiro::{ROTEIRO, validar_na_pasta};
 /// O log das sessões: uma linha do `stream-json` por linha, como o Claude as emitiu. Cada
 /// tentativa acrescenta a sua, que começa no `init` com o `session_id`.
 const LOG: &str = "edit/sessao-roteiro.jsonl";
+/// O mesmo para a Revisão.
+const LOG_DA_REVISAO: &str = "edit/sessao-revisao.jsonl";
 /// Os erros do roteiro inválido, para a próxima tentativa.
 const ERROS: &str = "edit/erros-do-roteiro.txt";
 /// Uma linha por sessão, de todas as etapas (ADR 0007).
@@ -107,6 +109,15 @@ pub struct Custo {
     /// `result` anterior (ou zero, sem ele) e pode estar incompleto.
     pub parcial: bool,
     pub modelos: BTreeMap<String, UsoDoModelo>,
+}
+
+/// Como a sessão de revisão terminou: a última linha da resposta.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResultadoDaRevisao {
+    /// `ROTEIRO_ATUALIZADO`: o roteiro mudou e a Produção refaz os cortes alterados.
+    Atualizado,
+    /// `SEM_MUDANCAS`.
+    SemMudancas,
 }
 
 /// O que a sessão precisa saber do projeto.
@@ -220,14 +231,48 @@ impl Roteirista {
         cancelar: &AtomicBool,
         evento: &mut dyn FnMut(EventoDaSessao),
     ) -> Result<(), ErroDoRoteiro> {
+        self.sessao(Etapa::Roteiro, pedido, cancelar, evento)
+            .map(|_| ())
+    }
+
+    /// Roda uma rodada de revisão: o Claude confere as folhas de revisão (já geradas em
+    /// `edit/cortes/*/revisao.png`) e corrige o roteiro. O núcleo valida o roteiro no fim.
+    /// `Atualizado` vale também quando a resposta não traz a marca mas o roteiro mudou.
+    pub fn revisar(
+        &self,
+        pedido: &Pedido<'_>,
+        cancelar: &AtomicBool,
+        evento: &mut dyn FnMut(EventoDaSessao),
+    ) -> Result<ResultadoDaRevisao, ErroDoRoteiro> {
+        let antes = fs::read(pedido.pasta.join(ROTEIRO)).ok();
+        let marca = self.sessao(Etapa::Revisao, pedido, cancelar, evento)?;
+        let depois = fs::read(pedido.pasta.join(ROTEIRO)).ok();
+        Ok(marca.unwrap_or(if antes == depois {
+            ResultadoDaRevisao::SemMudancas
+        } else {
+            ResultadoDaRevisao::Atualizado
+        }))
+    }
+
+    fn sessao(
+        &self,
+        etapa: Etapa,
+        pedido: &Pedido<'_>,
+        cancelar: &AtomicBool,
+        evento: &mut dyn FnMut(EventoDaSessao),
+    ) -> Result<Option<ResultadoDaRevisao>, ErroDoRoteiro> {
+        let (modelo_do_prompt, arquivo_do_log) = match etapa {
+            Etapa::Revisao => ("prompts/revisar.md", LOG_DA_REVISAO),
+            _ => ("prompts/roteirizar.md", LOG),
+        };
         let skill = self.skill()?;
-        let prompt = prompt(&skill, pedido)?;
+        let prompt = prompt(&skill, pedido, modelo_do_prompt)?;
         let command = self.command(&skill, pedido)?;
         let inicio = OffsetDateTime::now_utc();
         let mut log = OpenOptions::new()
             .create(true)
             .append(true)
-            .open(pedido.pasta.join(LOG))?;
+            .open(pedido.pasta.join(arquivo_do_log))?;
         let mut stream = StreamState::default();
         let output =
             process::run_with_input(command, Some(&prompt), cancelar, &mut |kind, line| {
@@ -236,7 +281,7 @@ impl Roteirista {
                     stream.line(line, evento);
                 }
             })?;
-        if let Some(custo) = stream.custo(Etapa::Roteiro, inicio) {
+        if let Some(custo) = stream.custo(etapa, inicio) {
             registrar_custo(pedido.pasta, &custo)?;
         }
         if !output.status.success() {
@@ -250,7 +295,8 @@ impl Roteirista {
                 "nenhum resultado no stream".to_owned(),
             ));
         }
-        validar_roteiro(pedido.pasta)
+        validar_roteiro(pedido.pasta)?;
+        Ok(stream.marca_da_revisao())
     }
 
     /// A skill nos dados do app. A cópia sai uma vez por execução; se falhar, a próxima
@@ -313,9 +359,9 @@ impl Roteirista {
     }
 }
 
-/// O `prompts/roteirizar.md` da skill com os dados do projeto no lugar dos `{...}`.
-fn prompt(skill: &Skill, pedido: &Pedido<'_>) -> io::Result<String> {
-    let modelo = fs::read_to_string(skill.skill.join("prompts/roteirizar.md"))?;
+/// O prompt da skill (`prompts/roteirizar.md` ou `prompts/revisar.md`) com os dados do projeto no lugar dos `{...}`.
+fn prompt(skill: &Skill, pedido: &Pedido<'_>, arquivo: &str) -> io::Result<String> {
+    let modelo = fs::read_to_string(skill.skill.join(arquivo))?;
     let mut extra = String::new();
     if !pedido.pedido.trim().is_empty() {
         extra.push_str(&format!(
@@ -470,6 +516,23 @@ impl StreamState {
                 entrada: sum(|usage| usage.0),
                 cache: sum(|usage| usage.1),
             });
+        }
+    }
+
+    /// A marca na última linha com texto da resposta final.
+    fn marca_da_revisao(&self) -> Option<ResultadoDaRevisao> {
+        let ultima = self
+            .results
+            .last()?
+            .get("result")?
+            .as_str()?
+            .lines()
+            .map(str::trim)
+            .rfind(|linha| !linha.is_empty())?;
+        match ultima {
+            "ROTEIRO_ATUALIZADO" => Some(ResultadoDaRevisao::Atualizado),
+            "SEM_MUDANCAS" => Some(ResultadoDaRevisao::SemMudancas),
+            _ => None,
         }
     }
 

@@ -17,7 +17,9 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 
 use nucleo::ClaudeCode;
-use nucleo::sessao::{ErroDoRoteiro, EventoDaSessao, Pedido, Roteirista, preparar_skill};
+use nucleo::sessao::{
+    ErroDoRoteiro, EventoDaSessao, Pedido, ResultadoDaRevisao, Roteirista, preparar_skill,
+};
 use serde_json::{Value, json};
 
 /// O `claude` falso guarda como foi chamado, devolve a sessão gravada e, conforme as marcas
@@ -129,6 +131,28 @@ impl Cenario {
                 cortes: 6,
                 pedido: "",
                 modelo,
+            },
+            &AtomicBool::new(false),
+            &mut |evento| eventos.push(evento),
+        );
+        (resultado, eventos)
+    }
+
+    fn revisar(
+        &self,
+    ) -> (
+        Result<ResultadoDaRevisao, ErroDoRoteiro>,
+        Vec<EventoDaSessao>,
+    ) {
+        let mut eventos = Vec::new();
+        let resultado = self.roteirista.revisar(
+            &Pedido {
+                pasta: &self.pasta,
+                video: "aula.mp4",
+                idioma: "pt",
+                cortes: 6,
+                pedido: "",
+                modelo: None,
             },
             &AtomicBool::new(false),
             &mut |evento| eventos.push(evento),
@@ -755,4 +779,88 @@ mod na_fila {
             CUSTO_GRAVADO
         );
     }
+}
+
+/// As gravações da revisão são sessões recortadas à mão no formato real do `stream-json`: o
+/// `~/ai-editor/edit/logs/` desta máquina não guarda nenhuma sessão de revisão.
+#[test]
+fn a_revisao_sem_mudancas_termina_com_a_marca_e_registra_log_e_custo() {
+    let cenario = Cenario::novo();
+    cenario.usar_gravacao("sessao-revisao-sem-mudancas.jsonl");
+    fs::copy(
+        cenario.bin().join("roteiro.json"),
+        cenario.pasta.join("edit/roteiro.json"),
+    )
+    .unwrap();
+    cenario.desmarcar("roteiro-valido");
+
+    let (resultado, eventos) = cenario.revisar();
+
+    assert_eq!(resultado.unwrap(), ResultadoDaRevisao::SemMudancas);
+    assert_eq!(eventos[0], acao("Read", "edit/producao.json"));
+    assert_eq!(
+        eventos
+            .iter()
+            .filter(|e| matches!(e, EventoDaSessao::Tokens { .. }))
+            .count(),
+        3
+    );
+    let log = fs::read_to_string(cenario.pasta.join("edit/sessao-revisao.jsonl")).unwrap();
+    assert!(log.lines().next().unwrap().contains("7a1d3c52"), "{log}");
+    assert!(!cenario.pasta.join("edit/sessao-roteiro.jsonl").exists());
+    let custo = cenario.ultimo_custo();
+    assert_eq!(custo["etapa"], "revisao");
+    assert_eq!(custo["custoUsd"], 0.4172);
+    assert_eq!(custo["turnos"], 3);
+    assert_eq!(custo["parcial"], false);
+    let prompt = cenario.lido("prompt.log");
+    assert!(prompt.contains("sessão de Revisão"), "{prompt}");
+    assert!(prompt.contains("idioma `pt`"), "{prompt}");
+    assert!(prompt.contains("edit/roteiro.json"), "{prompt}");
+}
+
+#[test]
+fn a_revisao_que_muda_o_roteiro_termina_com_roteiro_atualizado() {
+    let cenario = Cenario::novo();
+    cenario.usar_gravacao("sessao-revisao-atualizada.jsonl");
+
+    let (resultado, _) = cenario.revisar();
+
+    assert_eq!(resultado.unwrap(), ResultadoDaRevisao::Atualizado);
+}
+
+#[test]
+fn sem_marca_na_resposta_vale_o_roteiro_ter_mudado_ou_nao() {
+    let cenario = Cenario::novo();
+    cenario.usar_gravacao("sessao-roteiro.jsonl");
+    cenario.desmarcar("roteiro-valido");
+    fs::copy(
+        cenario.bin().join("roteiro.json"),
+        cenario.pasta.join("edit/roteiro.json"),
+    )
+    .unwrap();
+    assert_eq!(
+        cenario.revisar().0.unwrap(),
+        ResultadoDaRevisao::SemMudancas
+    );
+
+    cenario.marcar("roteiro-invalido");
+    let (resultado, _) = cenario.revisar();
+    assert!(matches!(resultado, Err(ErroDoRoteiro::Invalido(_))));
+}
+
+#[test]
+fn roteiro_invalido_depois_da_revisao_falha_com_os_erros() {
+    let cenario = Cenario::novo();
+    cenario.usar_gravacao("sessao-revisao-atualizada.jsonl");
+    cenario.desmarcar("roteiro-valido");
+    cenario.marcar("roteiro-invalido");
+
+    let (resultado, _) = cenario.revisar();
+
+    let ErroDoRoteiro::Invalido(erros) = resultado.unwrap_err() else {
+        panic!("esperava roteiro inválido");
+    };
+    assert!(erros.contains("o corte não tem trechos"), "{erros}");
+    assert_eq!(cenario.ultimo_custo()["etapa"], "revisao");
 }

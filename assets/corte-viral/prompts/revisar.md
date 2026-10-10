@@ -4,7 +4,7 @@ Use a skill **corte-viral**. Leia `{SKILL}/SKILL.md` (seção 7, Revisão), `{SK
 
 ## Tarefa
 
-Os reels do roteiro `{ROTEIRO}` acabaram de ser produzidos.
+Os reels do roteiro `{ROTEIRO}` (vídeo `{VIDEO}`, idioma `{IDIOMA}`) acabaram de ser produzidos. Escreva em `{IDIOMA}` qualquer título, correção, descrição ou texto que você alterar.
 
 1. Leia `edit/producao.json`: lista de reels, avisos e erros.
 2. Abra **cada** `revisao.png` listada (quadros do reel com o tempo no canto) e verifique:

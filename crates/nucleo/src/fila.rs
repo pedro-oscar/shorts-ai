@@ -10,7 +10,7 @@ use std::thread;
 
 use crate::producao::{self, Producao, Qualidade};
 use crate::projeto::{ModoDeImportacao, Origem, ProjetoJson};
-use crate::sessao::{self, EventoDaSessao, Roteirista};
+use crate::sessao::{self, EventoDaSessao, ResultadoDaRevisao, Roteirista};
 use crate::transcricao::{Pedido, Transcritor};
 use crate::{EstadoDaEtapa, Etapa, Evento, LigarArquivo, nome_do_arquivo};
 
@@ -140,7 +140,9 @@ fn rodar(
             Etapa::Transcricao => transcritor.is_some(),
             Etapa::Roteiro => roteirista.is_some(),
             Etapa::Producao => producao.is_some(),
-            Etapa::Revisao => projeto.opcoes.revisoes == 0,
+            Etapa::Revisao => {
+                projeto.opcoes.revisoes == 0 || (roteirista.is_some() && producao.is_some())
+            }
         };
         if !tem_executor {
             return;
@@ -171,6 +173,9 @@ fn rodar(
             }
             (Etapa::Producao, _, _, Some(producao)) => {
                 produzir(pasta, &projeto, producao, &id, emit)
+            }
+            (Etapa::Revisao, _, Some(roteirista), Some(producao)) => {
+                revisar(pasta, &projeto, roteirista, producao, &id, emit)
             }
             (Etapa::Revisao, ..) => Ok(()),
             _ => importar(pasta, &mut projeto, ligar).map_err(|error| error.to_string()),
@@ -272,24 +277,91 @@ fn roteirizar(
                 modelo,
             },
             &AtomicBool::new(false),
-            &mut |evento| {
-                emit(match evento {
-                    EventoDaSessao::Acao { ferramenta, alvo } => Evento::AcaoDoClaude {
-                        projeto: id.to_owned(),
-                        etapa: Etapa::Roteiro,
-                        ferramenta,
-                        alvo,
-                    },
-                    EventoDaSessao::Tokens { entrada, cache } => Evento::TokensDoClaude {
-                        projeto: id.to_owned(),
-                        etapa: Etapa::Roteiro,
-                        entrada,
-                        cache,
-                    },
-                });
-            },
+            &mut |evento| emit(evento_da_sessao(id, Etapa::Roteiro, evento)),
         )
         .map_err(|error| error.to_string())
+}
+
+fn evento_da_sessao(id: &str, etapa: Etapa, evento: EventoDaSessao) -> Evento {
+    match evento {
+        EventoDaSessao::Acao { ferramenta, alvo } => Evento::AcaoDoClaude {
+            projeto: id.to_owned(),
+            etapa,
+            ferramenta,
+            alvo,
+        },
+        EventoDaSessao::Tokens { entrada, cache } => Evento::TokensDoClaude {
+            projeto: id.to_owned(),
+            etapa,
+            entrada,
+            cache,
+        },
+    }
+}
+
+/// A Revisão: em cada rodada, a folha de revisão de cada reel vai para uma sessão do Claude
+/// que corrige o roteiro; se ele mudou, a Produção refaz só os cortes alterados (pelo cache).
+/// Sem mudanças, as rodadas que sobram seriam iguais e não rodam. A fila ainda não cancela
+/// etapas, então nada liga o `cancelar`.
+fn revisar(
+    pasta: &Path,
+    projeto: &ProjetoJson,
+    roteirista: &Roteirista,
+    producao: &Producao,
+    id: &str,
+    emit: &Emitir,
+) -> Result<(), String> {
+    if projeto.opcoes.revisoes == 0 {
+        return Ok(());
+    }
+    let Origem::Arquivo { nome, .. } = &projeto.origem;
+    let idioma = projeto
+        .idioma_do_video
+        .as_deref()
+        .ok_or("o idioma do vídeo não foi detectado")?;
+    let modelo = (projeto.opcoes.modelo != "padrao").then_some(projeto.opcoes.modelo.as_str());
+    let video = video_original(pasta, projeto);
+    let qualidade = if projeto.opcoes.previa {
+        Qualidade::Previa
+    } else {
+        Qualidade::Final
+    };
+    let cancelar = AtomicBool::new(false);
+    let pedido_da_producao = producao::Pedido {
+        pasta,
+        video: &video,
+        qualidade,
+    };
+    let produzir = || {
+        producao
+            .produzir(&pedido_da_producao, &cancelar, &mut |_| {})
+            .map_err(|error| error.to_string())
+    };
+    let mut reels = produzir()?;
+    for _ in 0..projeto.opcoes.revisoes {
+        producao
+            .preparar_revisao(&pedido_da_producao, &reels, &cancelar)
+            .map_err(|error| error.to_string())?;
+        let resultado = roteirista
+            .revisar(
+                &sessao::Pedido {
+                    pasta,
+                    video: nome,
+                    idioma,
+                    cortes: projeto.opcoes.quantidade_de_reels,
+                    pedido: &projeto.opcoes.pedido,
+                    modelo,
+                },
+                &cancelar,
+                &mut |evento| emit(evento_da_sessao(id, Etapa::Revisao, evento)),
+            )
+            .map_err(|error| error.to_string())?;
+        if resultado == ResultadoDaRevisao::SemMudancas {
+            break;
+        }
+        reels = produzir()?;
+    }
+    Ok(())
 }
 
 /// A Produção: corta, segue o rosto e renderiza cada reel. A prévia (meia escala) vem antes da

@@ -15,6 +15,7 @@ mod process;
 pub mod producao;
 mod projeto;
 mod remotion;
+mod revisao;
 pub mod rosto;
 pub mod roteiro;
 pub mod sessao;
