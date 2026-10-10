@@ -6,10 +6,56 @@ import type { ProjetoNaFila } from "../store";
 import { ErrorMessage, Screen, Topo } from "./common";
 import { formatarDuracao, producaoConcluida } from "./formatos";
 
-/** Um reel: o player 9:16, o que o Claude disse dele e a descrição do post. */
-function Reel({ reel }: { reel: ReelDoProjeto }) {
+/**
+ * O player 9:16. Onde o sistema não toca o reel no app (o WebKitGTK do Linux, ADR 0008), o
+ * botão o abre no player do sistema.
+ */
+function Player({
+  projeto,
+  corte,
+  arquivo,
+  titulo,
+}: {
+  projeto: string;
+  corte: string;
+  arquivo: string;
+  titulo: string;
+}) {
   const { t } = useTranslation();
   const urlDoArquivo = useAppStore((store) => store.urlDoArquivo);
+  const abrirNoSistema = useAppStore((store) => store.abrirNoSistema);
+  const [tocaNoApp, setTocaNoApp] = useState(true);
+  if (tocaNoApp)
+    return (
+      <video
+        className="player"
+        controls
+        preload="metadata"
+        src={urlDoArquivo(arquivo)}
+        onError={() => {
+          setTocaNoApp(false);
+        }}
+      />
+    );
+  return (
+    <div className="player player-parado">
+      <p>{t("reels.naoTocaNoApp")}</p>
+      <button
+        type="button"
+        aria-label={t("reels.assistirNoSistemaDe", { titulo })}
+        onClick={() => {
+          void abrirNoSistema(projeto, { reel: corte });
+        }}
+      >
+        {t("reels.assistirNoSistema")}
+      </button>
+    </div>
+  );
+}
+
+/** Um reel: o player 9:16, o que o Claude disse dele e a descrição do post. */
+function Reel({ projeto, reel }: { projeto: string; reel: ReelDoProjeto }) {
+  const { t } = useTranslation();
   const [copiada, setCopiada] = useState(false);
   const titulo = reel.titulo ?? t("reels.semTitulo");
   const descricao = reel.descricao;
@@ -23,11 +69,11 @@ function Reel({ reel }: { reel: ReelDoProjeto }) {
       {reel.arquivo === null ? (
         <p className="detail">{t("reels.semArquivo")}</p>
       ) : (
-        <video
-          className="player"
-          controls
-          preload="metadata"
-          src={urlDoArquivo(reel.arquivo)}
+        <Player
+          projeto={projeto}
+          corte={reel.id}
+          arquivo={reel.arquivo}
+          titulo={titulo}
         />
       )}
       <h3>{titulo}</h3>
@@ -117,7 +163,7 @@ function Projeto({ projeto }: { projeto: ProjetoNaFila }) {
       )}
       <div className="reels">
         {dados?.reels.map((reel) => (
-          <Reel key={reel.id} reel={reel} />
+          <Reel key={reel.id} projeto={projeto.id} reel={reel} />
         ))}
       </div>
       {dados && dados.reservas.length > 0 && (

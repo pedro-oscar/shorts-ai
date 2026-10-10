@@ -16,7 +16,7 @@ const LOG_DO_ROTEIRO: &str = "edit/sessao-roteiro.jsonl";
 const PASTA_DE_EDICAO: &str = "edit";
 
 /// O que a Galeria abre no sistema.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub enum AlvoParaAbrir {
     /// A pasta do projeto, no Explorador ou no gerenciador de arquivos.
@@ -24,6 +24,9 @@ pub enum AlvoParaAbrir {
     Roteiro,
     /// O log da sessão do Claude e, sem ele, a pasta `edit/`.
     Logs,
+    /// O reel publicado do corte com este id, no player do sistema: onde o app não toca o
+    /// reel, como no Linux (ADR 0008).
+    Reel(String),
 }
 
 /// Um corte a produzir, com o arquivo publicado dele se já existe.
@@ -118,10 +121,11 @@ pub(crate) fn ler(pasta: &Path) -> Result<DadosDoProjeto, String> {
 }
 
 /// O que abrir no sistema para o alvo, com o separador do sistema: o Explorador não entende
-/// `/` no meio do caminho.
-pub(crate) fn caminho_para_abrir(pasta: &Path, alvo: AlvoParaAbrir) -> PathBuf {
+/// `/` no meio do caminho. Só o reel pode faltar: o roteiro não lido ou o corte sem reel
+/// publicado.
+pub(crate) fn caminho_para_abrir(pasta: &Path, alvo: &AlvoParaAbrir) -> Result<PathBuf, String> {
     let dentro = |relativo: &str| pasta.join(Path::new(relativo).iter().collect::<PathBuf>());
-    match alvo {
+    Ok(match alvo {
         AlvoParaAbrir::Pasta => pasta.to_owned(),
         AlvoParaAbrir::Roteiro => dentro(ROTEIRO),
         AlvoParaAbrir::Logs => {
@@ -132,7 +136,14 @@ pub(crate) fn caminho_para_abrir(pasta: &Path, alvo: AlvoParaAbrir) -> PathBuf {
                 dentro(PASTA_DE_EDICAO)
             }
         }
-    }
+        AlvoParaAbrir::Reel(corte) => ler(pasta)?
+            .reels
+            .into_iter()
+            .find(|reel| &reel.id == corte)
+            .and_then(|reel| reel.arquivo)
+            .map(PathBuf::from)
+            .ok_or_else(|| format!("o corte {corte} não tem reel publicado"))?,
+    })
 }
 
 /// O programa do sistema que abre arquivos e pastas no programa padrão de cada um.
@@ -168,18 +179,18 @@ mod tests {
     fn logs_abrem_o_log_da_sessao_e_na_falta_dele_a_pasta_de_edicao() {
         let pasta = tempfile::tempdir().unwrap();
         assert_eq!(
-            caminho_para_abrir(pasta.path(), AlvoParaAbrir::Logs),
-            pasta.path().join("edit")
+            caminho_para_abrir(pasta.path(), &AlvoParaAbrir::Logs),
+            Ok(pasta.path().join("edit"))
         );
         fs::create_dir(pasta.path().join("edit")).unwrap();
         fs::write(pasta.path().join(LOG_DO_ROTEIRO), "").unwrap();
         assert_eq!(
-            caminho_para_abrir(pasta.path(), AlvoParaAbrir::Logs),
-            pasta.path().join(LOG_DO_ROTEIRO)
+            caminho_para_abrir(pasta.path(), &AlvoParaAbrir::Logs),
+            Ok(pasta.path().join(LOG_DO_ROTEIRO))
         );
         assert_eq!(
-            caminho_para_abrir(pasta.path(), AlvoParaAbrir::Roteiro),
-            pasta.path().join("edit/roteiro.json")
+            caminho_para_abrir(pasta.path(), &AlvoParaAbrir::Roteiro),
+            Ok(pasta.path().join("edit/roteiro.json"))
         );
     }
 }

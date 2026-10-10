@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import type { DadosDoProjeto } from "./bindings";
@@ -204,4 +204,30 @@ test("se o sistema não abre, o erro aparece no projeto", async () => {
   expect(await within(aula).findByRole("alert")).toHaveTextContent(
     `Não foi possível abrir ${roteiro}`,
   );
+});
+
+/** O sistema recusa tocar o arquivo direto, como o WebKitGTK faz com o protocolo de arquivos. */
+async function recusarDireto(titulo: string) {
+  const reel = await screen.findByRole("article", { name: titulo });
+  const video = reel.querySelector("video");
+  if (!video) throw new Error(`${titulo} sem player`);
+  fireEvent.error(video);
+  return reel;
+}
+
+test("onde o app não toca o reel, Assistir o abre no player do sistema", async () => {
+  const { user, calls } = await abrirReels();
+  const reel = await recusarDireto("Negociar salário tem regra");
+  expect(reel.querySelector("video")).toBeNull();
+  expect(reel).toHaveTextContent("Este sistema não toca o reel aqui.");
+
+  await user.click(
+    within(reel).getByRole("button", {
+      name: "Assistir Negociar salário tem regra no player do sistema",
+    }),
+  );
+
+  expect(calls.abertos).toEqual([{ id: AULA, alvo: { reel: "c01" } }]);
+  const outro = screen.getByRole("article", { name: "Final pronta" });
+  expect(outro.querySelector("video")).not.toBeNull();
 });

@@ -276,6 +276,30 @@ mv "$dir/aberto.tmp" "$dir/aberto"
     }
 
     #[test]
+    fn o_reel_abre_no_player_do_sistema_na_versao_final_ou_na_previa() {
+        let (cenario, abrir) = com_abrir_falso();
+        cenario.roteiro(&json!([
+            { "id": "c01", "titulo": "Um", "trechos": [[0, 10]] },
+            { "id": "c02", "titulo": "Dois", "trechos": [[0, 10]] }
+        ]));
+        let previa = cenario.publicar("prévias/c01 - Um.mp4");
+        cenario.publicar("prévias/c02 - Dois.mp4");
+        let final_do_dois = cenario.publicar("c02 - Dois.mp4");
+
+        cenario
+            .nucleo
+            .abrir_no_sistema(ID, AlvoParaAbrir::Reel("c01".to_owned()))
+            .unwrap();
+        assert_eq!(aberto(&abrir), previa);
+
+        cenario
+            .nucleo
+            .abrir_no_sistema(ID, AlvoParaAbrir::Reel("c02".to_owned()))
+            .unwrap();
+        assert_eq!(aberto(&abrir), final_do_dois);
+    }
+
+    #[test]
     fn o_que_nao_existe_ou_sem_o_programa_de_abrir_e_erro() {
         let (cenario, _) = com_abrir_falso();
         let roteiro = cenario
@@ -287,6 +311,14 @@ mv "$dir/aberto.tmp" "$dir/aberto"
         assert!(matches!(
             cenario.nucleo.abrir_no_sistema(ID, AlvoParaAbrir::Roteiro),
             Err(Erro::NaoAbriu { caminho, .. }) if caminho == roteiro
+        ));
+
+        cenario.roteiro(&json!([{ "id": "c01", "titulo": "Um", "trechos": [[0, 10]] }]));
+        assert!(matches!(
+            cenario
+                .nucleo
+                .abrir_no_sistema(ID, AlvoParaAbrir::Reel("c01".to_owned())),
+            Err(Erro::ProjetoNaoLido { detalhe, .. }) if detalhe.contains("c01")
         ));
 
         let sem_programa = Cenario::abrindo_com(|tmp| Some(tmp.join("nao-existe")));

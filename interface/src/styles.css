@@ -233,6 +233,8 @@ fieldset label {
   display: grid;
   gap: 0.25rem;
   align-content: start;
+  /* Sem isto, a largura do vídeo (1080 px) alarga a coluna e o player sai da tela. */
+  min-width: 0;
 }
 
 .player {
@@ -240,6 +242,16 @@ fieldset label {
   aspect-ratio: 9 / 16;
   background: #000;
   border-radius: 0.5rem;
+}
+
+.player-parado {
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 0.5rem;
+  padding: 1rem;
+  color: #fff;
+  text-align: center;
 }
 
 .reel dt {

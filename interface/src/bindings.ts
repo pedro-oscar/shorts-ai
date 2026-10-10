@@ -47,7 +47,12 @@ export type AlvoParaAbrir =
 /**  A pasta do projeto, no Explorador ou no gerenciador de arquivos. */
 "pasta" | "roteiro" | 
 /**  O log da sessão do Claude e, sem ele, a pasta `edit/`. */
-"logs";
+"logs" | 
+/**
+ *  O reel publicado do corte com este id, no player do sistema: onde o app não toca o
+ *  reel, como no Linux (ADR 0008).
+ */
+{ reel: string };
 
 /**  Um arquivo de vídeo escolhido, para a lista do passo Vídeos. */
 export type ArquivoDeVideo = {

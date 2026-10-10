@@ -640,9 +640,15 @@ impl Nucleo {
         })
     }
 
-    /// Abre a pasta, o roteiro ou os logs do projeto no programa padrão do sistema.
+    /// Abre a pasta, o roteiro, os logs ou um reel do projeto no programa padrão do sistema.
     pub fn abrir_no_sistema(&self, id: &str, alvo: AlvoParaAbrir) -> Result<(), Erro> {
-        let caminho = galeria::caminho_para_abrir(&self.pasta_do_projeto(id)?, alvo);
+        let caminho =
+            galeria::caminho_para_abrir(&self.pasta_do_projeto(id)?, &alvo).map_err(|detalhe| {
+                Erro::ProjetoNaoLido {
+                    id: id.to_owned(),
+                    detalhe,
+                }
+            })?;
         galeria::abrir_no_sistema(&self.abrir_com, &caminho).map_err(|error| Erro::NaoAbriu {
             caminho: caminho.display().to_string(),
             detalhe: error.to_string(),
