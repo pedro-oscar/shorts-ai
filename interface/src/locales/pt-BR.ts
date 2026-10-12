@@ -95,6 +95,28 @@ export const ptBR = {
       confirmadoPrecoDeApi: "Plano confirmado: {{nivel}} (preço de API).",
     },
   },
+  preparacao: {
+    titulo: "Preparação",
+    introducao:
+      "Na primeira execução o Shorts AI baixa o que falta para funcionar. Isso é feito uma vez só.",
+    pacotes: {
+      nodePortatil: "Node portátil",
+      dependenciasDoRemotion: "Dependências do render (com o Chrome headless)",
+      modeloDeTranscricao: "Modelo de transcrição",
+    },
+    presente: "Já instalado",
+    falta: "A baixar",
+    baixando: "Baixando",
+    concluido: "Pronto",
+    falhou: "Falhou: {{detalhe}}",
+    tamanho: "cerca de {{tamanho}}",
+    total: "Vai ocupar cerca de {{tamanho}}. Espaço livre: {{livre}}.",
+    pouco:
+      "Há menos de 20 GB livres. Os renders podem falhar por falta de espaço.",
+    progresso: "Progresso de {{pacote}}",
+    baixar: "Baixar o que falta",
+    tentarDeNovo: "Tentar de novo",
+  },
   videos: {
     titulo: "Vídeos",
     abaArquivos: "Arquivos do computador",
@@ -228,6 +250,7 @@ export const ptBR = {
       "O projeto {{id}} não foi encontrado na Biblioteca: a pasta dele foi apagada ou movida.",
     padroesInvalidos:
       "Os padrões do lote não foram aceitos: confira o número de reels (1 a 12) e o de revisões (0 a 3).",
+    preparacaoInterrompida: "A preparação foi interrompida.",
     naoAbriu: "Não foi possível abrir {{caminho}}.",
     detalhe: "Detalhe técnico (do sistema): {{detalhe}}",
   },

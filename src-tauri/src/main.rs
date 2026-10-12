@@ -6,8 +6,8 @@
 
 use nucleo::{
     Aceite, AlvoParaAbrir, ArquivoDeVideo, Config, DadosDoProjeto, Erro, EstadoDaConta,
-    EstadoInicial, Evento, ModoDeLogin, NivelDoPlano, Nucleo, Padroes, PeriodoDeCobranca,
-    PlanoConfirmado, ProjetoResumo,
+    EstadoDaPreparacao, EstadoInicial, Evento, ModoDeLogin, NivelDoPlano, Nucleo, Padroes,
+    PeriodoDeCobranca, PlanoConfirmado, ProjetoResumo,
 };
 use serde::Serialize;
 use specta::Type;
@@ -26,6 +26,23 @@ struct EventoDoNucleo(Evento);
 #[specta::specta]
 async fn estado_inicial(app: AppHandle) -> EstadoInicial {
     app.state::<Nucleo>().estado_inicial()
+}
+
+#[tauri::command]
+#[specta::specta]
+async fn verificar_preparacao(app: AppHandle) -> EstadoDaPreparacao {
+    app.state::<Nucleo>().verificar_preparacao()
+}
+
+/// Baixa o que falta da preparação: leva minutos, fora da thread do runtime async.
+#[tauri::command]
+#[specta::specta]
+async fn preparar(app: AppHandle) -> Result<EstadoDaPreparacao, Erro> {
+    tauri::async_runtime::spawn_blocking(move || app.state::<Nucleo>().preparar())
+        .await
+        .map_err(|error| Erro::PreparacaoInterrompida {
+            detalhe: error.to_string(),
+        })
 }
 
 #[tauri::command]
@@ -182,6 +199,8 @@ fn bindings() -> Builder<tauri::Wry> {
         .disable_serde_phases()
         .commands(collect_commands![
             estado_inicial,
+            verificar_preparacao,
+            preparar,
             aceitar_aviso,
             verificar_conta,
             entrar_no_claude_code,
@@ -235,6 +254,7 @@ fn main() {
                     chave_de_api_no_ambiente: std::env::var_os("ANTHROPIC_API_KEY")
                         .is_some_and(|chave| !chave.is_empty()),
                     abrir_com: None,
+                    downloads: None,
                 },
                 move |evento| {
                     if let Err(error) = EventoDoNucleo(evento).emit(&handle) {

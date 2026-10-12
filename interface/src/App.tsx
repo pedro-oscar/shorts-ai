@@ -8,6 +8,7 @@ import { Conta } from "./screens/Conta";
 import { ErroAoAbrir } from "./screens/ErroAoAbrir";
 import { Gerando } from "./screens/Gerando";
 import { Padroes } from "./screens/Padroes";
+import { Preparacao } from "./screens/Preparacao";
 import { Reels } from "./screens/Reels";
 import { Sobre } from "./screens/Sobre";
 import { Videos } from "./screens/Videos";
@@ -42,6 +43,7 @@ function InInterfaceLanguage() {
 function Screens() {
   const erroAoAbrir = useAppStore((store) => store.erroAoAbrir);
   const aceito = useAppStore((store) => store.aceite !== null);
+  const preparacao = useAppStore((store) => store.preparacao);
   const [sobreOpen, setSobreOpen] = useState(false);
   // Aqui, e não no Aviso, porque o Sobre desmonta o Aviso.
   const [concordo, setConcordo] = useState(false);
@@ -61,6 +63,10 @@ function Screens() {
   const openSobre = () => {
     setSobreOpen(true);
   };
+  // Antes de a Conta abrir, o que falta baixar da primeira execução.
+  if (aceito && !preparacao) return null;
+  if (aceito && preparacao && !preparacao.pacotes.every((p) => p.presente))
+    return <Preparacao onOpenSobre={openSobre} />;
   if (aceito && passo === "reels")
     return (
       <Reels

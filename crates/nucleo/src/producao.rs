@@ -14,6 +14,7 @@ use serde_json::json;
 use sha2::{Digest, Sha256};
 
 use crate::corte::{ErroDoCorte, Ffmpeg, Trecho};
+use crate::preparacao::NodePortatil;
 use crate::process::{self, Interrupted, Stream};
 use crate::revisao;
 use crate::rosto::Pin;
@@ -117,11 +118,23 @@ impl From<Interrupted> for ErroDaProducao {
 pub struct Producao {
     ffmpeg: Ffmpeg,
     node: PathBuf,
+    /// O Node que a preparação baixou; vale no lugar de `node` quando já existe, mesmo que
+    /// tenha sido baixado depois de o app abrir.
+    node_portatil: Option<NodePortatil>,
 }
 
 impl Producao {
     pub fn new(ffmpeg: Ffmpeg, node: PathBuf) -> Self {
-        Self { ffmpeg, node }
+        Self {
+            ffmpeg,
+            node,
+            node_portatil: None,
+        }
+    }
+
+    pub(crate) fn com_node_portatil(mut self, node_portatil: NodePortatil) -> Self {
+        self.node_portatil = Some(node_portatil);
+        self
     }
 
     /// Produz os reels dos cortes `produzir` do roteiro. `progresso` recebe a fração (0 a 1)
@@ -369,7 +382,12 @@ impl Producao {
             ));
         }
         fs::write(remotion.join(NOME_DO_SCRIPT), SCRIPT)?;
-        let mut comando = Command::new(&self.node);
+        let node = self
+            .node_portatil
+            .as_ref()
+            .and_then(NodePortatil::node)
+            .unwrap_or_else(|| self.node.clone());
+        let mut comando = Command::new(node);
         comando.arg(NOME_DO_SCRIPT).args(args).current_dir(remotion);
         let saida = process::run(comando, cancelar, &mut |stream, linha| {
             if stream == Stream::Stdout

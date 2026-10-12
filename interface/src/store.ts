@@ -6,9 +6,11 @@ import type {
   Erro,
   EstadoDaConta,
   EstadoDaEtapa,
+  EstadoDaPreparacao,
   Evento,
   IdiomaDaInterface,
   ModoDeLogin,
+  Pacote,
   NivelDoPlano,
   Padroes,
   PeriodoDeCobranca,
@@ -60,6 +62,14 @@ export interface VersaoFinalDoProjeto {
   falha: string | null;
 }
 
+/** O que a preparação informa de um pacote enquanto baixa. */
+export interface AndamentoDoPacote {
+  estado: EstadoDaEtapa;
+  /** O percentual do download, quando o pacote o mede. */
+  percentual: number | null;
+  falha: string | null;
+}
+
 export interface AppState {
   /** `null` até o núcleo responder. */
   app: { versao: string; idiomaDaInterface: IdiomaDaInterface } | null;
@@ -88,6 +98,11 @@ export interface AppState {
   chaveDeApiNoAmbiente: boolean;
   /** A Biblioteca, onde ficam os projetos. */
   biblioteca: string;
+  /** O que a preparação da primeira execução tem e o que falta; `null` até o núcleo dizer. */
+  preparacao: EstadoDaPreparacao | null;
+  /** O que cada pacote que a preparação baixa informa, desde que ela começou. */
+  andamentoDaPreparacao: Partial<Record<Pacote, AndamentoDoPacote>>;
+  preparando: boolean;
   /** Os vídeos da lista do passo Vídeos, antes de Gerar. */
   arquivos: ArquivoDeVideo[];
   erroDeArquivos: Erro | null;
@@ -108,6 +123,8 @@ export interface AppState {
 export interface AppStore extends AppState {
   /** Começa a ouvir o núcleo e pede o estado inicial; devolve a função que para. */
   connect: () => () => void;
+  /** Baixa o que falta da primeira execução; cada pacote informa o seu andamento. */
+  preparar: () => Promise<void>;
   aceitarAviso: () => Promise<void>;
   verificarConta: () => Promise<void>;
   entrarNoClaudeCode: (modo: ModoDeLogin) => Promise<void>;
@@ -157,6 +174,34 @@ export function createAppStore(nucleo: Nucleo) {
           break;
         case "planoConfirmado":
           set({ plano: evento.plano });
+          break;
+        case "preparacaoMudou":
+          set((current) => ({
+            andamentoDaPreparacao: {
+              ...current.andamentoDaPreparacao,
+              [evento.pacote]: {
+                estado: evento.estado,
+                percentual: null,
+                falha: evento.falha,
+              },
+            },
+          }));
+          break;
+        case "progressoDaPreparacao":
+          set((current) => {
+            const atual = current.andamentoDaPreparacao[evento.pacote];
+            return atual
+              ? {
+                  andamentoDaPreparacao: {
+                    ...current.andamentoDaPreparacao,
+                    [evento.pacote]: {
+                      ...atual,
+                      percentual: evento.percentual,
+                    },
+                  },
+                }
+              : {};
+          });
           break;
         case "saidaDoComando":
           set((current) => ({
@@ -278,6 +323,9 @@ export function createAppStore(nucleo: Nucleo) {
       plano: null,
       chaveDeApiNoAmbiente: false,
       biblioteca: "",
+      preparacao: null,
+      andamentoDaPreparacao: {},
+      preparando: false,
       arquivos: [],
       erroDeArquivos: null,
       padroes: PADROES_INICIAIS,
@@ -298,7 +346,8 @@ export function createAppStore(nucleo: Nucleo) {
         // Só pede o estado depois de ouvir, para nenhum evento cair entre os dois.
         void stopListening
           .then(() => nucleo.estadoInicial())
-          .then((inicial) => {
+          .then(async (inicial) => {
+            const preparacao = await nucleo.verificarPreparacao();
             if (!connected) return;
             set((current) => ({
               app: {
@@ -312,6 +361,7 @@ export function createAppStore(nucleo: Nucleo) {
               plano: current.plano ?? inicial.plano,
               chaveDeApiNoAmbiente: inicial.chaveDeApiNoAmbiente,
               biblioteca: inicial.biblioteca,
+              preparacao: current.preparacao ?? preparacao,
             }));
           });
         return () => {
@@ -321,6 +371,14 @@ export function createAppStore(nucleo: Nucleo) {
               stop();
             });
         };
+      },
+
+      preparar: async () => {
+        set({ preparando: true, andamentoDaPreparacao: {} });
+        const preparacao = await nucleo.preparar();
+        if (preparacao.status === "ok")
+          set({ preparando: false, preparacao: preparacao.data });
+        else set({ preparando: false });
       },
 
       aceitarAviso: async () => {

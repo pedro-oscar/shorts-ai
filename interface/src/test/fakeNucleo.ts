@@ -5,9 +5,11 @@ import type {
   DadosDoProjeto,
   Erro,
   EstadoDaConta,
+  EstadoDaPreparacao,
   EstadoInicial,
   Evento,
   ModoDeLogin,
+  Pacote,
   Padroes,
   PlanoConfirmado,
   ProjetoResumo,
@@ -26,6 +28,12 @@ export const LOGADO: Extract<EstadoDaConta, { tipo: "logado" }> = {
   email: "ana@example.com",
   cobranca: "assinatura",
 };
+
+const PACOTES: Pacote[] = [
+  "nodePortatil",
+  "dependenciasDoRemotion",
+  "modeloDeTranscricao",
+];
 
 /**
  * Um núcleo falso, sem Tauri: responde aos comandos como o do Rust e emite os mesmos
@@ -46,6 +54,22 @@ export function createFakeNucleo(
     biblioteca: "/home/ana/Vídeos/Shorts AI",
     ...initial,
   };
+  const faltando = new Set<Pacote>();
+  const falhas = new Map<Pacote, string>();
+  let espacoLivre: number | null = 500_000;
+  const preparacao = (): EstadoDaPreparacao => ({
+    pacotes: PACOTES.map((pacote) => ({
+      pacote,
+      presente: !faltando.has(pacote),
+      tamanhoEmMb: {
+        nodePortatil: 200,
+        dependenciasDoRemotion: 700,
+        modeloDeTranscricao: 1100,
+      }[pacote],
+    })),
+    espacoLivreEmMb: espacoLivre,
+    poucoEspaco: espacoLivre !== null && espacoLivre < 20_000,
+  });
   const listeners = new Set<(evento: Evento) => void>();
   const droppers = new Set<(caminhos: string[]) => void>();
   let picked: string[] = [];
@@ -56,6 +80,7 @@ export function createFakeNucleo(
     entrar: 0,
     testar: 0,
     instalar: 0,
+    preparar: 0,
     atualizar: 0,
     /** Os caminhos de cada `criarLote`. */
     lotes: [] as string[][],
@@ -82,6 +107,28 @@ export function createFakeNucleo(
 
   const nucleo: Nucleo = {
     estadoInicial: () => Promise.resolve(state),
+    verificarPreparacao: () => Promise.resolve(preparacao()),
+    preparar: () => {
+      calls.preparar++;
+      for (const pacote of [...faltando]) {
+        emit({
+          tipo: "preparacaoMudou",
+          pacote,
+          estado: "emAndamento",
+          falha: null,
+        });
+        emit({ tipo: "progressoDaPreparacao", pacote, percentual: 40 });
+        const falha = falhas.get(pacote) ?? null;
+        if (!falha) faltando.delete(pacote);
+        emit({
+          tipo: "preparacaoMudou",
+          pacote,
+          estado: falha ? "falhou" : "concluida",
+          falha,
+        });
+      }
+      return Promise.resolve({ status: "ok", data: preparacao() });
+    },
     aceitarAviso: () => {
       if (acceptanceError)
         return Promise.resolve({ status: "error", error: acceptanceError });
@@ -220,6 +267,19 @@ export function createFakeNucleo(
   return {
     nucleo,
     calls,
+    /** Estes pacotes da preparação ainda não estão no computador. */
+    faltam: (pacotes: Pacote[], livre: number | null = 500_000) => {
+      for (const pacote of pacotes) faltando.add(pacote);
+      espacoLivre = livre;
+    },
+    /** Baixar este pacote falha com este motivo. */
+    falharPacote: (pacote: Pacote, motivo: string) => {
+      falhas.set(pacote, motivo);
+    },
+    /** O pacote deixa de falhar. */
+    consertarPacote: (pacote: Pacote) => {
+      falhas.delete(pacote);
+    },
     /** O instalador e o `claude update` falham com este erro. */
     failCommand: (erro: Erro) => {
       commandError = erro;

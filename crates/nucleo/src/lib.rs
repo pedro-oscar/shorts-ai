@@ -12,6 +12,7 @@ mod files;
 mod galeria;
 mod padroes;
 mod preferencias;
+mod preparacao;
 mod process;
 pub mod producao;
 mod projeto;
@@ -41,6 +42,8 @@ use crate::fila::Fila;
 pub use crate::galeria::{AlvoParaAbrir, DadosDoProjeto, ReelDoProjeto, Reserva};
 pub use crate::padroes::{IdiomaDoVideo, ModeloDoClaude, Padroes};
 use crate::preferencias::{PreferencesFile, Preferencias};
+use crate::preparacao::NodePortatil;
+pub use crate::preparacao::{Downloads, EstadoDaPreparacao, Pacote, PacoteDaPreparacao};
 use crate::process::hide_console;
 use crate::producao::Producao;
 pub use crate::projeto::{EtapaDoProjeto, ModoDeImportacao};
@@ -89,6 +92,8 @@ pub struct Config {
     /// O programa que abre pastas e arquivos no programa padrão do sistema; `None` usa o do
     /// sistema (`explorer`, `open` ou `xdg-open`).
     pub abrir_com: Option<PathBuf>,
+    /// De onde a preparação baixa o Node e os modelos; `None` usa os endereços de verdade.
+    pub downloads: Option<Downloads>,
 }
 
 /// Onde ficam, nos dados do app, os modelos da Transcrição (o do Whisper e o do VAD).
@@ -101,6 +106,10 @@ pub struct Nucleo {
     abrir_com: PathBuf,
     fila: Fila,
     remotion: Remotion,
+    node_portatil: NodePortatil,
+    node: Option<PathBuf>,
+    app_data_dir: PathBuf,
+    downloads: Downloads,
     idioma_da_interface: IdiomaDaInterface,
     chave_de_api_no_ambiente: bool,
     preferencias: Mutex<PreferencesFile>,
@@ -287,6 +296,17 @@ pub enum Evento {
     ProjetoCriado {
         projeto: ProjetoResumo,
     },
+    /// Um pacote da preparação mudou de estado: `emAndamento`, `concluida` ou `falhou`.
+    PreparacaoMudou {
+        pacote: Pacote,
+        estado: EstadoDaEtapa,
+        falha: Option<String>,
+    },
+    /// O progresso do download de um pacote, de 0 a 100.
+    ProgressoDaPreparacao {
+        pacote: Pacote,
+        percentual: u8,
+    },
     /// Uma etapa do projeto mudou de estado.
     EtapaMudou {
         projeto: String,
@@ -363,6 +383,8 @@ pub enum Erro {
     ProjetoNaoEncontrado { id: String },
     #[error("padrão {opcao} inválido: {motivo}")]
     PadroesInvalidos { opcao: String, motivo: String },
+    #[error("a preparação foi interrompida: {detalhe}")]
+    PreparacaoInterrompida { detalhe: String },
     #[error("{caminho} não aberto: {detalhe}")]
     NaoAbriu { caminho: String, detalhe: String },
 }
@@ -396,20 +418,36 @@ impl Nucleo {
             )),
             _ => None,
         };
+        let node_portatil = NodePortatil::new(&config.app_data_dir);
         let producao = config.sidecar_dir.as_deref().map(|dir| {
             let programa = |nome: &str| {
                 find_program(nome, Some(dir), config.path_env.as_deref())
                     .unwrap_or_else(|| PathBuf::from(nome))
             };
-            Producao::new(
+            let producao = Producao::new(
                 Ffmpeg::new(programa("ffmpeg"), programa("ffprobe")),
                 config.node.clone().unwrap_or_else(|| programa("node")),
-            )
+            );
+            if config.node.is_none() {
+                producao.com_node_portatil(node_portatil.clone())
+            } else {
+                producao
+            }
         });
         Self {
             biblioteca,
             fila: Fila::new(Arc::clone(&emit), ligar, transcritor, roteirista, producao),
-            remotion: Remotion::new(config.assets_dir, &config.app_data_dir, config.npm),
+            remotion: Remotion::new(
+                config.assets_dir,
+                &config.app_data_dir,
+                config.npm,
+                node_portatil.clone(),
+                config.path_env.clone(),
+            ),
+            node_portatil,
+            node: config.node,
+            downloads: config.downloads.unwrap_or_default(),
+            app_data_dir: config.app_data_dir.clone(),
             path_env: config.path_env,
             sidecar_dir: config.sidecar_dir,
             abrir_com: config.abrir_com.unwrap_or_else(galeria::programa_de_abrir),
@@ -532,6 +570,114 @@ impl Nucleo {
                 detalhe: error.to_string(),
             }
         })
+    }
+
+    /// O que a preparação já tem e o que falta baixar, com o espaço livre no disco.
+    pub fn verificar_preparacao(&self) -> EstadoDaPreparacao {
+        let modelos = self.app_data_dir.join(MODELS_DIR);
+        preparacao::estado(
+            |pacote| match pacote {
+                Pacote::NodePortatil => self.node_portatil.node().is_some(),
+                Pacote::DependenciasDoRemotion => self.remotion.pronto(),
+                Pacote::ModeloDeTranscricao => {
+                    modelos.join(transcricao::MODEL_FILE).is_file()
+                        && modelos.join(transcricao::VAD_MODEL_FILE).is_file()
+                }
+            },
+            &self.app_data_dir,
+        )
+    }
+
+    /// Baixa e instala o que falta, um pacote por vez, e devolve o que ainda falta. Um
+    /// pacote que falha não impede os outros; o motivo chega em [`Evento::PreparacaoMudou`].
+    pub fn preparar(&self) -> EstadoDaPreparacao {
+        let _ = std::fs::create_dir_all(&self.app_data_dir);
+        for pacote in self.verificar_preparacao().pacotes {
+            if pacote.presente {
+                continue;
+            }
+            let pacote = pacote.pacote;
+            self.emit_preparacao(pacote, EstadoDaEtapa::EmAndamento, None);
+            let resultado = self.preparar_pacote(pacote);
+            let (estado, falha) = match resultado {
+                Ok(()) => (EstadoDaEtapa::Concluida, None),
+                Err(falha) => (EstadoDaEtapa::Falhou, Some(falha)),
+            };
+            self.emit_preparacao(pacote, estado, falha);
+        }
+        self.verificar_preparacao()
+    }
+
+    fn preparar_pacote(&self, pacote: Pacote) -> Result<(), String> {
+        let progresso = |percentual| {
+            (self.emit)(Evento::ProgressoDaPreparacao { pacote, percentual });
+        };
+        match pacote {
+            Pacote::NodePortatil => self
+                .node_portatil
+                .instalar(&self.downloads.node, &mut { progresso }),
+            Pacote::DependenciasDoRemotion => {
+                self.remotion
+                    .instalar_dependencias()
+                    .map_err(|erro| erro.to_string())?;
+                let node = self
+                    .node
+                    .clone()
+                    .or_else(|| self.node_portatil.node())
+                    .or_else(|| {
+                        find_program(
+                            "node",
+                            self.sidecar_dir.as_deref(),
+                            self.path_env.as_deref(),
+                        )
+                    })
+                    .unwrap_or_else(|| PathBuf::from("node"));
+                self.remotion
+                    .garantir_chrome(&node)
+                    .map_err(|erro| erro.to_string())
+            }
+            Pacote::ModeloDeTranscricao => {
+                let modelos = self.app_data_dir.join(MODELS_DIR);
+                let parte = |inicio: u8, fim: u8| {
+                    move |percentual: u8| {
+                        let largura = u32::from(fim - inicio);
+                        progresso(
+                            inicio
+                                + u8::try_from(largura * u32::from(percentual) / 100).unwrap_or(0),
+                        );
+                    }
+                };
+                for (url, arquivo, inicio, fim) in [
+                    (
+                        &self.downloads.modelo_whisper,
+                        transcricao::MODEL_FILE,
+                        0,
+                        99,
+                    ),
+                    (
+                        &self.downloads.modelo_vad,
+                        transcricao::VAD_MODEL_FILE,
+                        99,
+                        100,
+                    ),
+                ] {
+                    let destino = modelos.join(arquivo);
+                    if !destino.is_file() {
+                        preparacao::baixar(url, &destino, &mut parte(inicio, fim))
+                            .map_err(|erro| format!("{arquivo}: {erro}"))?;
+                    }
+                }
+                Ok(())
+            }
+        }
+    }
+
+    fn emit_preparacao(&self, pacote: Pacote, estado: EstadoDaEtapa, falha: Option<String>) {
+        (self.emit)(Evento::PreparacaoMudou {
+            pacote,
+            estado,
+            falha,
+        });
     }
 
     /// Cria um lote de projetos, um por arquivo, cada um com a sua pasta na Biblioteca, e

@@ -94,6 +94,27 @@ export const en: typeof ptBR = {
       confirmadoPrecoDeApi: "Plan confirmed: {{nivel}} (API price).",
     },
   },
+  preparacao: {
+    titulo: "Setup",
+    introducao:
+      "On the first run Shorts AI downloads what it needs to work. This happens only once.",
+    pacotes: {
+      nodePortatil: "Portable Node",
+      dependenciasDoRemotion: "Render dependencies (with headless Chrome)",
+      modeloDeTranscricao: "Transcription model",
+    },
+    presente: "Already installed",
+    falta: "To download",
+    baixando: "Downloading",
+    concluido: "Done",
+    falhou: "Failed: {{detalhe}}",
+    tamanho: "about {{tamanho}}",
+    total: "This will take about {{tamanho}}. Free space: {{livre}}.",
+    pouco: "Less than 20 GB is free. Renders may fail for lack of space.",
+    progresso: "Progress of {{pacote}}",
+    baixar: "Download what is missing",
+    tentarDeNovo: "Try again",
+  },
   videos: {
     titulo: "Videos",
     abaArquivos: "Files on this computer",
@@ -226,6 +247,7 @@ export const en: typeof ptBR = {
       "Project {{id}} was not found in the Library: its folder was deleted or moved.",
     padroesInvalidos:
       "The batch defaults were not accepted: check the number of reels (1 to 12) and of revisions (0 to 3).",
+    preparacaoInterrompida: "The setup was interrupted.",
     naoAbriu: "Could not open {{caminho}}.",
     detalhe: "Technical details (from the system): {{detalhe}}",
   },

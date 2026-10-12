@@ -7,6 +7,9 @@ import * as __TAURI_EVENT from "@tauri-apps/api/event";
 /** Commands */
 export const commands = {
 	estadoInicial: () => __TAURI_INVOKE<EstadoInicial>("estado_inicial"),
+	verificarPreparacao: () => __TAURI_INVOKE<EstadoDaPreparacao>("verificar_preparacao"),
+	/**  Baixa o que falta da preparação: leva minutos, fora da thread do runtime async. */
+	preparar: () => typedError<EstadoDaPreparacao, Erro>(__TAURI_INVOKE("preparar")),
 	aceitarAviso: () => typedError<Aceite, Erro>(__TAURI_INVOKE("aceitar_aviso")),
 	verificarConta: () => __TAURI_INVOKE<EstadoDaConta>("verificar_conta"),
 	/**  "Entrar no Claude Code": espera o login terminar, o que leva minutos. */
@@ -82,7 +85,7 @@ export type DadosDoProjeto = {
  */
 export type Erro = { codigo: "preferenciasIlegiveis"; caminho: string; detalhe: string } | { codigo: "preferenciasNaoGravadas"; caminho: string; detalhe: string } | { codigo: "loginNaoConcluido"; detalhe: string } | { codigo: "instalacaoFalhou"; detalhe: string } | { codigo: "atualizacaoFalhou"; detalhe: string } | { codigo: "claudeNaoRespondeu"; detalhe: string } | { codigo: "arquivoInvalido"; caminho: string } | { codigo: "projetoNaoCriado"; caminho: string; detalhe: string } | { codigo: "dependenciasDoRemotionNaoInstaladas"; detalhe: string } | { codigo: "projetoNaoLido"; id: string; detalhe: string } | 
 /**  A pasta do projeto foi apagada ou movida. */
-{ codigo: "projetoNaoEncontrado"; id: string } | { codigo: "padroesInvalidos"; opcao: string; motivo: string } | { codigo: "naoAbriu"; caminho: string; detalhe: string };
+{ codigo: "projetoNaoEncontrado"; id: string } | { codigo: "padroesInvalidos"; opcao: string; motivo: string } | { codigo: "preparacaoInterrompida"; detalhe: string } | { codigo: "naoAbriu"; caminho: string; detalhe: string };
 
 /**  Em que pé está a conta Claude do app. */
 export type EstadoDaConta = { tipo: "naoInstalado" } | { tipo: "versaoAntiga"; versao: string; minima: string } | { tipo: "semLogin"; versao: string } | { tipo: "logado"; versao: string; 
@@ -92,6 +95,15 @@ metodo: string;
 plano: string | null; email: string | null; cobranca: Cobranca };
 
 export type EstadoDaEtapa = "pendente" | "emAndamento" | "concluida" | "falhou";
+
+/**  O que falta baixar e se há espaço para isso. */
+export type EstadoDaPreparacao = {
+	pacotes: PacoteDaPreparacao[],
+	/**  Em MB; `None` quando o sistema não informa o espaço livre. */
+	espacoLivreEmMb: number | null,
+	/**  Há menos de 20 GB livres: pouco para os renders. */
+	poucoEspaco: boolean,
+};
 
 /**  O que a interface precisa para abrir. */
 export type EstadoInicial = {
@@ -127,6 +139,10 @@ export type EtapaDoProjeto = {
 export type Evento = { tipo: "avisoAceito"; aceite: Aceite } | { tipo: "planoConfirmado"; plano: PlanoConfirmado } | 
 /**  Uma linha de saída do instalador ou do `claude update`. */
 { tipo: "saidaDoComando"; linha: string } | { tipo: "projetoCriado"; projeto: ProjetoResumo } | 
+/**  Um pacote da preparação mudou de estado: `emAndamento`, `concluida` ou `falhou`. */
+{ tipo: "preparacaoMudou"; pacote: Pacote; estado: EstadoDaEtapa; falha: string | null } | 
+/**  O progresso do download de um pacote, de 0 a 100. */
+{ tipo: "progressoDaPreparacao"; pacote: Pacote; percentual: number } | 
 /**  Uma etapa do projeto mudou de estado. */
 { tipo: "etapaMudou"; projeto: string; etapa: Etapa; estado: EstadoDaEtapa; falha: string | null } | 
 /**  O progresso de uma etapa que o mede, de 0 a 100. */
@@ -173,6 +189,21 @@ export type ModoDeLogin = "assinatura" | "console";
  *  (`subscriptionType`): não diz se o Max é 5x ou 20x.
  */
 export type NivelDoPlano = "pro" | "max5x" | "max20x" | "teamPadrao" | "teamPremium" | "enterprise" | "console";
+
+/**
+ *  Os pacotes que a preparação garante, na ordem em que são baixados: o Node vem antes porque
+ *  o `npm` das dependências do Remotion vem com ele.
+ */
+export type Pacote = "nodePortatil" | "dependenciasDoRemotion" | "modeloDeTranscricao";
+
+/**  Um pacote como a tela de preparação o mostra. */
+export type PacoteDaPreparacao = {
+	pacote: Pacote,
+	/**  Já está no computador: não será baixado. */
+	presente: boolean,
+	/**  Em MB (10⁶ bytes), estimado. */
+	tamanhoEmMb: number,
+};
 
 /**  As opções do lote, como a pessoa as escolhe. */
 export type Padroes = {

@@ -18,3 +18,11 @@ export function producaoConcluida(projeto: ProjetoResumo): boolean {
     (item) => item.etapa === "producao" && item.estado === "concluida",
   );
 }
+
+/** O tamanho, dado em MB, como MB ou GB, com a vírgula ou o ponto do idioma. */
+export function formatarTamanho(megabytes: number, idioma: string): string {
+  const [valor, unidade] =
+    megabytes >= 1000 ? [megabytes / 1000, "GB"] : [megabytes, "MB"];
+  const digitos = valor >= 100 || unidade === "MB" ? 0 : 1;
+  return `${valor.toLocaleString(idioma, { maximumFractionDigits: digitos })} ${unidade}`;
+}
