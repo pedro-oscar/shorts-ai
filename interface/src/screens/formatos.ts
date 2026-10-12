@@ -119,6 +119,9 @@ export interface CamposDasExcecoes {
   /** Um nome por linha. */
   nomes: string;
   idioma: "" | IdiomaDoVideo;
+  /** O nome de outro kit; vazio usa o do lote. */
+  kit: string;
+  semLogo: boolean;
 }
 
 export const SEM_CAMPOS: CamposDasExcecoes = {
@@ -126,6 +129,8 @@ export const SEM_CAMPOS: CamposDasExcecoes = {
   pedido: "",
   nomes: "",
   idioma: "",
+  kit: "",
+  semLogo: false,
 };
 
 /** As Exceções que os campos definem; o que está vazio fica de fora. */
@@ -145,6 +150,8 @@ export function lerExcecoes(
     faixa,
     nomesProprios: nomes.length === 0 ? null : nomes,
     idiomaDoVideo: campos.idioma === "" ? null : campos.idioma,
+    kit: campos.kit === "" ? null : campos.kit,
+    semLogo: campos.semLogo,
   };
 }
 
@@ -158,6 +165,8 @@ export function camposDas(excecoes: Excecoes): CamposDasExcecoes {
     pedido: excecoes.pedido ?? "",
     nomes: (excecoes.nomesProprios ?? []).join("\n"),
     idioma: excecoes.idiomaDoVideo ?? "",
+    kit: excecoes.kit ?? "",
+    semLogo: excecoes.semLogo ?? false,
   };
 }
 

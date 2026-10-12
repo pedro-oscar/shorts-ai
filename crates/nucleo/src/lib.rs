@@ -1138,11 +1138,11 @@ impl Nucleo {
     ) -> Result<Vec<ProjetoResumo>, Erro> {
         padroes.validar()?;
         let videos = validar_videos(arquivos, links)?;
-        let kit = self.kit_do_lote(padroes)?;
+        let kits = self.kits_dos_videos(padroes, &videos)?;
         let agora = OffsetDateTime::now_utc();
         let mut lote = LoteJson::novo(self.reservar_lote(agora)?, agora, padroes.clone());
         self.gravar_lote(&lote)?;
-        self.criar_projetos(&mut lote, agora, &videos, &kit)
+        self.criar_projetos(&mut lote, agora, &videos, &kits)
     }
 
     /// Põe vídeos no fim da fila de um lote que já existe, com os padrões dele. Como em
@@ -1155,8 +1155,8 @@ impl Nucleo {
     ) -> Result<Vec<ProjetoResumo>, Erro> {
         let mut lote = self.ler_lote(id)?;
         let videos = validar_videos(arquivos, links)?;
-        let kit = self.kit_do_lote(&lote.padroes)?;
-        self.criar_projetos(&mut lote, OffsetDateTime::now_utc(), &videos, &kit)
+        let kits = self.kits_dos_videos(&lote.padroes, &videos)?;
+        self.criar_projetos(&mut lote, OffsetDateTime::now_utc(), &videos, &kits)
     }
 
     /// Define as exceções do projeto que espera a vez ou está parado sem ter começado, no lugar
@@ -1176,6 +1176,13 @@ impl Nucleo {
             return Err(acao_indisponivel(id, "excecoes"));
         }
         let lote = self.ler_lote(&projeto.lote)?;
+        let kit_mudou = (&projeto.excecoes.kit, projeto.excecoes.sem_logo)
+            != (&excecoes.kit, excecoes.sem_logo);
+        if kit_mudou {
+            self.kit_do_projeto(&lote.padroes, &excecoes)?
+                .regravar(&pasta)
+                .map_err(|error| lote_nao_criado(&pasta, &error))?;
+        }
         projeto.excecoes = excecoes;
         projeto.aplicar(&lote.padroes);
         self.gravar_projeto(&pasta, &projeto)?;
@@ -1253,11 +1260,29 @@ impl Nucleo {
         Ok(kit::todos(&preferencias.kits))
     }
 
-    /// O kit que os padrões do lote escolhem; um que não existe mais é recusado.
-    fn kit_do_lote(&self, padroes: &Padroes) -> Result<Kit, Erro> {
+    /// O kit de cada vídeo, antes de criar qualquer coisa: um kit que não existe recusa o lote.
+    fn kits_dos_videos(&self, padroes: &Padroes, videos: &[Video]) -> Result<Vec<Kit>, Erro> {
+        videos
+            .iter()
+            .map(|video| self.kit_do_projeto(padroes, video.excecoes()))
+            .collect()
+    }
+
+    /// O kit do projeto: o das exceções ou o do lote, sem a logo se a exceção a desliga.
+    fn kit_do_projeto(&self, padroes: &Padroes, excecoes: &Excecoes) -> Result<Kit, Erro> {
+        let kit = self.kit_chamado(excecoes.kit.as_deref().unwrap_or(&padroes.kit))?;
+        Ok(if excecoes.sem_logo {
+            kit.sem_logo()
+        } else {
+            kit
+        })
+    }
+
+    /// O kit chamado `nome`; um que não existe mais é recusado.
+    fn kit_chamado(&self, nome: &str) -> Result<Kit, Erro> {
         self.kits()?
             .into_iter()
-            .find(|kit| kit.nome == padroes.kit)
+            .find(|kit| kit.nome == nome)
             .ok_or_else(|| Erro::PadroesInvalidos {
                 opcao: "kit".to_owned(),
                 motivo: "o kit não existe".to_owned(),
@@ -1290,10 +1315,10 @@ impl Nucleo {
         lote: &mut LoteJson,
         agora: OffsetDateTime,
         videos: &[Video],
-        kit: &Kit,
+        kits: &[Kit],
     ) -> Result<Vec<ProjetoResumo>, Erro> {
         let mut projetos = Vec::new();
-        let resultado = self.criar_cada_projeto(lote, agora, videos, kit, &mut projetos);
+        let resultado = self.criar_cada_projeto(lote, agora, videos, kits, &mut projetos);
         lote.projetos
             .extend(projetos.iter().map(|projeto| projeto.id.clone()));
         self.gravar_lote(lote)?;
@@ -1305,11 +1330,11 @@ impl Nucleo {
         lote: &LoteJson,
         agora: OffsetDateTime,
         videos: &[Video],
-        kit: &Kit,
+        kits: &[Kit],
         projetos: &mut Vec<ProjetoResumo>,
     ) -> Result<(), Erro> {
         let padroes = &lote.padroes;
-        for video in videos {
+        for (video, kit) in videos.iter().zip(kits) {
             let (titulo, origem, excecoes) = match video {
                 Video::Arquivo(arquivo, excecoes) => (
                     arquivo
@@ -1823,6 +1848,15 @@ pub struct ArquivoDoLote {
 enum Video {
     Arquivo(PathBuf, Excecoes),
     Link(LinkDoLote),
+}
+
+impl Video {
+    fn excecoes(&self) -> &Excecoes {
+        match self {
+            Self::Arquivo(_, excecoes) => excecoes,
+            Self::Link(link) => &link.excecoes,
+        }
+    }
 }
 
 /// Confere os arquivos e os links de um lote e os junta na ordem da fila: os arquivos e,

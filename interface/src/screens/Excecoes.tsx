@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { Excecoes, IdiomaDoVideo, ProjetoResumo } from "../bindings";
 import { useAppStore } from "../context";
@@ -41,6 +41,9 @@ export function ResumoDasExcecoes({ excecoes }: { excecoes: Excecoes }) {
         idioma: t(`padroes.idiomas.${excecoes.idiomaDoVideo}`),
       }),
     );
+  if (excecoes.kit != null)
+    chips.push(t("excecoes.chipKit", { kit: excecoes.kit }));
+  if (excecoes.semLogo) chips.push(t("excecoes.chipSemLogo"));
   if (chips.length === 0)
     return <span className="detail">{t("excecoes.usaOsPadroes")}</span>;
   return (
@@ -63,6 +66,11 @@ export function CamposDeExcecoes({
   onChange: (mudancas: Partial<CamposDasExcecoes>) => void;
 }) {
   const { t } = useTranslation();
+  const kits = useAppStore((store) => store.kits);
+  const carregarKits = useAppStore((store) => store.carregarKits);
+  useEffect(() => {
+    if (kits.length === 0) void carregarKits();
+  }, [kits.length, carregarKits]);
   return (
     <div className="exceptions">
       <label>
@@ -120,6 +128,34 @@ export function CamposDeExcecoes({
             </option>
           ))}
         </select>
+      </label>
+      <label>
+        {t("excecoes.kitRotulo")}
+        <select
+          aria-label={t("excecoes.kit", { nome })}
+          value={campos.kit}
+          onChange={(event) => {
+            onChange({ kit: event.target.value });
+          }}
+        >
+          <option value="">{t("excecoes.padrao")}</option>
+          {kits.map((kit) => (
+            <option key={kit.nome} value={kit.nome}>
+              {kit.nome}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        <input
+          type="checkbox"
+          aria-label={t("excecoes.semLogo", { nome })}
+          checked={campos.semLogo}
+          onChange={(event) => {
+            onChange({ semLogo: event.target.checked });
+          }}
+        />
+        {t("excecoes.semLogoRotulo")}
       </label>
     </div>
   );

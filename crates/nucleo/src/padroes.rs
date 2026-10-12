@@ -76,6 +76,10 @@ pub struct Excecoes {
     pub faixa: Option<Faixa>,
     pub nomes_proprios: Option<Vec<String>>,
     pub idioma_do_video: Option<IdiomaDoVideo>,
+    /// O nome de outro kit de marca no lugar do kit do lote.
+    pub kit: Option<String>,
+    /// Tira a logo do kit só neste vídeo.
+    pub sem_logo: bool,
 }
 
 impl Excecoes {

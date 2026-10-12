@@ -310,6 +310,10 @@ export type Excecoes = {
 	faixa?: Faixa | null,
 	nomesProprios?: string[] | null,
 	idiomaDoVideo?: IdiomaDoVideo | null,
+	/**  O nome de outro kit de marca no lugar do kit do lote. */
+	kit?: string | null,
+	/**  Tira a logo do kit só neste vídeo. */
+	semLogo?: boolean,
 };
 
 /**  A parte do vídeo original, em segundos inteiros, a que a análise se limita. */

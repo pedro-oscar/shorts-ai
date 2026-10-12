@@ -9,8 +9,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use nucleo::{
-    ArquivoDoLote, Config, Erro, EstadoDaEtapa, Etapa, Evento, Excecoes, Faixa, IdiomaDoVideo,
-    LigarArquivo, ModeloDoClaude, Nucleo, Padroes, ProjetoResumo,
+    ArquivoDoLote, Config, Erro, EstadoDaEtapa, Etapa, Evento, Excecoes, Faixa, IdiomaDoVideo, Kit,
+    LigarArquivo, Logo, ModeloDoClaude, Nucleo, Padroes, ProjetoResumo,
 };
 
 struct Cenario {
@@ -443,5 +443,143 @@ fn excecoes_invalidas_ou_de_projeto_que_ja_comecou_sao_recusadas() {
         .definir_excecoes(&projetos[0].id, &Excecoes::default())
         .unwrap_err();
     assert!(matches!(erro, Erro::AcaoIndisponivel { .. }), "{erro:?}");
+    libera.send(()).unwrap();
+}
+
+/// Salva os kits "Canal" (com uma logo PNG) e "Outro" (sem logo); o lote usa o "Canal".
+fn kits_com_logo(cenario: &Cenario) -> Padroes {
+    let logo = cenario._tmp.path().join("logo.png");
+    let mut png = b"\x89PNG\r\n\x1a\n".to_vec();
+    png.extend(13u32.to_be_bytes());
+    png.extend(b"IHDR");
+    png.extend(10u32.to_be_bytes());
+    png.extend(10u32.to_be_bytes());
+    png.extend([8, 6, 0, 0, 0, 0, 0, 0, 0]);
+    png.extend(0u32.to_be_bytes());
+    png.extend(b"\0\0\0\0IEND\0\0\0\0");
+    fs::write(&logo, png).unwrap();
+    let kit = |nome: &str, logo: Option<Logo>| Kit {
+        nome: nome.to_owned(),
+        logo,
+        ..Kit::default()
+    };
+    cenario
+        .nucleo
+        .salvar_kit(kit("Canal", Some(Logo::nova(logo.display().to_string()))))
+        .unwrap();
+    cenario.nucleo.salvar_kit(kit("Outro", None)).unwrap();
+    Padroes {
+        kit: "Canal".to_owned(),
+        ..Padroes::default()
+    }
+}
+
+fn kit_do_projeto(cenario: &Cenario, id: &str) -> (Kit, bool) {
+    let biblioteca: PathBuf = cenario.nucleo.estado_inicial().biblioteca.parse().unwrap();
+    let pasta = biblioteca.join(id);
+    let kit = serde_json::from_slice(&fs::read(pasta.join("kit.json")).unwrap()).unwrap();
+    (kit, pasta.join("remotion/public/logo.png").is_file())
+}
+
+#[test]
+fn excecoes_na_criacao_escolhem_outro_kit_ou_desligam_a_logo_so_naquele_video() {
+    let cenario = Cenario::novo();
+    let padroes = kits_com_logo(&cenario);
+    let com_outro_kit = ArquivoDoLote {
+        excecoes: Excecoes {
+            kit: Some("Outro".to_owned()),
+            ..Excecoes::default()
+        },
+        ..cenario.arquivo("outro.mp4")
+    };
+    let sem_logo = ArquivoDoLote {
+        excecoes: Excecoes {
+            sem_logo: true,
+            ..Excecoes::default()
+        },
+        ..cenario.arquivo("sem.mp4")
+    };
+    let lote = cenario
+        .nucleo
+        .criar_lote_com_links(
+            &[cenario.arquivo("comum.mp4"), com_outro_kit, sem_logo],
+            &[],
+            &padroes,
+        )
+        .unwrap();
+
+    let [comum, outro, sem] = &lote[..] else {
+        panic!("três projetos");
+    };
+    let (kit, logo_copiada) = kit_do_projeto(&cenario, &comum.id);
+    assert_eq!(kit.nome, "Canal");
+    assert!(kit.logo.is_some() && logo_copiada);
+    let (kit, logo_copiada) = kit_do_projeto(&cenario, &outro.id);
+    assert_eq!(kit.nome, "Outro");
+    assert!(!logo_copiada);
+    let (kit, logo_copiada) = kit_do_projeto(&cenario, &sem.id);
+    assert_eq!(kit.nome, "Canal");
+    assert!(kit.logo.is_none() && !logo_copiada);
+}
+
+#[test]
+fn excecoes_de_kit_no_projeto_da_fila_regravam_a_copia_e_voltam_ao_kit_do_lote() {
+    let (cenario, libera) = cenario_com_o_primeiro_travado();
+    let padroes = kits_com_logo(&cenario);
+    let projetos = cenario
+        .nucleo
+        .criar_lote(
+            &[cenario.video("um.mp4"), cenario.video("dois.mp4")],
+            &padroes,
+        )
+        .unwrap();
+    let na_fila = &projetos[1].id;
+    assert!(kit_do_projeto(&cenario, na_fila).1);
+
+    cenario
+        .nucleo
+        .definir_excecoes(
+            na_fila,
+            &Excecoes {
+                sem_logo: true,
+                ..Excecoes::default()
+            },
+        )
+        .unwrap();
+    let (kit, logo_copiada) = kit_do_projeto(&cenario, na_fila);
+    assert!(kit.logo.is_none() && !logo_copiada);
+
+    cenario
+        .nucleo
+        .definir_excecoes(
+            na_fila,
+            &Excecoes {
+                kit: Some("Outro".to_owned()),
+                ..Excecoes::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(kit_do_projeto(&cenario, na_fila).0.nome, "Outro");
+
+    let erro = cenario
+        .nucleo
+        .definir_excecoes(
+            na_fila,
+            &Excecoes {
+                kit: Some("Sumiu".to_owned()),
+                ..Excecoes::default()
+            },
+        )
+        .unwrap_err();
+    assert!(matches!(erro, Erro::PadroesInvalidos { .. }), "{erro:?}");
+    assert_eq!(kit_do_projeto(&cenario, na_fila).0.nome, "Outro");
+
+    cenario
+        .nucleo
+        .definir_excecoes(na_fila, &Excecoes::default())
+        .unwrap();
+    let (kit, logo_copiada) = kit_do_projeto(&cenario, na_fila);
+    assert_eq!(kit.nome, "Canal");
+    assert!(kit.logo.is_some() && logo_copiada);
     libera.send(()).unwrap();
 }

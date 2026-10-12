@@ -67,6 +67,8 @@ test("os vídeos usam os padrões do lote até a pessoa abrir as Exceções", as
         faixa: null,
         nomesProprios: null,
         idiomaDoVideo: "en",
+        kit: null,
+        semLogo: false,
       },
       {
         quantidadeDeReels: null,
@@ -74,6 +76,8 @@ test("os vídeos usam os padrões do lote até a pessoa abrir as Exceções", as
         faixa: null,
         nomesProprios: null,
         idiomaDoVideo: null,
+        kit: null,
+        semLogo: false,
       },
     ],
   ]);
@@ -149,6 +153,8 @@ test("o projeto na fila muda as Exceções; o que já começou só mostra o resu
         faixa: { inicio: 60, fim: null },
         nomesProprios: null,
         idiomaDoVideo: null,
+        kit: null,
+        semLogo: false,
       },
     },
   ]);
@@ -157,4 +163,80 @@ test("o projeto na fila muda as Exceções; o que já começou só mostra o resu
   });
   expect(chips).toHaveTextContent("até 3 reels");
   expect(chips).toHaveTextContent("faixa 1:00–—");
+});
+
+const CANAL = {
+  nome: "Canal",
+  corDeDestaque: "#00AAFF",
+  corDaPalavra: "#FFFFFF",
+  fonteDaLegenda: "Inter",
+  fonteDosTitulos: "Anton",
+  logo: null,
+} as const;
+
+test('a pessoa escolhe outro kit ou liga "Sem logo" só num vídeo do lote', async () => {
+  const fake = createFakeNucleo(INICIAL);
+  await fake.nucleo.salvarKit(CANAL);
+  render(<App nucleo={fake.nucleo} />);
+  const user = userEvent.setup();
+  await user.click(await screen.findByRole("button", { name: "Continuar" }));
+  fake.pick(["/v/aula.mp4", "/v/live.mkv"]);
+  await user.click(screen.getByRole("button", { name: "Escolher arquivos" }));
+  await screen.findByRole("list", { name: "Vídeos escolhidos" });
+  const aula = screen.getAllByRole("listitem")[0] as HTMLElement;
+  const live = screen.getAllByRole("listitem")[1] as HTMLElement;
+
+  await user.click(within(aula).getByText("Exceções"));
+  await user.selectOptions(
+    within(aula).getByLabelText("Kit de aula.mp4"),
+    "Canal",
+  );
+  await user.click(within(live).getByText("Exceções"));
+  await user.click(within(live).getByLabelText("Sem logo em live.mkv"));
+
+  expect(aula).toHaveTextContent("kit: Canal");
+  expect(live).toHaveTextContent("sem logo");
+
+  await user.click(screen.getByRole("button", { name: "Continuar" }));
+  await user.click(screen.getByRole("button", { name: /^Gerar/ }));
+
+  await screen.findByRole("heading", { name: "Gerando" });
+  const [excecoes] = fake.calls.excecoesDosArquivos;
+  expect(excecoes?.map((e) => [e.kit, e.semLogo])).toEqual([
+    ["Canal", false],
+    [null, true],
+  ]);
+});
+
+test('o projeto na fila grava o kit e o "Sem logo" escolhidos nas Exceções', async () => {
+  const lote: LoteResumo = {
+    id: "lote",
+    nome: "Lote",
+    criadoEm: "2026-10-08T14:32:00Z",
+    padroes: PADROES_INICIAIS,
+    projetos: [projeto("novo", 0)],
+    ausentes: [],
+    aberto: true,
+    custo: SEM_CUSTO,
+  };
+  const fake = createFakeNucleo(INICIAL, LOGADO, [lote]);
+  await fake.nucleo.salvarKit(CANAL);
+  render(<App nucleo={fake.nucleo} />);
+  const user = userEvent.setup();
+  const novo = await screen.findByRole("listitem", { name: "novo" });
+
+  await user.click(
+    within(novo).getByRole("button", { name: "Exceções de novo" }),
+  );
+  await user.selectOptions(within(novo).getByLabelText("Kit de novo"), "Canal");
+  await user.click(within(novo).getByLabelText("Sem logo em novo"));
+  await user.click(
+    within(novo).getByRole("button", { name: "Salvar exceções de novo" }),
+  );
+
+  expect(fake.calls.excecoes).toHaveLength(1);
+  expect(fake.calls.excecoes[0]?.excecoes).toMatchObject({
+    kit: "Canal",
+    semLogo: true,
+  });
 });

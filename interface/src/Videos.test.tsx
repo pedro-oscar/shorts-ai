@@ -278,6 +278,8 @@ test("Continuar espera o direito de uso de cada link e Gerar envia a confirma√ß√
           faixa: null,
           nomesProprios: null,
           idiomaDoVideo: null,
+          kit: null,
+          semLogo: false,
         },
       },
     ],

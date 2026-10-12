@@ -277,6 +277,24 @@ impl Kit {
         Ok(())
     }
 
+    /// O mesmo kit, sem a logo.
+    pub(crate) fn sem_logo(mut self) -> Self {
+        self.logo = None;
+        self
+    }
+
+    /// Troca o kit do projeto: grava o `kit.json` e deixa no `public/` só a logo dele.
+    pub(crate) fn regravar(&self, pasta: &Path) -> io::Result<()> {
+        for extensao in ["png", "svg"] {
+            match fs::remove_file(pasta.join(PUBLICO).join(format!("logo.{extensao}"))) {
+                Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error),
+                _ => {}
+            }
+        }
+        self.gravar(pasta)?;
+        self.copiar_logo(pasta)
+    }
+
     /// Copia o kit para dentro do projeto.
     pub(crate) fn gravar(&self, pasta: &Path) -> io::Result<()> {
         write_json(&pasta.join(ARQUIVO), self)
