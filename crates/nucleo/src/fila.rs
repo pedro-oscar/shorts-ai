@@ -203,6 +203,12 @@ impl Fila {
         }
     }
 
+    /// Há projeto rodando, esperando a vez ou esperando a cota.
+    pub fn ocupada(&self) -> bool {
+        let estado = travar(&self.compartilhado);
+        estado.atual.is_some() || !estado.pendentes.is_empty() || !estado.aguardando.is_empty()
+    }
+
     /// O projeto está na fila esperando a vez.
     pub fn esperando(&self, id: &str) -> bool {
         travar(&self.compartilhado)

@@ -20,6 +20,13 @@ export const commands = {
 	testarClaude: () => typedError<null, Erro>(__TAURI_INVOKE("testar_claude")),
 	/**  O seletor de arquivos do sistema, só com os vídeos que o app aceita. */
 	escolherArquivos: () => __TAURI_INVOKE<string[]>("escolher_arquivos"),
+	/**  O seletor de pastas do sistema, para a Biblioteca nova; `None` se a pessoa cancela. */
+	escolherPasta: () => __TAURI_INVOKE<string | null>("escolher_pasta"),
+	/**  Muda a Biblioteca e libera a pasta nova para o player da interface. */
+	definirBiblioteca: (caminho: string) => typedError<string, Erro>(__TAURI_INVOKE("definir_biblioteca", { caminho })),
+	definirIdioma: (idioma: IdiomaDaInterface) => typedError<null, Erro>(__TAURI_INVOKE("definir_idioma", { idioma })),
+	/**  O retrato da máquina; roda programas filhos, fora da thread do runtime async. */
+	diagnosticar: () => typedError<Diagnostico, Erro>(__TAURI_INVOKE("diagnosticar")),
 	inspecionarArquivos: (caminhos: string[]) => typedError<ArquivoDeVideo[], Erro>(__TAURI_INVOKE("inspecionar_arquivos", { caminhos })),
 	/**  Título, canal e duração de um vídeo do YouTube, antes de baixar. */
 	consultarLink: (url: string) => typedError<InfoDoLink, Erro>(__TAURI_INVOKE("consultar_link", { url })),
@@ -116,11 +123,25 @@ export type DadosDoProjeto = {
 	reservas: Reserva[],
 };
 
+export type Dependencia = {
+	nome: NomeDaDependencia,
+	situacao: Situacao,
+};
+
+/**  O retrato da máquina. */
+export type Diagnostico = {
+	gpu: Gpu,
+	/**  Em MB, no disco da Biblioteca; `None` quando o sistema não informa. */
+	espacoLivreEmMb: number | null,
+	dependencias: Dependencia[],
+	conta: EstadoDaConta,
+};
+
 /**
  *  Os erros do núcleo, como código e parâmetros. `detalhe` é a mensagem do sistema, para
  *  diagnóstico.
  */
-export type Erro = { codigo: "preferenciasIlegiveis"; caminho: string; detalhe: string } | { codigo: "preferenciasNaoGravadas"; caminho: string; detalhe: string } | { codigo: "loginNaoConcluido"; detalhe: string } | { codigo: "instalacaoFalhou"; detalhe: string } | { codigo: "atualizacaoFalhou"; detalhe: string } | { codigo: "claudeNaoRespondeu"; detalhe: string } | { codigo: "arquivoInvalido"; caminho: string } | { codigo: "projetoNaoCriado"; caminho: string; detalhe: string } | { codigo: "dependenciasDoRemotionNaoInstaladas"; detalhe: string } | { codigo: "projetoNaoLido"; id: string; detalhe: string } | 
+export type Erro = { codigo: "preferenciasIlegiveis"; caminho: string; detalhe: string } | { codigo: "preferenciasNaoGravadas"; caminho: string; detalhe: string } | { codigo: "loginNaoConcluido"; detalhe: string } | { codigo: "instalacaoFalhou"; detalhe: string } | { codigo: "atualizacaoFalhou"; detalhe: string } | { codigo: "bibliotecaOcupada" } | { codigo: "bibliotecaNaoTrocada"; caminho: string; detalhe: string } | { codigo: "claudeNaoRespondeu"; detalhe: string } | { codigo: "arquivoInvalido"; caminho: string } | { codigo: "projetoNaoCriado"; caminho: string; detalhe: string } | { codigo: "dependenciasDoRemotionNaoInstaladas"; detalhe: string } | { codigo: "projetoNaoLido"; id: string; detalhe: string } | 
 /**  A pasta do projeto foi apagada ou movida. */
 { codigo: "projetoNaoEncontrado"; id: string } | 
 /**  A ação não existe para o estado em que o projeto está. */
@@ -234,6 +255,9 @@ export type Faixa = {
 	fim: number | null,
 };
 
+/**  Onde os trabalhos pesados rodam: na GPU, por Vulkan, ou só na CPU. */
+export type Gpu = "vulkan" | "soCpu";
+
 /**
  *  O idioma dos textos do app, que segue o do sistema: `pt-*` vira pt-BR e o resto, inglês.
  *  Não é o idioma do vídeo, que vale para a transcrição e os textos dos reels.
@@ -308,6 +332,9 @@ export type Movimento =
  *  (`subscriptionType`): não diz se o Max é 5x ou 20x.
  */
 export type NivelDoPlano = "pro" | "max5x" | "max20x" | "teamPadrao" | "teamPremium" | "enterprise" | "console";
+
+/**  Uma dependência que o app confere. */
+export type NomeDaDependencia = "ffmpeg" | "ytDlp" | "whisper" | "modeloDeTranscricao" | "node" | "dependenciasDoRemotion" | "chrome";
 
 /**
  *  Os pacotes que a preparação garante, na ordem em que são baixados: o Node vem antes porque
@@ -402,6 +429,11 @@ export type Reserva = {
 	nota: number | null,
 	porque: string | null,
 };
+
+/**  O que o Diagnóstico achou de uma dependência. */
+export type Situacao = { tipo: "presente"; versao: string | null } | { tipo: "ausente" } | 
+/**  Achado, mas sem alguns encoders ou filtros de que o app precisa. */
+{ tipo: "incompleta"; faltam: string[] };
 
 /* Tauri Specta runtime */
 async function typedError<T, E>(result: Promise<T>): Promise<{ status: "ok"; data: T } | { status: "error"; error: E }> {

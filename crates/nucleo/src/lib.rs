@@ -7,6 +7,7 @@
 mod claude_code;
 mod conta;
 pub mod corte;
+mod diagnostico;
 mod fila;
 mod files;
 mod galeria;
@@ -41,6 +42,9 @@ pub use crate::claude_code::ClaudeCode;
 use crate::conta::Conta;
 pub use crate::conta::{Cobranca, EstadoDaConta, ModoDeLogin, VERSAO_MINIMA_DO_CLAUDE_CODE};
 use crate::corte::Ffmpeg;
+pub use crate::diagnostico::{
+    Dependencia, Diagnostico, Gpu, NomeDaDependencia, Situacao as SituacaoDaDependencia,
+};
 pub use crate::fila::Movimento;
 use crate::fila::{Fila, Parou};
 pub use crate::galeria::{AlvoParaAbrir, DadosDoProjeto, ReelDoProjeto, Reserva};
@@ -102,13 +106,15 @@ pub struct Config {
     pub abrir_com: Option<PathBuf>,
     /// De onde a preparação baixa o Node e os modelos; `None` usa os endereços de verdade.
     pub downloads: Option<Downloads>,
+    /// Onde o Diagnóstico procura o carregador do Vulkan; `None` usa os locais do sistema.
+    pub carregadores_do_vulkan: Option<Vec<PathBuf>>,
 }
 
 /// Onde ficam, nos dados do app, os modelos da Transcrição (o do Whisper e o do VAD).
 const MODELS_DIR: &str = "modelos";
 
 pub struct Nucleo {
-    biblioteca: PathBuf,
+    biblioteca: Mutex<PathBuf>,
     path_env: Option<OsString>,
     sidecar_dir: Option<PathBuf>,
     abrir_com: PathBuf,
@@ -119,7 +125,9 @@ pub struct Nucleo {
     node: Option<PathBuf>,
     app_data_dir: PathBuf,
     downloads: Downloads,
-    idioma_da_interface: IdiomaDaInterface,
+    /// O idioma que o sistema indicou; vale enquanto a pessoa não escolhe outro.
+    idioma_do_sistema: IdiomaDaInterface,
+    carregadores_do_vulkan: Vec<PathBuf>,
     chave_de_api_no_ambiente: bool,
     preferencias: Mutex<PreferencesFile>,
     conta: Conta,
@@ -416,6 +424,10 @@ pub enum Erro {
     InstalacaoFalhou { detalhe: String },
     #[error("atualização do Claude Code não concluída: {detalhe}")]
     AtualizacaoFalhou { detalhe: String },
+    #[error("a Biblioteca não pode mudar com projetos na fila")]
+    BibliotecaOcupada,
+    #[error("Biblioteca não trocada para {caminho}: {detalhe}")]
+    BibliotecaNaoTrocada { caminho: String, detalhe: String },
     #[error("o Claude não respondeu ao teste: {detalhe}")]
     ClaudeNaoRespondeu { detalhe: String },
     #[error("{caminho} não é um arquivo de vídeo aceito (MP4, MOV ou MKV)")]
@@ -458,11 +470,17 @@ impl Nucleo {
         let ligar = config
             .ligar_arquivo
             .unwrap_or_else(|| Arc::new(|origem, destino| std::fs::hard_link(origem, destino)));
-        let biblioteca = config
-            .pasta_de_videos
-            .or_else(|| config.home_dir.as_ref().map(|home| home.join("Videos")))
-            .unwrap_or_else(|| config.app_data_dir.clone())
-            .join("Shorts AI");
+        // Ler aqui, e não só em `estado_inicial`, faz o arquivo corrompido ir para o backup
+        // antes de a Biblioteca ser escolhida; sem preferências legíveis vale a padrão.
+        let mut preferencias = PreferencesFile::in_dir(&config.app_data_dir);
+        let guardada = preferencias.read().unwrap_or_default().biblioteca;
+        let biblioteca = guardada.map(PathBuf::from).unwrap_or_else(|| {
+            config
+                .pasta_de_videos
+                .or_else(|| config.home_dir.as_ref().map(|home| home.join("Videos")))
+                .unwrap_or_else(|| config.app_data_dir.clone())
+                .join("Shorts AI")
+        });
         let claude = ClaudeCode::new(
             config.path_env.clone(),
             config.home_dir.clone(),
@@ -515,7 +533,7 @@ impl Nucleo {
         });
         lote::pausar_interrompidos(&biblioteca);
         Self {
-            biblioteca,
+            biblioteca: Mutex::new(biblioteca),
             fila: Fila::new(
                 Arc::clone(&emit),
                 ligar,
@@ -539,9 +557,12 @@ impl Nucleo {
             path_env: config.path_env,
             sidecar_dir: config.sidecar_dir,
             abrir_com: config.abrir_com.unwrap_or_else(galeria::programa_de_abrir),
-            idioma_da_interface: IdiomaDaInterface::of_locale(config.system_locale.as_deref()),
+            idioma_do_sistema: IdiomaDaInterface::of_locale(config.system_locale.as_deref()),
+            carregadores_do_vulkan: config
+                .carregadores_do_vulkan
+                .unwrap_or_else(diagnostico::candidatos_do_vulkan),
             chave_de_api_no_ambiente: config.chave_de_api_no_ambiente,
-            preferencias: Mutex::new(PreferencesFile::in_dir(&config.app_data_dir)),
+            preferencias: Mutex::new(preferencias),
             conta: Conta::new(claude),
             emit,
         }
@@ -555,13 +576,13 @@ impl Nucleo {
         };
         EstadoInicial {
             versao: env!("CARGO_PKG_VERSION").to_owned(),
-            idioma_da_interface: self.idioma_da_interface,
+            idioma_da_interface: preferencias.idioma.unwrap_or(self.idioma_do_sistema),
             aceite: preferencias
                 .aceite
                 .filter(|aceite| aceite.versao >= VERSAO_DO_AVISO),
             plano: preferencias.plano,
             chave_de_api_no_ambiente: self.chave_de_api_no_ambiente,
-            biblioteca: self.biblioteca.display().to_string(),
+            biblioteca: self.biblioteca().display().to_string(),
             erro,
             backup_das_preferencias: file.backup(),
         }
@@ -631,6 +652,84 @@ impl Nucleo {
             plano: plano.clone(),
         });
         Ok(plano)
+    }
+
+    /// Muda a pasta da Biblioteca e a grava nas preferências. Não há índice a copiar: a
+    /// Biblioteca é o que está na pasta, então os projetos que a pessoa copiou para lá aparecem
+    /// em [`Self::lotes`]. Com projeto rodando ou na fila, a troca é recusada, porque a fila
+    /// trabalha nas pastas da Biblioteca antiga.
+    pub fn definir_biblioteca(&self, caminho: &str) -> Result<String, Erro> {
+        let nao_trocada = |detalhe: String| Erro::BibliotecaNaoTrocada {
+            caminho: caminho.to_owned(),
+            detalhe,
+        };
+        if self.fila.ocupada() {
+            return Err(Erro::BibliotecaOcupada);
+        }
+        let pasta = PathBuf::from(caminho);
+        if pasta.as_os_str().is_empty() || !pasta.is_absolute() {
+            return Err(nao_trocada("o caminho precisa ser absoluto".to_owned()));
+        }
+        fs::create_dir_all(&pasta).map_err(|error| nao_trocada(error.to_string()))?;
+        {
+            let mut file = self.preferences_file();
+            let mut preferencias = file.read()?;
+            preferencias.biblioteca = Some(pasta.display().to_string());
+            file.write(&preferencias)?;
+        }
+        lote::pausar_interrompidos(&pasta);
+        let texto = pasta.display().to_string();
+        *self
+            .biblioteca
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = pasta;
+        Ok(texto)
+    }
+
+    /// Grava o idioma da interface que a pessoa escolheu.
+    pub fn definir_idioma(&self, idioma: IdiomaDaInterface) -> Result<(), Erro> {
+        let mut file = self.preferences_file();
+        let mut preferencias = file.read()?;
+        preferencias.idioma = Some(idioma);
+        file.write(&preferencias)
+    }
+
+    /// O retrato da máquina: GPU, disco da Biblioteca, dependências e Claude Code.
+    pub fn diagnosticar(&self) -> Diagnostico {
+        use crate::diagnostico::{NomeDaDependencia as Nome, por_presenca, programa};
+        let sidecar = self.sidecar_dir.as_deref();
+        let path = self.path_env.as_deref();
+        let achar = |nome: &str| find_program(nome, sidecar, path);
+        let modelos = self.app_data_dir.join(MODELS_DIR);
+        let node = self
+            .node
+            .clone()
+            .or_else(|| self.node_portatil.node())
+            .or_else(|| achar("node"));
+        let whisper = achar("whisper-cli");
+        let whisper_cpu = achar("whisper-cli-cpu");
+        Diagnostico {
+            gpu: diagnostico::gpu(whisper.is_some(), &self.carregadores_do_vulkan),
+            espaco_livre_em_mb: preparacao::espaco_livre(&self.biblioteca())
+                .map(|bytes| u32::try_from(bytes / 1_000_000).unwrap_or(u32::MAX)),
+            dependencias: vec![
+                diagnostico::ffmpeg(achar("ffmpeg").as_deref()),
+                programa(Nome::YtDlp, achar("yt-dlp").as_deref(), &["--version"]),
+                por_presenca(Nome::Whisper, whisper.is_some() || whisper_cpu.is_some()),
+                por_presenca(
+                    Nome::ModeloDeTranscricao,
+                    modelos.join(transcricao::MODEL_FILE).is_file()
+                        && modelos.join(transcricao::VAD_MODEL_FILE).is_file(),
+                ),
+                programa(Nome::Node, node.as_deref(), &["--version"]),
+                por_presenca(
+                    Nome::DependenciasDoRemotion,
+                    self.remotion.dependencias_prontas(),
+                ),
+                por_presenca(Nome::Chrome, self.remotion.chrome_pronto()),
+            ],
+            conta: self.conta.estado(),
+        }
     }
 
     /// Confere os arquivos escolhidos e lê a duração de cada um (com o `ffprobe`, se houver).
@@ -872,7 +971,7 @@ impl Nucleo {
 
     /// Os lotes da Biblioteca, do mais novo para o mais antigo, com os projetos de cada um.
     pub fn lotes(&self) -> Vec<LoteResumo> {
-        lote::resumos(&self.biblioteca)
+        lote::resumos(&self.biblioteca())
     }
 
     fn ler_lote(&self, id: &str) -> Result<LoteJson, Erro> {
@@ -880,18 +979,18 @@ impl Nucleo {
         if !simples {
             return Err(Erro::LoteNaoEncontrado { id: id.to_owned() });
         }
-        LoteJson::ler(&self.biblioteca, id).map_err(|error| {
+        LoteJson::ler(&self.biblioteca(), id).map_err(|error| {
             if error.kind() == io::ErrorKind::NotFound {
                 Erro::LoteNaoEncontrado { id: id.to_owned() }
             } else {
-                lote_nao_criado(&lote::pasta(&self.biblioteca), &error)
+                lote_nao_criado(&lote::pasta(&self.biblioteca()), &error)
             }
         })
     }
 
     fn gravar_lote(&self, lote: &LoteJson) -> Result<(), Erro> {
-        lote.gravar(&self.biblioteca)
-            .map_err(|error| lote_nao_criado(&lote::pasta(&self.biblioteca), &error))
+        lote.gravar(&self.biblioteca())
+            .map_err(|error| lote_nao_criado(&lote::pasta(&self.biblioteca()), &error))
     }
 
     /// Cria um projeto por vídeo, põe cada um no fim da fila e o registra no fim do lote. O
@@ -945,8 +1044,8 @@ impl Nucleo {
                 ),
             };
             let nao_criado = |caminho: &Path, error: io::Error| lote_nao_criado(caminho, &error);
-            let pasta = projeto::criar_pasta(&self.biblioteca, &titulo, agora.date())
-                .map_err(|error| nao_criado(&self.biblioteca, error))?;
+            let pasta = projeto::criar_pasta(&self.biblioteca(), &titulo, agora.date())
+                .map_err(|error| nao_criado(&self.biblioteca(), error))?;
             let mut json = ProjetoJson::novo(titulo, lote.id.clone(), origem, agora);
             json.excecoes = excecoes;
             json.aplicar(padroes);
@@ -968,7 +1067,7 @@ impl Nucleo {
     /// Escolhe o id do lote, `AAAA-MM-DDTHH-MM-SS` (com `-2`, `-3`... se já existir), e
     /// garante a pasta `.lotes/`.
     fn reservar_lote(&self, agora: OffsetDateTime) -> Result<String, Erro> {
-        let dir = lote::pasta(&self.biblioteca);
+        let dir = lote::pasta(&self.biblioteca());
         std::fs::create_dir_all(&dir).map_err(|error| lote_nao_criado(&dir, &error))?;
         let base = format!(
             "{:04}-{:02}-{:02}T{:02}-{:02}-{:02}",
@@ -1213,10 +1312,10 @@ impl Nucleo {
     /// Tira do histórico o projeto cuja pasta sumiu da Biblioteca.
     pub fn tirar_do_historico(&self, id: &str) -> Result<(), Erro> {
         let simples = !id.is_empty() && !id.starts_with('.') && !id.contains(['/', '\\']);
-        if !simples || self.biblioteca.join(id).exists() {
+        if !simples || self.biblioteca().join(id).exists() {
             return Err(acao_indisponivel(id, "tirar do histórico"));
         }
-        for lote in LoteJson::listar(&self.biblioteca) {
+        for lote in LoteJson::listar(&self.biblioteca()) {
             if lote.projetos.iter().any(|projeto| projeto == id) {
                 self.tirar_do_lote(&lote.id, id)?;
             }
@@ -1309,7 +1408,7 @@ impl Nucleo {
                 detalhe: "não é um projeto da Biblioteca".to_owned(),
             });
         }
-        let pasta = self.biblioteca.join(id);
+        let pasta = self.biblioteca().join(id);
         if pasta.is_dir() {
             Ok(pasta)
         } else {
@@ -1341,6 +1440,14 @@ impl Nucleo {
     /// Pergunta algo curto ao Claude para confirmar que ele responde.
     pub fn testar_claude(&self) -> Result<(), Erro> {
         self.conta.testar()
+    }
+
+    /// A pasta da Biblioteca de agora.
+    fn biblioteca(&self) -> PathBuf {
+        self.biblioteca
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
     }
 
     fn preferences_file(&self) -> std::sync::MutexGuard<'_, PreferencesFile> {

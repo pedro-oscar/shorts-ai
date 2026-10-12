@@ -53,8 +53,17 @@ impl Remotion {
 
     /// As dependências e o Chrome headless estão onde o render os espera.
     pub fn pronto(&self) -> bool {
+        self.dependencias_prontas() && self.chrome_pronto()
+    }
+
+    /// O `npm` terminou de instalar as dependências.
+    pub fn dependencias_prontas(&self) -> bool {
         self.node_modules().join(MARCA_DA_INSTALACAO).is_file()
-            && self.node_modules().join(PASTA_DO_CHROME).is_dir()
+    }
+
+    /// O Chrome headless do Remotion já foi baixado.
+    pub fn chrome_pronto(&self) -> bool {
+        self.node_modules().join(PASTA_DO_CHROME).is_dir()
     }
 
     /// Garante, com o `node`, o Chrome headless que o Remotion usa para renderizar.

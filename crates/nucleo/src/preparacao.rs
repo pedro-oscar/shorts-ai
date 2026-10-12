@@ -76,11 +76,7 @@ pub(crate) fn estado(
     presentes: impl Fn(Pacote) -> bool,
     pasta_dos_dados: &Path,
 ) -> EstadoDaPreparacao {
-    // A pasta dos dados pode não existir ainda: vale o espaço do disco em que ela vai ficar.
-    let livre = pasta_dos_dados
-        .ancestors()
-        .find(|pasta| pasta.is_dir())
-        .and_then(|pasta| fs4::available_space(pasta).ok());
+    let livre = espaco_livre(pasta_dos_dados);
     EstadoDaPreparacao {
         pacotes: Pacote::TODOS
             .into_iter()
@@ -93,6 +89,15 @@ pub(crate) fn estado(
         espaco_livre_em_mb: livre.map(|bytes| u32::try_from(bytes / 1_000_000).unwrap_or(u32::MAX)),
         pouco_espaco: livre.is_some_and(|bytes| bytes < ESPACO_MINIMO),
     }
+}
+
+/// Os bytes livres no disco da pasta. A pasta pode não existir ainda: vale o espaço do disco
+/// em que ela vai ficar.
+pub(crate) fn espaco_livre(pasta: &Path) -> Option<u64> {
+    pasta
+        .ancestors()
+        .find(|pasta| pasta.is_dir())
+        .and_then(|pasta| fs4::available_space(pasta).ok())
 }
 
 /// De onde a preparação baixa cada arquivo. Os testes apontam para um servidor local.

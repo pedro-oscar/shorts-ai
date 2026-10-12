@@ -1,9 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { I18nextProvider } from "react-i18next";
-import { AbrirLotesContext, StoreContext, useAppStore } from "./context";
+import {
+  AbrirConfiguracoesContext,
+  AbrirLotesContext,
+  StoreContext,
+  useAppStore,
+} from "./context";
 import { createI18n } from "./i18n";
 import type { Nucleo } from "./nucleo";
 import { Aviso } from "./screens/Aviso";
+import { Configuracoes } from "./screens/Configuracoes";
 import { Conta } from "./screens/Conta";
 import { ErroAoAbrir } from "./screens/ErroAoAbrir";
 import { Gerando } from "./screens/Gerando";
@@ -43,16 +49,31 @@ function InInterfaceLanguage() {
 
 function Screens() {
   const [lotesOpen, setLotesOpen] = useState(false);
+  const [configuracoesOpen, setConfiguracoesOpen] = useState(false);
   const aceito = useAppStore((store) => store.aceite !== null);
   const preparado = useAppStore((store) =>
     store.preparacao?.pacotes.every((p) => p.presente),
   );
   const abrirLotes = useCallback(() => {
+    setConfiguracoesOpen(false);
     setLotesOpen(true);
+  }, []);
+  const abrirConfiguracoes = useCallback(() => {
+    setLotesOpen(false);
+    setConfiguracoesOpen(true);
   }, []);
   return (
     <AbrirLotesContext value={aceito && preparado ? abrirLotes : null}>
-      <Passos lotesOpen={lotesOpen} setLotesOpen={setLotesOpen} />
+      <AbrirConfiguracoesContext
+        value={aceito && preparado ? abrirConfiguracoes : null}
+      >
+        <Passos
+          lotesOpen={lotesOpen}
+          setLotesOpen={setLotesOpen}
+          configuracoesOpen={configuracoesOpen}
+          setConfiguracoesOpen={setConfiguracoesOpen}
+        />
+      </AbrirConfiguracoesContext>
     </AbrirLotesContext>
   );
 }
@@ -60,9 +81,13 @@ function Screens() {
 function Passos({
   lotesOpen,
   setLotesOpen,
+  configuracoesOpen,
+  setConfiguracoesOpen,
 }: {
   lotesOpen: boolean;
   setLotesOpen: (aberto: boolean) => void;
+  configuracoesOpen: boolean;
+  setConfiguracoesOpen: (aberto: boolean) => void;
 }) {
   const erroAoAbrir = useAppStore((store) => store.erroAoAbrir);
   const aceito = useAppStore((store) => store.aceite !== null);
@@ -99,6 +124,15 @@ function Passos({
   if (aceito && !preparacao) return null;
   if (aceito && preparacao && !preparacao.pacotes.every((p) => p.presente))
     return <Preparacao onOpenSobre={openSobre} />;
+  if (aceito && configuracoesOpen)
+    return (
+      <Configuracoes
+        onOpenSobre={openSobre}
+        onVoltar={() => {
+          setConfiguracoesOpen(false);
+        }}
+      />
+    );
   if (aceito && lotesOpen)
     return (
       <Lotes

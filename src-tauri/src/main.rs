@@ -5,10 +5,10 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use nucleo::{
-    Aceite, AlvoParaAbrir, ArquivoDeVideo, ArquivoDoLote, Config, DadosDoProjeto, Erro,
-    EstadoDaConta, EstadoDaPreparacao, EstadoInicial, Evento, Excecoes, InfoDoLink, LinkDoLote,
-    LoteResumo, ModoDeLogin, MotivoDeNotificacao, Movimento, NivelDoPlano, Nucleo, Padroes,
-    PeriodoDeCobranca, PlanoConfirmado, ProjetoResumo,
+    Aceite, AlvoParaAbrir, ArquivoDeVideo, ArquivoDoLote, Config, DadosDoProjeto, Diagnostico,
+    Erro, EstadoDaConta, EstadoDaPreparacao, EstadoInicial, Evento, Excecoes, IdiomaDaInterface,
+    InfoDoLink, LinkDoLote, LoteResumo, ModoDeLogin, MotivoDeNotificacao, Movimento, NivelDoPlano,
+    Nucleo, Padroes, PeriodoDeCobranca, PlanoConfirmado, ProjetoResumo,
 };
 use serde::Serialize;
 use specta::Type;
@@ -139,6 +139,52 @@ async fn testar_claude(app: AppHandle) -> Result<(), Erro> {
         .map_err(|error| Erro::ClaudeNaoRespondeu {
             detalhe: error.to_string(),
         })?
+}
+
+/// O seletor de pastas do sistema, para a Biblioteca nova; `None` se a pessoa cancela.
+#[tauri::command]
+#[specta::specta]
+async fn escolher_pasta(app: AppHandle) -> Option<String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        app.dialog()
+            .file()
+            .blocking_pick_folder()
+            .and_then(|pasta| pasta.into_path().ok())
+            .map(|caminho| caminho.display().to_string())
+    })
+    .await
+    .unwrap_or_default()
+}
+
+/// Muda a Biblioteca e libera a pasta nova para o player da interface.
+#[tauri::command]
+#[specta::specta]
+async fn definir_biblioteca(app: AppHandle, caminho: String) -> Result<String, Erro> {
+    let biblioteca = app.state::<Nucleo>().definir_biblioteca(&caminho)?;
+    app.asset_protocol_scope()
+        .allow_directory(&biblioteca, true)
+        .map_err(|error| Erro::BibliotecaNaoTrocada {
+            caminho,
+            detalhe: error.to_string(),
+        })?;
+    Ok(biblioteca)
+}
+
+#[tauri::command]
+#[specta::specta]
+async fn definir_idioma(nucleo: State<'_, Nucleo>, idioma: IdiomaDaInterface) -> Result<(), Erro> {
+    nucleo.definir_idioma(idioma)
+}
+
+/// O retrato da máquina; roda programas filhos, fora da thread do runtime async.
+#[tauri::command]
+#[specta::specta]
+async fn diagnosticar(app: AppHandle) -> Result<Diagnostico, Erro> {
+    tauri::async_runtime::spawn_blocking(move || app.state::<Nucleo>().diagnosticar())
+        .await
+        .map_err(|error| Erro::PreparacaoInterrompida {
+            detalhe: error.to_string(),
+        })
 }
 
 /// O seletor de arquivos do sistema, só com os vídeos que o app aceita.
@@ -364,6 +410,10 @@ fn bindings() -> Builder<tauri::Wry> {
             confirmar_plano,
             testar_claude,
             escolher_arquivos,
+            escolher_pasta,
+            definir_biblioteca,
+            definir_idioma,
+            diagnosticar,
             inspecionar_arquivos,
             consultar_link,
             criar_lote,
@@ -426,6 +476,7 @@ fn main() {
                         .is_some_and(|chave| !chave.is_empty()),
                     abrir_com: None,
                     downloads: None,
+                    carregadores_do_vulkan: None,
                 },
                 move |evento| {
                     if let Evento::Notificacao {

@@ -3,6 +3,7 @@ import type {
   Aceite,
   AlvoParaAbrir,
   ArquivoDeVideo,
+  Diagnostico,
   Erro,
   EstadoDaConta,
   EstadoDaEtapa,
@@ -136,6 +137,10 @@ export interface AppState {
   chaveDeApiNoAmbiente: boolean;
   /** A Biblioteca, onde ficam os projetos. */
   biblioteca: string;
+  /** Por que a última troca da Biblioteca ou do idioma não foi feita. */
+  erroDasConfiguracoes: Erro | null;
+  /** O que o Diagnóstico achou; `null` até ele terminar de conferir. */
+  diagnostico: Diagnostico | null;
   /** O que a preparação da primeira execução tem e o que falta; `null` até o núcleo dizer. */
   preparacao: EstadoDaPreparacao | null;
   /** O que cada pacote que a preparação baixa informa, desde que ela começou. */
@@ -179,6 +184,11 @@ export interface AppState {
 export interface AppStore extends AppState {
   /** Começa a ouvir o núcleo e pede o estado inicial; devolve a função que para. */
   connect: () => () => void;
+  /** Pede a pasta da nova Biblioteca e passa a usá-la; a lista de lotes é relida de lá. */
+  trocarBiblioteca: () => Promise<void>;
+  definirIdioma: (idioma: IdiomaDaInterface) => Promise<void>;
+  /** Confere de novo o computador para o Diagnóstico. */
+  carregarDiagnostico: () => Promise<void>;
   /** Baixa o que falta da primeira execução; cada pacote informa o seu andamento. */
   preparar: () => Promise<void>;
   aceitarAviso: () => Promise<void>;
@@ -480,6 +490,8 @@ export function createAppStore(nucleo: Nucleo) {
       plano: null,
       chaveDeApiNoAmbiente: false,
       biblioteca: "",
+      erroDasConfiguracoes: null,
+      diagnostico: null,
       preparacao: null,
       andamentoDaPreparacao: {},
       preparando: false,
@@ -552,6 +564,48 @@ export function createAppStore(nucleo: Nucleo) {
               stop();
             });
         };
+      },
+
+      trocarBiblioteca: async () => {
+        const caminho = await nucleo.escolherPasta();
+        if (caminho === null) return;
+        const result = await nucleo.definirBiblioteca(caminho);
+        if (result.status === "error") {
+          set({ erroDasConfiguracoes: result.error });
+          return;
+        }
+        const lotes = await nucleo.lotes();
+        set({
+          erroDasConfiguracoes: null,
+          biblioteca: result.data,
+          lotes,
+          projetos: lotes
+            .toReversed()
+            .flatMap((lote) => lote.projetos)
+            .map(naFila),
+          loteAtual:
+            (lotes.find((lote) => lote.aberto) ?? lotes[0])?.id ?? null,
+          galeria: {},
+        });
+      },
+
+      definirIdioma: async (idioma) => {
+        const result = await nucleo.definirIdioma(idioma);
+        if (result.status === "error") {
+          set({ erroDasConfiguracoes: result.error });
+          return;
+        }
+        set((current) => ({
+          erroDasConfiguracoes: null,
+          app: current.app && { ...current.app, idiomaDaInterface: idioma },
+        }));
+      },
+
+      carregarDiagnostico: async () => {
+        set({ diagnostico: null });
+        const result = await nucleo.diagnosticar();
+        if (result.status === "ok") set({ diagnostico: result.data });
+        else set({ erroDasConfiguracoes: result.error });
       },
 
       preparar: async () => {

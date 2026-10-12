@@ -41,6 +41,65 @@ export const ptBR = {
     montserrat: "Fonte Montserrat: SIL Open Font License 1.1.",
     voltar: "Voltar",
   },
+  configuracoes: {
+    abrir: "Configurações",
+    titulo: "Configurações",
+    voltar: "Voltar",
+    bibliotecaTitulo: "Biblioteca",
+    bibliotecaAtual: "Os projetos ficam em {{caminho}}.",
+    trocarBiblioteca: "Trocar a pasta da Biblioteca",
+    bibliotecaDica:
+      "Ao trocar, os projetos que você copiou para a nova pasta aparecem. Os da pasta antiga ficam onde estão.",
+    idiomaTitulo: "Idioma da interface",
+    idioma: "Idioma",
+    idiomas: { "pt-BR": "Português (Brasil)", en: "English" },
+    diagnosticoTitulo: "Diagnóstico",
+    abrirDiagnostico: "Abrir o Diagnóstico",
+    abrirSobre: "Sobre o Shorts AI",
+  },
+  diagnostico: {
+    titulo: "Diagnóstico",
+    voltar: "Voltar",
+    carregando: "Conferindo o computador…",
+    gpu: "Placa de vídeo",
+    gpus: {
+      vulkan: "GPU com Vulkan",
+      soCpu: "Só CPU: sem Vulkan, a transcrição é mais lenta",
+    },
+    disco: "Espaço livre na Biblioteca",
+    discoLivre: "{{gb}} GB livres",
+    discoDesconhecido: "não informado pelo sistema",
+    dependencias: "Dependências",
+    nomes: {
+      ffmpeg: "ffmpeg",
+      ytDlp: "yt-dlp",
+      whisper: "whisper.cpp",
+      modeloDeTranscricao: "Modelo de transcrição",
+      node: "Node",
+      dependenciasDoRemotion: "Dependências do Remotion",
+      chrome: "Chrome do Remotion",
+    },
+    presente: "encontrado",
+    presenteComVersao: "encontrado, versão {{versao}}",
+    ausente: "não encontrado",
+    incompleta: "encontrado, mas faltam: {{faltam}}",
+    claudeCode: "Claude Code",
+    conta: {
+      naoInstalado: "não instalado",
+      versaoAntiga:
+        "versão {{versao}}, antiga demais (precisa da {{minima}} ou mais nova)",
+      semLogin: "versão {{versao}}, sem login",
+      logado: "versão {{versao}}, logado ({{plano}})",
+      planoConsole: "conta do Console",
+    },
+    testar: "Testar o Claude",
+    testando: "Testando o Claude…",
+    testeOk: "O Claude respondeu ao teste.",
+    testeFalhou: "O Claude não respondeu ao teste.",
+    copiar: "Copiar relatório",
+    copiado: "Relatório copiado.",
+    relatorio: "Relatório do Diagnóstico do Shorts AI {{versao}}",
+  },
   conta: {
     titulo: "Conta",
     verificando: "Procurando o Claude Code…",
@@ -319,6 +378,10 @@ export const ptBR = {
       "O arquivo de preferências estava corrompido e foi guardado em {{backup}}. As preferências voltaram ao padrão, por isso o Aviso de uso aparece de novo.",
   },
   erros: {
+    bibliotecaOcupada:
+      "Não dá para trocar a Biblioteca com projetos rodando ou na fila. Espere o lote terminar ou cancele os projetos.",
+    bibliotecaNaoTrocada:
+      "Não foi possível usar {{caminho}} como Biblioteca. Escolha uma pasta em que o app possa gravar.",
     preferenciasIlegiveis:
       "Não foi possível ler as preferências em {{caminho}}. Corrija ou apague o arquivo e abra o app de novo.",
     preferenciasNaoGravadas:

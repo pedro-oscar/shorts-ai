@@ -4,6 +4,7 @@ import type {
   AlvoParaAbrir,
   ArquivoDeVideo,
   DadosDoProjeto,
+  Diagnostico,
   Erro,
   EstadoDaConta,
   EstadoDaPreparacao,
@@ -32,6 +33,28 @@ export const LOGADO: Extract<EstadoDaConta, { tipo: "logado" }> = {
   plano: "max",
   email: "ana@example.com",
   cobranca: "assinatura",
+};
+
+/** O que o Diagnóstico do núcleo falso acha por padrão: tudo no lugar. */
+export const DIAGNOSTICO_PADRAO: Diagnostico = {
+  gpu: "vulkan",
+  espacoLivreEmMb: 250_000,
+  dependencias: [
+    { nome: "ffmpeg", situacao: { tipo: "presente", versao: "7.1.1" } },
+    { nome: "ytDlp", situacao: { tipo: "presente", versao: "2026.10.01" } },
+    { nome: "whisper", situacao: { tipo: "presente", versao: null } },
+    {
+      nome: "modeloDeTranscricao",
+      situacao: { tipo: "presente", versao: null },
+    },
+    { nome: "node", situacao: { tipo: "presente", versao: "v22.22.1" } },
+    {
+      nome: "dependenciasDoRemotion",
+      situacao: { tipo: "presente", versao: null },
+    },
+    { nome: "chrome", situacao: { tipo: "presente", versao: null } },
+  ],
+  conta: LOGADO,
 };
 
 const PACOTES: Pacote[] = [
@@ -80,6 +103,11 @@ export function createFakeNucleo(
   const droppers = new Set<(caminhos: string[]) => void>();
   let picked: string[] = [];
   const lotes: LoteResumo[] = [...lotesIniciais];
+  let pastaEscolhida: string | null = null;
+  let diagnostico: Diagnostico = DIAGNOSTICO_PADRAO;
+  let bibliotecaError: Erro | null = null;
+  /** Os lotes que cada pasta de Biblioteca tem, além dos da pasta de agora. */
+  const bibliotecas = new Map<string, LoteResumo[]>();
   const dados = new Map<string, DadosDoProjeto>();
   const calls = {
     sair: 0,
@@ -112,6 +140,10 @@ export function createFakeNucleo(
     excecoes: [] as { projeto: string; excecoes: Excecoes }[],
     /** As exceções de cada arquivo de cada `criarLote`. */
     excecoesDosArquivos: [] as Excecoes[][],
+    /** O idioma de cada `definirIdioma`. */
+    idiomas: [] as string[],
+    /** Quantas vezes o Diagnóstico conferiu o computador. */
+    diagnosticos: 0,
     /** O que cada `abrirNoSistema` pediu. */
     abertos: [] as { id: string; alvo: AlvoParaAbrir }[],
   };
@@ -258,6 +290,24 @@ export function createFakeNucleo(
       return Promise.resolve({ status: "ok", data: null });
     },
     escolherArquivos: () => Promise.resolve(picked),
+    escolherPasta: () => Promise.resolve(pastaEscolhida),
+    definirBiblioteca: (caminho) => {
+      if (bibliotecaError)
+        return Promise.resolve({ status: "error", error: bibliotecaError });
+      bibliotecas.set(state.biblioteca, [...lotes]);
+      lotes.splice(0, lotes.length, ...(bibliotecas.get(caminho) ?? []));
+      state = { ...state, biblioteca: caminho };
+      return Promise.resolve({ status: "ok", data: caminho });
+    },
+    definirIdioma: (idioma) => {
+      calls.idiomas.push(idioma);
+      state = { ...state, idiomaDaInterface: idioma };
+      return Promise.resolve({ status: "ok", data: null });
+    },
+    diagnosticar: () => {
+      calls.diagnosticos++;
+      return Promise.resolve({ status: "ok", data: diagnostico });
+    },
     inspecionarArquivos: (caminhos) =>
       Promise.resolve({
         status: "ok",
@@ -461,6 +511,22 @@ export function createFakeNucleo(
     /** Abrir qualquer coisa no sistema falha com este erro. */
     falharAbertura: (erro: Erro) => {
       openError = erro;
+    },
+    /** O que o seletor de pastas devolve na próxima vez; `null` é a pessoa cancelar. */
+    escolherPastaDaBiblioteca: (caminho: string | null) => {
+      pastaEscolhida = caminho;
+    },
+    /** Estes lotes já estão na pasta `caminho`, como se a pessoa os tivesse copiado para lá. */
+    copiarParaBiblioteca: (caminho: string, lotesCopiados: LoteResumo[]) => {
+      bibliotecas.set(caminho, lotesCopiados);
+    },
+    /** Trocar a Biblioteca falha com este erro. */
+    falharBiblioteca: (erro: Erro) => {
+      bibliotecaError = erro;
+    },
+    /** O que o Diagnóstico acha da máquina. */
+    definirDiagnostico: (retrato: Diagnostico) => {
+      diagnostico = retrato;
     },
     /** O que o seletor de arquivos devolve na próxima vez. */
     pick: (caminhos: string[]) => {
