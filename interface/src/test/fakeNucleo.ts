@@ -5,6 +5,7 @@ import type {
   ArquivoDeVideo,
   DadosDoProjeto,
   Diagnostico,
+  Regra,
   Erro,
   EstadoDaConta,
   EstadoDaPreparacao,
@@ -106,6 +107,7 @@ export function createFakeNucleo(
   let pastaEscolhida: string | null = null;
   let diagnostico: Diagnostico = DIAGNOSTICO_PADRAO;
   let bibliotecaError: Erro | null = null;
+  let regras: Regra[] = [];
   /** Os lotes que cada pasta de Biblioteca tem, além dos da pasta de agora. */
   const bibliotecas = new Map<string, LoteResumo[]>();
   const dados = new Map<string, DadosDoProjeto>();
@@ -303,6 +305,20 @@ export function createFakeNucleo(
       calls.idiomas.push(idioma);
       state = { ...state, idiomaDaInterface: idioma };
       return Promise.resolve({ status: "ok", data: null });
+    },
+    regrasAprendidas: () => Promise.resolve({ status: "ok", data: regras }),
+    editarRegraAprendida: (indice, texto) => {
+      regras = regras
+        .map((regra) => (regra.indice === indice ? { ...regra, texto } : regra))
+        .filter((regra) => regra.texto.trim() !== "")
+        .map((regra, posicao) => ({ ...regra, indice: posicao }));
+      return Promise.resolve({ status: "ok", data: regras });
+    },
+    apagarRegraAprendida: (indice) => {
+      regras = regras
+        .filter((regra) => regra.indice !== indice)
+        .map((regra, posicao) => ({ ...regra, indice: posicao }));
+      return Promise.resolve({ status: "ok", data: regras });
     },
     diagnosticar: () => {
       calls.diagnosticos++;
@@ -523,6 +539,14 @@ export function createFakeNucleo(
     /** Trocar a Biblioteca falha com este erro. */
     falharBiblioteca: (erro: Erro) => {
       bibliotecaError = erro;
+    },
+    /** As regras que o Claude anotou. */
+    definirRegras: (textos: string[]) => {
+      regras = textos.map((texto, indice) => ({
+        indice,
+        secao: null,
+        texto,
+      }));
     },
     /** O que o Diagnóstico acha da máquina. */
     definirDiagnostico: (retrato: Diagnostico) => {

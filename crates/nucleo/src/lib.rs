@@ -4,6 +4,7 @@
 //! interface. O núcleo fala por códigos e parâmetros, nunca por frases prontas: quem
 //! escreve os textos, em pt-BR ou em inglês, é a interface.
 
+mod aprendizados;
 mod claude_code;
 mod conta;
 pub mod corte;
@@ -38,6 +39,8 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 use time::OffsetDateTime;
 
+use crate::aprendizados::Aprendizados;
+pub use crate::aprendizados::Regra;
 pub use crate::claude_code::ClaudeCode;
 use crate::conta::Conta;
 pub use crate::conta::{Cobranca, EstadoDaConta, ModoDeLogin, VERSAO_MINIMA_DO_CLAUDE_CODE};
@@ -124,6 +127,7 @@ pub struct Nucleo {
     node_portatil: NodePortatil,
     node: Option<PathBuf>,
     app_data_dir: PathBuf,
+    aprendizados: Aprendizados,
     downloads: Downloads,
     /// O idioma que o sistema indicou; vale enquanto a pessoa não escolhe outro.
     idioma_do_sistema: IdiomaDaInterface,
@@ -424,6 +428,8 @@ pub enum Erro {
     InstalacaoFalhou { detalhe: String },
     #[error("atualização do Claude Code não concluída: {detalhe}")]
     AtualizacaoFalhou { detalhe: String },
+    #[error("regras aprendidas não gravadas: {detalhe}")]
+    AprendizadosNaoGravados { detalhe: String },
     #[error("a Biblioteca não pode mudar com projetos na fila")]
     BibliotecaOcupada,
     #[error("Biblioteca não trocada para {caminho}: {detalhe}")]
@@ -543,6 +549,7 @@ impl Nucleo {
                 ytdlp.clone(),
             ),
             ytdlp,
+            aprendizados: Aprendizados::new(&config.app_data_dir, config.assets_dir.as_deref()),
             remotion: Remotion::new(
                 config.assets_dir,
                 &config.app_data_dir,
@@ -692,6 +699,39 @@ impl Nucleo {
         let mut preferencias = file.read()?;
         preferencias.idioma = Some(idioma);
         file.write(&preferencias)
+    }
+
+    /// As regras que o Claude anotou a partir do uso da pessoa.
+    pub fn regras_aprendidas(&self) -> Result<Vec<Regra>, Erro> {
+        self.aprendizados
+            .regras()
+            .map_err(|error| Erro::AprendizadosNaoGravados {
+                detalhe: error.to_string(),
+            })
+    }
+
+    /// Troca o texto de uma regra aprendida; um texto vazio apaga a regra.
+    pub fn editar_regra_aprendida(&self, indice: u32, texto: &str) -> Result<Vec<Regra>, Erro> {
+        let texto = (!texto.trim().is_empty()).then_some(texto);
+        self.alterar_regra(indice, texto)
+    }
+
+    pub fn apagar_regra_aprendida(&self, indice: u32) -> Result<Vec<Regra>, Erro> {
+        self.alterar_regra(indice, None)
+    }
+
+    fn alterar_regra(&self, indice: u32, texto: Option<&str>) -> Result<Vec<Regra>, Erro> {
+        let gravada = self.aprendizados.alterar(indice, texto).map_err(|error| {
+            Erro::AprendizadosNaoGravados {
+                detalhe: error.to_string(),
+            }
+        })?;
+        if !gravada {
+            return Err(Erro::AprendizadosNaoGravados {
+                detalhe: format!("a regra {indice} não existe"),
+            });
+        }
+        self.regras_aprendidas()
     }
 
     /// O retrato da máquina: GPU, disco da Biblioteca, dependências e Claude Code.

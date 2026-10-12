@@ -4,6 +4,7 @@ import type {
   AlvoParaAbrir,
   ArquivoDeVideo,
   Diagnostico,
+  Regra,
   Erro,
   EstadoDaConta,
   EstadoDaEtapa,
@@ -141,6 +142,8 @@ export interface AppState {
   erroDasConfiguracoes: Erro | null;
   /** O que o Diagnóstico achou; `null` até ele terminar de conferir. */
   diagnostico: Diagnostico | null;
+  /** As regras que o Claude anotou; `null` até o núcleo entregá-las. */
+  regrasAprendidas: Regra[] | null;
   /** O que a preparação da primeira execução tem e o que falta; `null` até o núcleo dizer. */
   preparacao: EstadoDaPreparacao | null;
   /** O que cada pacote que a preparação baixa informa, desde que ela começou. */
@@ -187,6 +190,10 @@ export interface AppStore extends AppState {
   /** Pede a pasta da nova Biblioteca e passa a usá-la; a lista de lotes é relida de lá. */
   trocarBiblioteca: () => Promise<void>;
   definirIdioma: (idioma: IdiomaDaInterface) => Promise<void>;
+  carregarRegrasAprendidas: () => Promise<void>;
+  /** Troca o texto de uma regra aprendida; texto vazio a apaga. */
+  editarRegraAprendida: (indice: number, texto: string) => Promise<void>;
+  apagarRegraAprendida: (indice: number) => Promise<void>;
   /** Confere de novo o computador para o Diagnóstico. */
   carregarDiagnostico: () => Promise<void>;
   /** Baixa o que falta da primeira execução; cada pacote informa o seu andamento. */
@@ -492,6 +499,7 @@ export function createAppStore(nucleo: Nucleo) {
       biblioteca: "",
       erroDasConfiguracoes: null,
       diagnostico: null,
+      regrasAprendidas: null,
       preparacao: null,
       andamentoDaPreparacao: {},
       preparando: false,
@@ -599,6 +607,26 @@ export function createAppStore(nucleo: Nucleo) {
           erroDasConfiguracoes: null,
           app: current.app && { ...current.app, idiomaDaInterface: idioma },
         }));
+      },
+
+      carregarRegrasAprendidas: async () => {
+        const result = await nucleo.regrasAprendidas();
+        if (result.status === "ok") set({ regrasAprendidas: result.data });
+        else set({ erroDasConfiguracoes: result.error });
+      },
+
+      editarRegraAprendida: async (indice, texto) => {
+        const result = await nucleo.editarRegraAprendida(indice, texto);
+        if (result.status === "ok")
+          set({ regrasAprendidas: result.data, erroDasConfiguracoes: null });
+        else set({ erroDasConfiguracoes: result.error });
+      },
+
+      apagarRegraAprendida: async (indice) => {
+        const result = await nucleo.apagarRegraAprendida(indice);
+        if (result.status === "ok")
+          set({ regrasAprendidas: result.data, erroDasConfiguracoes: null });
+        else set({ erroDasConfiguracoes: result.error });
       },
 
       carregarDiagnostico: async () => {

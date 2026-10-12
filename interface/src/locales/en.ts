@@ -56,6 +56,16 @@ export const en: typeof ptBR = {
     abrirDiagnostico: "Open Diagnostics",
     abrirSobre: "About Shorts AI",
   },
+  regras: {
+    titulo: "Learned rules",
+    dica: "Rules Claude noted from how you use the app. They apply to every project and stay after an app update.",
+    vazio: "No rules yet.",
+    regra: "Rule {{numero}}",
+    salvar: "Save",
+    salvarRegra: "Save rule {{numero}}",
+    apagarRegra: "Delete rule {{numero}}",
+    apagar: "Delete",
+  },
   diagnostico: {
     titulo: "Diagnostics",
     voltar: "Back",
@@ -374,6 +384,8 @@ export const en: typeof ptBR = {
       "The preferences file was corrupted and was saved to {{backup}}. The preferences went back to the defaults, so the terms of use are shown again.",
   },
   erros: {
+    aprendizadosNaoGravados:
+      "Could not read or save the learned rules: {{detalhe}}",
     bibliotecaOcupada:
       "The Library cannot change while projects are running or queued. Wait for the batch to finish or cancel the projects.",
     bibliotecaNaoTrocada:

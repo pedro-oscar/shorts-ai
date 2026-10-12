@@ -25,6 +25,9 @@ export const commands = {
 	/**  Muda a Biblioteca e libera a pasta nova para o player da interface. */
 	definirBiblioteca: (caminho: string) => typedError<string, Erro>(__TAURI_INVOKE("definir_biblioteca", { caminho })),
 	definirIdioma: (idioma: IdiomaDaInterface) => typedError<null, Erro>(__TAURI_INVOKE("definir_idioma", { idioma })),
+	regrasAprendidas: () => typedError<Regra[], Erro>(__TAURI_INVOKE("regras_aprendidas")),
+	editarRegraAprendida: (indice: number, texto: string) => typedError<Regra[], Erro>(__TAURI_INVOKE("editar_regra_aprendida", { indice, texto })),
+	apagarRegraAprendida: (indice: number) => typedError<Regra[], Erro>(__TAURI_INVOKE("apagar_regra_aprendida", { indice })),
 	/**  O retrato da máquina; roda programas filhos, fora da thread do runtime async. */
 	diagnosticar: () => typedError<Diagnostico, Erro>(__TAURI_INVOKE("diagnosticar")),
 	inspecionarArquivos: (caminhos: string[]) => typedError<ArquivoDeVideo[], Erro>(__TAURI_INVOKE("inspecionar_arquivos", { caminhos })),
@@ -141,7 +144,7 @@ export type Diagnostico = {
  *  Os erros do núcleo, como código e parâmetros. `detalhe` é a mensagem do sistema, para
  *  diagnóstico.
  */
-export type Erro = { codigo: "preferenciasIlegiveis"; caminho: string; detalhe: string } | { codigo: "preferenciasNaoGravadas"; caminho: string; detalhe: string } | { codigo: "loginNaoConcluido"; detalhe: string } | { codigo: "instalacaoFalhou"; detalhe: string } | { codigo: "atualizacaoFalhou"; detalhe: string } | { codigo: "bibliotecaOcupada" } | { codigo: "bibliotecaNaoTrocada"; caminho: string; detalhe: string } | { codigo: "claudeNaoRespondeu"; detalhe: string } | { codigo: "arquivoInvalido"; caminho: string } | { codigo: "projetoNaoCriado"; caminho: string; detalhe: string } | { codigo: "dependenciasDoRemotionNaoInstaladas"; detalhe: string } | { codigo: "projetoNaoLido"; id: string; detalhe: string } | 
+export type Erro = { codigo: "preferenciasIlegiveis"; caminho: string; detalhe: string } | { codigo: "preferenciasNaoGravadas"; caminho: string; detalhe: string } | { codigo: "loginNaoConcluido"; detalhe: string } | { codigo: "instalacaoFalhou"; detalhe: string } | { codigo: "atualizacaoFalhou"; detalhe: string } | { codigo: "aprendizadosNaoGravados"; detalhe: string } | { codigo: "bibliotecaOcupada" } | { codigo: "bibliotecaNaoTrocada"; caminho: string; detalhe: string } | { codigo: "claudeNaoRespondeu"; detalhe: string } | { codigo: "arquivoInvalido"; caminho: string } | { codigo: "projetoNaoCriado"; caminho: string; detalhe: string } | { codigo: "dependenciasDoRemotionNaoInstaladas"; detalhe: string } | { codigo: "projetoNaoLido"; id: string; detalhe: string } | 
 /**  A pasta do projeto foi apagada ou movida. */
 { codigo: "projetoNaoEncontrado"; id: string } | 
 /**  A ação não existe para o estado em que o projeto está. */
@@ -420,6 +423,15 @@ export type ReelDoProjeto = {
 	arquivo: string | null,
 	/**  O arquivo é a prévia em meia resolução, não a versão final. */
 	previa: boolean,
+};
+
+/**  Uma regra do arquivo de aprendizados. */
+export type Regra = {
+	/**  A posição entre as regras, de 0 em diante, na ordem do arquivo. */
+	indice: number,
+	/**  O título da seção em que a regra está. */
+	secao: string | null,
+	texto: string,
 };
 
 /**  Um corte que o Claude deixou de reserva: não é renderizado. */

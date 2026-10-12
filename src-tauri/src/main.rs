@@ -8,7 +8,7 @@ use nucleo::{
     Aceite, AlvoParaAbrir, ArquivoDeVideo, ArquivoDoLote, Config, DadosDoProjeto, Diagnostico,
     Erro, EstadoDaConta, EstadoDaPreparacao, EstadoInicial, Evento, Excecoes, IdiomaDaInterface,
     InfoDoLink, LinkDoLote, LoteResumo, ModoDeLogin, MotivoDeNotificacao, Movimento, NivelDoPlano,
-    Nucleo, Padroes, PeriodoDeCobranca, PlanoConfirmado, ProjetoResumo,
+    Nucleo, Padroes, PeriodoDeCobranca, PlanoConfirmado, ProjetoResumo, Regra,
 };
 use serde::Serialize;
 use specta::Type;
@@ -174,6 +174,31 @@ async fn definir_biblioteca(app: AppHandle, caminho: String) -> Result<String, E
 #[specta::specta]
 async fn definir_idioma(nucleo: State<'_, Nucleo>, idioma: IdiomaDaInterface) -> Result<(), Erro> {
     nucleo.definir_idioma(idioma)
+}
+
+#[tauri::command]
+#[specta::specta]
+async fn regras_aprendidas(nucleo: State<'_, Nucleo>) -> Result<Vec<Regra>, Erro> {
+    nucleo.regras_aprendidas()
+}
+
+#[tauri::command]
+#[specta::specta]
+async fn editar_regra_aprendida(
+    nucleo: State<'_, Nucleo>,
+    indice: u32,
+    texto: String,
+) -> Result<Vec<Regra>, Erro> {
+    nucleo.editar_regra_aprendida(indice, &texto)
+}
+
+#[tauri::command]
+#[specta::specta]
+async fn apagar_regra_aprendida(
+    nucleo: State<'_, Nucleo>,
+    indice: u32,
+) -> Result<Vec<Regra>, Erro> {
+    nucleo.apagar_regra_aprendida(indice)
 }
 
 /// O retrato da máquina; roda programas filhos, fora da thread do runtime async.
@@ -413,6 +438,9 @@ fn bindings() -> Builder<tauri::Wry> {
             escolher_pasta,
             definir_biblioteca,
             definir_idioma,
+            regras_aprendidas,
+            editar_regra_aprendida,
+            apagar_regra_aprendida,
             diagnosticar,
             inspecionar_arquivos,
             consultar_link,

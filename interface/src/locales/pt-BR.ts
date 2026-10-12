@@ -57,6 +57,16 @@ export const ptBR = {
     abrirDiagnostico: "Abrir o Diagnóstico",
     abrirSobre: "Sobre o Shorts AI",
   },
+  regras: {
+    titulo: "Regras aprendidas",
+    dica: "Regras que o Claude anotou a partir do seu uso. Valem para todos os projetos e continuam depois de uma atualização do app.",
+    vazio: "Nenhuma regra ainda.",
+    regra: "Regra {{numero}}",
+    salvar: "Salvar",
+    salvarRegra: "Salvar regra {{numero}}",
+    apagarRegra: "Apagar regra {{numero}}",
+    apagar: "Apagar",
+  },
   diagnostico: {
     titulo: "Diagnóstico",
     voltar: "Voltar",
@@ -378,6 +388,8 @@ export const ptBR = {
       "O arquivo de preferências estava corrompido e foi guardado em {{backup}}. As preferências voltaram ao padrão, por isso o Aviso de uso aparece de novo.",
   },
   erros: {
+    aprendizadosNaoGravados:
+      "Não foi possível ler ou gravar as regras aprendidas: {{detalhe}}",
     bibliotecaOcupada:
       "Não dá para trocar a Biblioteca com projetos rodando ou na fila. Espere o lote terminar ou cancele os projetos.",
     bibliotecaNaoTrocada:

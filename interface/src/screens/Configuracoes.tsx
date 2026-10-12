@@ -3,11 +3,12 @@ import { useTranslation } from "react-i18next";
 import type { IdiomaDaInterface } from "../bindings";
 import { useAppStore } from "../context";
 import { Diagnostico } from "./Diagnostico";
+import { RegrasAprendidas } from "./RegrasAprendidas";
 import { ErrorMessage, Screen, Topo } from "./common";
 
 const IDIOMAS: IdiomaDaInterface[] = ["pt-BR", "en"];
 
-/** A engrenagem do topo: a Biblioteca, o idioma da interface, o Diagnóstico e o Sobre. */
+/** A engrenagem do topo: a Biblioteca, o idioma da interface, as regras aprendidas, o Diagnóstico e o Sobre. */
 export function Configuracoes({
   onOpenSobre,
   onVoltar,
@@ -61,6 +62,8 @@ export function Configuracoes({
             ))}
           </select>
         </label>
+
+        <RegrasAprendidas />
 
         <h2>{t("configuracoes.diagnosticoTitulo")}</h2>
         <button

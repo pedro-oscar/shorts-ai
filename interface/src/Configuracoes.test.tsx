@@ -197,3 +197,33 @@ test("do Diagnóstico dá para voltar às Configurações e delas ao Sobre", asy
   await user.click(screen.getByRole("button", { name: "Voltar" }));
   await screen.findByRole("heading", { name: "Configurações" });
 });
+
+test("as regras aprendidas aparecem para ler, editar e apagar", async () => {
+  const fake = createFakeNucleo(INICIAL);
+  fake.definirRegras(["Nunca use emoji nos títulos.", "Cortes de até 90 s."]);
+  render(<App nucleo={fake.nucleo} />);
+  const user = userEvent.setup();
+  await user.click(
+    await screen.findByRole("button", { name: "Configurações" }),
+  );
+
+  const primeira = await screen.findByRole("textbox", { name: "Regra 1" });
+  expect(primeira).toHaveValue("Nunca use emoji nos títulos.");
+  await user.clear(primeira);
+  await user.type(primeira, "Emoji só nos ganchos.");
+  await user.click(screen.getByRole("button", { name: "Salvar regra 1" }));
+  await screen.findByDisplayValue("Emoji só nos ganchos.");
+
+  await user.click(screen.getByRole("button", { name: "Apagar regra 1" }));
+  await screen.findByRole("textbox", { name: "Regra 1" });
+  expect(screen.getByRole("textbox", { name: "Regra 1" })).toHaveValue(
+    "Cortes de até 90 s.",
+  );
+  expect(screen.queryByRole("textbox", { name: "Regra 2" })).toBeNull();
+});
+
+test("sem regras, as Configurações dizem que não há nenhuma", async () => {
+  await abrirConfiguracoes();
+
+  await screen.findByText("Nenhuma regra ainda.");
+});
