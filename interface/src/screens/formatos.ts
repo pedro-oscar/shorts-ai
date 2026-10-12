@@ -40,10 +40,12 @@ export function lerFaixa(
   inicio: string,
   fim: string,
 ): Faixa | null | "invalida" {
-  if (inicio.trim() === "" && fim.trim() === "") return null;
-  const de = inicio.trim() === "" ? 0 : lerTempo(inicio);
-  const ate = fim.trim() === "" ? null : lerTempo(fim);
-  if (de === null || (fim.trim() !== "" && ate === null)) return "invalida";
+  const semInicio = inicio.trim() === "";
+  const semFim = fim.trim() === "";
+  if (semInicio && semFim) return null;
+  const de = semInicio ? 0 : lerTempo(inicio);
+  const ate = semFim ? null : lerTempo(fim);
+  if (de === null || (!semFim && ate === null)) return "invalida";
   if (ate !== null && ate <= de) return "invalida";
   return { inicio: de, fim: ate };
 }
