@@ -47,6 +47,10 @@ echo dados > "$ultimo"
 const NODE: &str = r#"#!/bin/sh
 dir="$(dirname "$0")"
 echo "$PWD: $@" >> "$dir/node.log"
+[ -f "$dir/node-erro" ] && {
+  printf 'node:internal/modules:331\n  throw new ERR_MODULE_NOT_FOUND(x);\n        ^\n\nError [ERR_MODULE_NOT_FOUND]: Cannot find package x\n    at foo (bar)\n  code: 1\n}\n\nNode.js v24.21.0\n' >&2
+  exit 1
+}
 [ -f "$dir/node-falha" ] && { echo 'chrome não abriu' >&2; exit 1; }
 case "$2" in
 pacote) mkdir -p "$3" ;;
@@ -91,6 +95,7 @@ impl Cenario {
         fs::create_dir_all(pasta.join("remotion/public/clips/demo")).unwrap();
         fs::write(pasta.join("remotion/src/Root.tsx"), "root").unwrap();
         fs::write(pasta.join("remotion/src/scenes/index.ts"), "cenas").unwrap();
+        fs::create_dir_all(pasta.join("remotion/node_modules")).unwrap();
         fs::write(pasta.join("remotion/package.json"), "{}").unwrap();
         fs::write(pasta.join("remotion/public/clips/demo/clip.json"), "{}").unwrap();
         fs::write(pasta.join("original.mp4"), b"video").unwrap();
@@ -438,6 +443,39 @@ fn falha_do_render_vira_erro_com_a_ultima_linha_do_stderr() {
     };
 
     assert!(erro.to_string().contains("chrome não abriu"), "{erro}");
+}
+
+#[test]
+fn erro_nao_tratado_do_node_mostra_a_linha_do_erro_e_nao_a_versao() {
+    let cenario = Cenario::novo();
+    fs::write(cenario.bin().join("node-erro"), "").unwrap();
+
+    let Err(erro) = cenario.produzir(Qualidade::Final) else {
+        panic!("devia falhar");
+    };
+
+    let texto = erro.to_string();
+    assert!(texto.contains("Error [ERR_MODULE_NOT_FOUND]"), "{texto}");
+    assert!(!texto.contains("Node.js v"), "{texto}");
+}
+
+#[test]
+fn sem_o_node_modules_compartilhado_falha_antes_de_chamar_o_node() {
+    let cenario = Cenario::novo();
+    let node_modules = cenario.pasta.join("remotion/node_modules");
+    fs::remove_dir(&node_modules).unwrap();
+    std::os::unix::fs::symlink(cenario.tmp.path().join("nao-existe"), &node_modules).unwrap();
+
+    let Err(erro) = cenario.produzir(Qualidade::Final) else {
+        panic!("devia falhar");
+    };
+
+    assert!(
+        erro.to_string()
+            .contains("dependências do Remotion não instaladas"),
+        "{erro}"
+    );
+    assert!(cenario.chamadas("node").is_empty());
 }
 
 #[test]

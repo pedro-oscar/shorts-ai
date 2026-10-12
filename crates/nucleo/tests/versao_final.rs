@@ -92,6 +92,7 @@ impl Cenario {
         let projeto = videos.join("Shorts AI").join(ID);
         fs::create_dir_all(projeto.join("edit")).unwrap();
         fs::create_dir_all(projeto.join("remotion/src")).unwrap();
+        fs::create_dir_all(projeto.join("remotion/node_modules")).unwrap();
         fs::write(projeto.join("remotion/src/Root.tsx"), "root").unwrap();
         fs::write(projeto.join("remotion/package.json"), "{}").unwrap();
         let video = tmp.path().join("aula.mp4");

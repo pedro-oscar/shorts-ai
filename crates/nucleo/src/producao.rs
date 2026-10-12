@@ -90,6 +90,8 @@ pub enum ErroDaProducao {
     Corte(ErroDoCorte),
     #[error("o render falhou: {0}")]
     Render(String),
+    #[error("dependências do Remotion não instaladas: {0} não existe")]
+    DependenciasNaoInstaladas(String),
     #[error(transparent)]
     Io(#[from] io::Error),
 }
@@ -360,6 +362,12 @@ impl Producao {
         cancelar: &AtomicBool,
         progresso: &mut dyn FnMut(f64),
     ) -> Result<(), ErroDaProducao> {
+        let node_modules = remotion.join("node_modules");
+        if !node_modules.is_dir() {
+            return Err(ErroDaProducao::DependenciasNaoInstaladas(
+                node_modules.display().to_string(),
+            ));
+        }
         fs::write(remotion.join(NOME_DO_SCRIPT), SCRIPT)?;
         let mut comando = Command::new(&self.node);
         comando.arg(NOME_DO_SCRIPT).args(args).current_dir(remotion);
@@ -378,10 +386,26 @@ impl Producao {
             Err(ErroDaProducao::Render(format!(
                 "{}: {}",
                 saida.status,
-                saida.last_stderr_line()
+                linha_do_erro(&saida.stderr)
             )))
         }
     }
+}
+
+/// A linha que diz o que deu errado no stderr do Node: a do erro (`Error [...]: ...`), e não o
+/// rodapé `Node.js vX` que ele imprime depois de um erro não tratado.
+fn linha_do_erro(stderr: &str) -> &str {
+    let linhas: Vec<&str> = stderr
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with("Node.js v"))
+        .collect();
+    linhas
+        .iter()
+        .find(|l| l.contains("Error") && !l.starts_with("at "))
+        .or(linhas.last())
+        .copied()
+        .unwrap_or_default()
 }
 
 /// Os planos dos cortes `produzir` do roteiro do projeto.
