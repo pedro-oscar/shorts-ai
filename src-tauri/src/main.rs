@@ -5,9 +5,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use nucleo::{
-    Aceite, AlvoParaAbrir, ArquivoDeVideo, Config, DadosDoProjeto, Erro, EstadoDaConta,
-    EstadoDaPreparacao, EstadoInicial, Evento, InfoDoLink, LinkDoLote, ModoDeLogin, NivelDoPlano,
-    Nucleo, Padroes, PeriodoDeCobranca, PlanoConfirmado, ProjetoResumo,
+    Aceite, AlvoParaAbrir, ArquivoDeVideo, ArquivoDoLote, Config, DadosDoProjeto, Erro,
+    EstadoDaConta, EstadoDaPreparacao, EstadoInicial, Evento, InfoDoLink, LinkDoLote, ModoDeLogin,
+    NivelDoPlano, Nucleo, Padroes, PeriodoDeCobranca, PlanoConfirmado, ProjetoResumo,
 };
 use serde::Serialize;
 use specta::Type;
@@ -158,11 +158,11 @@ async fn inspecionar_arquivos(
 #[specta::specta]
 async fn criar_lote(
     nucleo: State<'_, Nucleo>,
-    caminhos: Vec<String>,
+    arquivos: Vec<ArquivoDoLote>,
     links: Vec<LinkDoLote>,
     padroes: Padroes,
 ) -> Result<Vec<ProjetoResumo>, Erro> {
-    nucleo.criar_lote_com_links(&caminhos, &links, &padroes)
+    nucleo.criar_lote_com_links(&arquivos, &links, &padroes)
 }
 
 /// Título, canal e duração de um vídeo do YouTube, antes de baixar.

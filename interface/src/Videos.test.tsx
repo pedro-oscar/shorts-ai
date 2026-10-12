@@ -271,6 +271,7 @@ test("Continuar espera o direito de uso de cada link e Gerar envia a confirmaç�
         titulo: "Vídeo KGfmaHnBQx4",
         canal: "Canal da Ana",
         direitoDeUso: true,
+        faixa: null,
       },
     ],
   ]);
@@ -293,5 +294,71 @@ test("com vários links, 'Confirmo para todos' marca o direito de uso de cada um
     name: /^Tenho direito de uso de/,
   }))
     expect(checkbox).toBeChecked();
+  expect(screen.getByRole("button", { name: "Continuar" })).toBeEnabled();
+});
+
+test("Início e Fim de um arquivo vão ao núcleo como faixa em segundos", async () => {
+  const { user, pick, calls } = await renderVideos();
+  pick(["/v/aula.mp4", "/v/live.mkv"]);
+  await user.click(screen.getByRole("button", { name: "Escolher arquivos" }));
+  await screen.findByRole("list", { name: "Vídeos escolhidos" });
+
+  await user.type(screen.getByLabelText("Início de aula.mp4 (m:ss)"), "10:00");
+  await user.type(screen.getByLabelText("Fim de aula.mp4 (m:ss)"), "1:02:03");
+  await user.type(screen.getByLabelText("Início de live.mkv (m:ss)"), "90");
+  await user.click(screen.getByRole("button", { name: "Continuar" }));
+  await user.click(await screen.findByRole("button", { name: /^Gerar até/ }));
+
+  await screen.findByRole("heading", { name: "Gerando" });
+  expect(calls.faixasDosArquivos).toEqual([
+    [
+      { inicio: 600, fim: 3723 },
+      { inicio: 90, fim: null },
+    ],
+  ]);
+});
+
+test("a faixa de um link vai junto com ele", async () => {
+  const fake = await renderVideos();
+  await colarLinks(fake, ["https://youtu.be/KGfmaHnBQx4"]);
+  await screen.findByText(/Vídeo KGfmaHnBQx4/);
+
+  await fake.user.type(
+    screen.getByLabelText("Início de Vídeo KGfmaHnBQx4 (m:ss)"),
+    "5:00",
+  );
+  await fake.user.type(
+    screen.getByLabelText("Fim de Vídeo KGfmaHnBQx4 (m:ss)"),
+    "20:00",
+  );
+  await fake.user.click(
+    screen.getByRole("checkbox", {
+      name: "Tenho direito de uso de Vídeo KGfmaHnBQx4",
+    }),
+  );
+  await fake.user.click(screen.getByRole("button", { name: "Continuar" }));
+  await fake.user.click(
+    await screen.findByRole("button", { name: /^Gerar até/ }),
+  );
+
+  await screen.findByRole("heading", { name: "Gerando" });
+  expect(fake.calls.links[0]?.[0]?.faixa).toEqual({ inicio: 300, fim: 1200 });
+});
+
+test("uma faixa com o fim antes do início avisa e trava o Continuar", async () => {
+  const { user, pick } = await renderVideos();
+  pick(["/v/aula.mp4"]);
+  await user.click(screen.getByRole("button", { name: "Escolher arquivos" }));
+  await screen.findByRole("list", { name: "Vídeos escolhidos" });
+
+  await user.type(screen.getByLabelText("Início de aula.mp4 (m:ss)"), "5:00");
+  await user.type(screen.getByLabelText("Fim de aula.mp4 (m:ss)"), "1:00");
+
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "A faixa de aula.mp4 não vale",
+  );
+  expect(screen.getByRole("button", { name: "Continuar" })).toBeDisabled();
+
+  await user.clear(screen.getByLabelText("Fim de aula.mp4 (m:ss)"));
   expect(screen.getByRole("button", { name: "Continuar" })).toBeEnabled();
 });

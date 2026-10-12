@@ -47,7 +47,7 @@ use crate::preparacao::NodePortatil;
 pub use crate::preparacao::{Downloads, EstadoDaPreparacao, Pacote, PacoteDaPreparacao};
 use crate::process::hide_console;
 use crate::producao::Producao;
-pub use crate::projeto::{EtapaDoProjeto, ModoDeImportacao};
+pub use crate::projeto::{EtapaDoProjeto, Faixa, ModoDeImportacao};
 use crate::projeto::{Origem, ProjetoJson};
 use crate::remotion::Remotion;
 use crate::sessao::Roteirista;
@@ -738,23 +738,41 @@ impl Nucleo {
         caminhos: &[String],
         padroes: &Padroes,
     ) -> Result<Vec<ProjetoResumo>, Erro> {
-        self.criar_lote_com_links(caminhos, &[], padroes)
+        let arquivos: Vec<_> = caminhos
+            .iter()
+            .map(|caminho| ArquivoDoLote {
+                caminho: caminho.clone(),
+                faixa: None,
+            })
+            .collect();
+        self.criar_lote_com_links(&arquivos, &[], padroes)
     }
 
     /// Como [`Nucleo::criar_lote`], com também um projeto por link do YouTube, depois dos
     /// arquivos. Cada link precisa do direito de uso confirmado; a data da confirmação vai
-    /// para o projeto dele.
+    /// para o projeto dele. Cada vídeo pode limitar a análise a uma faixa.
     pub fn criar_lote_com_links(
         &self,
-        caminhos: &[String],
+        arquivos: &[ArquivoDoLote],
         links: &[LinkDoLote],
         padroes: &Padroes,
     ) -> Result<Vec<ProjetoResumo>, Erro> {
         padroes.validar()?;
-        let mut videos = caminhos
+        let faixa_valida = |faixa| {
+            Faixa::validar(faixa).map_err(|motivo| Erro::PadroesInvalidos {
+                opcao: "faixa".to_owned(),
+                motivo,
+            })
+        };
+        let mut videos = arquivos
             .iter()
-            .map(|caminho| validar_arquivo(caminho).map(Video::Arquivo))
-            .collect::<Result<Vec<_>, _>>()?;
+            .map(|arquivo| {
+                Ok(Video::Arquivo(
+                    validar_arquivo(&arquivo.caminho)?,
+                    faixa_valida(arquivo.faixa)?,
+                ))
+            })
+            .collect::<Result<Vec<_>, Erro>>()?;
         for link in links {
             let url = youtube::normalizar_url(&link.url).ok_or_else(|| Erro::LinkInvalido {
                 url: link.url.clone(),
@@ -764,6 +782,7 @@ impl Nucleo {
             }
             videos.push(Video::Link(LinkDoLote {
                 url,
+                faixa: faixa_valida(link.faixa)?,
                 ..link.clone()
             }));
         }
@@ -784,8 +803,8 @@ impl Nucleo {
         projetos: &mut Vec<ProjetoResumo>,
     ) -> Result<(), Erro> {
         for video in videos {
-            let (titulo, origem) = match video {
-                Video::Arquivo(arquivo) => (
+            let (titulo, origem, faixa) = match video {
+                Video::Arquivo(arquivo, faixa) => (
                     arquivo
                         .file_stem()
                         .map_or_else(String::new, |nome| nome.to_string_lossy().into_owned()),
@@ -796,6 +815,7 @@ impl Nucleo {
                         modificado_em: None,
                         modo: None,
                     },
+                    *faixa,
                 ),
                 Video::Link(link) => (
                     link.titulo.clone(),
@@ -805,6 +825,7 @@ impl Nucleo {
                         direito_de_uso_em: agora,
                         nome: youtube::NOME_DO_ARQUIVO.to_owned(),
                     },
+                    link.faixa,
                 ),
             };
             let nao_criado = |caminho: &Path, error: io::Error| lote_nao_criado(caminho, &error);
@@ -812,6 +833,7 @@ impl Nucleo {
                 .map_err(|error| nao_criado(&self.biblioteca, error))?;
             let mut json = ProjetoJson::novo(titulo, lote.to_owned(), origem, agora);
             json.opcoes = padroes.opcoes();
+            json.opcoes.faixa = faixa;
             if let Video::Link(link) = video {
                 // O título e o canal são nomes próprios que a Transcrição deve acertar.
                 for nome in [&link.titulo, &link.canal] {
@@ -1031,9 +1053,17 @@ fn find_program(
         .find(|candidate| candidate.is_file())
 }
 
+/// Um arquivo do computador no lote, com a faixa que a pessoa limitou, se limitou.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ArquivoDoLote {
+    pub caminho: String,
+    pub faixa: Option<Faixa>,
+}
+
 /// Um vídeo do lote: um arquivo do computador ou um link do YouTube já confirmado.
 enum Video {
-    Arquivo(PathBuf),
+    Arquivo(PathBuf, Option<Faixa>),
     Link(LinkDoLote),
 }
 

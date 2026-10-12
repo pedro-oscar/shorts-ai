@@ -23,7 +23,7 @@ export const commands = {
 	inspecionarArquivos: (caminhos: string[]) => typedError<ArquivoDeVideo[], Erro>(__TAURI_INVOKE("inspecionar_arquivos", { caminhos })),
 	/**  Título, canal e duração de um vídeo do YouTube, antes de baixar. */
 	consultarLink: (url: string) => typedError<InfoDoLink, Erro>(__TAURI_INVOKE("consultar_link", { url })),
-	criarLote: (caminhos: string[], links: LinkDoLote[], padroes: Padroes) => typedError<ProjetoResumo[], Erro>(__TAURI_INVOKE("criar_lote", { caminhos, links, padroes })),
+	criarLote: (arquivos: ArquivoDoLote[], links: LinkDoLote[], padroes: Padroes) => typedError<ProjetoResumo[], Erro>(__TAURI_INVOKE("criar_lote", { arquivos, links, padroes })),
 	dadosDoProjeto: (id: string) => typedError<DadosDoProjeto, Erro>(__TAURI_INVOKE("dados_do_projeto", { id })),
 	abrirNoSistema: (id: string, alvo: AlvoParaAbrir) => typedError<null, Erro>(__TAURI_INVOKE("abrir_no_sistema", { id, alvo })),
 	gerarVersaoFinal: (ids: string[]) => typedError<null, Erro>(__TAURI_INVOKE("gerar_versao_final", { ids })),
@@ -68,6 +68,12 @@ export type ArquivoDeVideo = {
 	tamanho: number | null,
 	/**  `None` quando não há como ler a duração (sem o `ffprobe`). */
 	duracaoEmSegundos: number | null,
+};
+
+/**  Um arquivo do computador no lote, com a faixa que a pessoa limitou, se limitou. */
+export type ArquivoDoLote = {
+	caminho: string,
+	faixa: Faixa | null,
 };
 
 /**  Como o uso do Claude é pago: pela cota da assinatura ou pelo preço de API. */
@@ -167,6 +173,13 @@ export type Evento = { tipo: "avisoAceito"; aceite: Aceite } | { tipo: "planoCon
 /**  Os eventos do núcleo num só canal: a interface os aplica em ordem no estado dela. */
 export type EventoDoNucleo = Evento;
 
+/**  A parte do vídeo original, em segundos inteiros, a que a análise se limita. */
+export type Faixa = {
+	inicio: number,
+	/**  `None` vai até o fim do vídeo. */
+	fim: number | null,
+};
+
 /**
  *  O idioma dos textos do app, que segue o do sistema: `pt-*` vira pt-BR e o resto, inglês.
  *  Não é o idioma do vídeo, que vale para a transcrição e os textos dos reels.
@@ -195,6 +208,8 @@ export type LinkDoLote = {
 	canal: string,
 	/**  A pessoa marcou "Tenho direito de uso deste vídeo". */
 	direitoDeUso: boolean,
+	/**  Só esta seção do vídeo é baixada. */
+	faixa: Faixa | null,
 };
 
 /**  O modelo das sessões do Claude. */

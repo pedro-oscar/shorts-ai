@@ -203,6 +203,7 @@ fn importar(
     id: &str,
     emit: &Emitir,
 ) -> Result<(), String> {
+    let faixa = projeto.opcoes.faixa;
     match &mut projeto.origem {
         Origem::Arquivo {
             caminho,
@@ -228,7 +229,7 @@ fn importar(
                 return Ok(());
             }
             let ytdlp = ytdlp.ok_or("o yt-dlp não está disponível")?;
-            ytdlp.baixar(url, &bruto, &mut |percentual| {
+            ytdlp.baixar(url, faixa, &bruto, &mut |percentual| {
                 emit(Evento::ProgressoDaEtapa {
                     projeto: id.to_owned(),
                     etapa: Etapa::Importacao,
@@ -259,6 +260,11 @@ fn transcrever(
                 pasta_de_saida: &pasta.join("edit"),
                 idioma: projeto.idioma_do_video.as_deref(),
                 nomes_proprios: &projeto.opcoes.nomes_proprios,
+                // O vídeo baixado de um link já é só a faixa.
+                faixa: match projeto.origem {
+                    Origem::Arquivo { .. } => projeto.opcoes.faixa,
+                    Origem::Youtube { .. } => None,
+                },
             },
             &AtomicBool::new(false),
             &mut |fracao| {

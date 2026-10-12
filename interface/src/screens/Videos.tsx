@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useAppStore } from "../context";
 import { ErrorMessage, Screen, Topo } from "./common";
-import { formatarDuracao } from "./formatos";
+import { formatarDuracao, lerFaixa } from "./formatos";
 
 /**
  * O passo Vídeos: os arquivos do computador e os links do YouTube que formam o lote, que o
@@ -28,11 +28,44 @@ export function Videos({
   const definirDireitoDeTodos = useAppStore(
     (store) => store.definirDireitoDeUsoDeTodos,
   );
+  const faixas = useAppStore((store) => store.faixas);
+  const definirFaixa = useAppStore((store) => store.definirFaixa);
   const [aba, setAba] = useState<"arquivos" | "link">("arquivos");
   const [texto, setTexto] = useState("");
   // Só links consultados e com o direito de uso confirmado seguem para o lote.
   const linksPrecisamDeAtencao = links.some(
     (link) => link.estado !== "pronto" || !link.direitoDeUso,
+  );
+  const faixaInvalida = (chave: string) => {
+    const campos = faixas[chave];
+    return campos ? lerFaixa(campos.inicio, campos.fim) === "invalida" : false;
+  };
+  const algumaFaixaInvalida =
+    arquivos.some((arquivo) => faixaInvalida(arquivo.caminho)) ||
+    links.some((link) => faixaInvalida(link.url));
+  const camposDaFaixa = (chave: string, nome: string) => (
+    <>
+      {(["inicio", "fim"] as const).map((campo) => (
+        <input
+          key={campo}
+          type="text"
+          placeholder={campo === "inicio" ? "0:00" : "—"}
+          aria-label={t(
+            campo === "inicio" ? "videos.faixaInicio" : "videos.faixaFim",
+            { nome },
+          )}
+          value={faixas[chave]?.[campo] ?? ""}
+          onChange={(event) => {
+            definirFaixa(chave, campo, event.target.value);
+          }}
+        />
+      ))}
+      {faixaInvalida(chave) && (
+        <span role="alert" className="detail">
+          {t("videos.faixaInvalida", { nome })}
+        </span>
+      )}
+    </>
   );
   const prontos = links.filter((link) => link.estado === "pronto");
   return (
@@ -106,6 +139,7 @@ export function Videos({
                 <span className="file-duration">
                   {formatarDuracao(arquivo.duracaoEmSegundos)}
                 </span>
+                {camposDaFaixa(arquivo.caminho, arquivo.nome)}
                 <button
                   type="button"
                   aria-label={t("videos.removerArquivo", {
@@ -157,6 +191,7 @@ export function Videos({
                         />
                         {t("videos.direitoDeUso")}
                       </label>
+                      {camposDaFaixa(link.url, link.info.titulo)}
                     </>
                   )}
                   <button
@@ -194,7 +229,9 @@ export function Videos({
         <button
           type="button"
           disabled={
-            arquivos.length + links.length === 0 || linksPrecisamDeAtencao
+            arquivos.length + links.length === 0 ||
+            linksPrecisamDeAtencao ||
+            algumaFaixaInvalida
           }
           onClick={onContinuar}
         >

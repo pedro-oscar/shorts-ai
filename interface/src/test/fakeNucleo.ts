@@ -8,6 +8,7 @@ import type {
   EstadoDaPreparacao,
   EstadoInicial,
   Evento,
+  Faixa,
   LinkDoLote,
   ModoDeLogin,
   Pacote,
@@ -85,6 +86,8 @@ export function createFakeNucleo(
     atualizar: 0,
     /** Os caminhos de cada `criarLote`. */
     lotes: [] as string[][],
+    /** A faixa de cada arquivo de cada `criarLote`. */
+    faixasDosArquivos: [] as (Faixa | null)[][],
     /** Os links de cada `criarLote`. */
     links: [] as LinkDoLote[][],
     /** Os endereços de cada `consultarLink`. */
@@ -216,8 +219,10 @@ export function createFakeNucleo(
         },
       });
     },
-    criarLote: (caminhos, links, padroes) => {
+    criarLote: (arquivos, links, padroes) => {
+      const caminhos = arquivos.map((arquivo) => arquivo.caminho);
       calls.lotes.push(caminhos);
+      calls.faixasDosArquivos.push(arquivos.map((arquivo) => arquivo.faixa));
       calls.links.push(links);
       calls.padroes.push(padroes);
       if (batchError)

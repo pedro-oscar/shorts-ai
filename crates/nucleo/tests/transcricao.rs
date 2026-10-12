@@ -127,6 +127,7 @@ mod orquestracao {
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::time::{Duration, Instant};
 
+    use nucleo::Faixa;
     use nucleo::transcricao::{ErroDaTranscricao, Pedido, Transcricao, Transcritor};
 
     use super::gravado;
@@ -236,6 +237,7 @@ echo "whisper_print_progress_callback: progress = 100%" >&2
                     pasta_de_saida: &self.edit,
                     idioma,
                     nomes_proprios: &nomes,
+                    faixa: None,
                 },
                 &AtomicBool::new(false),
                 &mut |f| fracoes.push(f),
@@ -274,6 +276,70 @@ echo "whisper_print_progress_callback: progress = 100%" >&2
                 "{obtido:?} {esperado:?}"
             );
         }
+    }
+
+    #[test]
+    fn com_faixa_o_ffmpeg_extrai_so_a_faixa_e_os_tempos_continuam_os_do_video_original() {
+        let cenario = Cenario::novo();
+        let sem_faixa = cenario.transcrever(Some("pt"), &mut Vec::new()).unwrap();
+
+        let com_faixa = cenario
+            .transcritor
+            .transcrever(
+                &Pedido {
+                    video: &cenario.video,
+                    pasta_de_saida: &cenario.edit,
+                    idioma: Some("pt"),
+                    nomes_proprios: &[],
+                    faixa: Some(Faixa {
+                        inicio: 600,
+                        fim: Some(900),
+                    }),
+                },
+                &AtomicBool::new(false),
+                &mut |_| {},
+            )
+            .unwrap();
+
+        let ffmpeg = fs::read_to_string(cenario.bin().join("ffmpeg.log")).unwrap();
+        let chamada = ffmpeg.lines().last().unwrap();
+        assert!(chamada.contains("-ss 600 -t 300 -i "), "{chamada}");
+        assert_eq!(com_faixa.palavras.len(), sem_faixa.palavras.len());
+        for (com, sem) in com_faixa.palavras.iter().zip(&sem_faixa.palavras) {
+            assert!((com.inicio - (sem.inicio + 600.0)).abs() < 1e-9, "{com:?}");
+            assert!((com.fim - (sem.fim + 600.0)).abs() < 1e-9, "{com:?}");
+        }
+        let compactada =
+            fs::read_to_string(cenario.edit.join("transcricao-compactada.txt")).unwrap();
+        assert!(compactada.starts_with("[6"), "{compactada}");
+    }
+
+    #[test]
+    fn faixa_sem_fim_extrai_do_inicio_ate_o_fim() {
+        let cenario = Cenario::novo();
+
+        cenario
+            .transcritor
+            .transcrever(
+                &Pedido {
+                    video: &cenario.video,
+                    pasta_de_saida: &cenario.edit,
+                    idioma: Some("pt"),
+                    nomes_proprios: &[],
+                    faixa: Some(Faixa {
+                        inicio: 90,
+                        fim: None,
+                    }),
+                },
+                &AtomicBool::new(false),
+                &mut |_| {},
+            )
+            .unwrap();
+
+        let ffmpeg = fs::read_to_string(cenario.bin().join("ffmpeg.log")).unwrap();
+        let chamada = ffmpeg.lines().last().unwrap();
+        assert!(chamada.contains("-ss 90 -i "), "{chamada}");
+        assert!(!chamada.contains("-t "), "{chamada}");
     }
 
     #[test]
@@ -526,6 +592,7 @@ echo "whisper_print_progress_callback: progress = 100%" >&2
                     pasta_de_saida: &cenario.edit,
                     idioma: Some("pt"),
                     nomes_proprios: &[],
+                    faixa: None,
                 },
                 &AtomicBool::new(false),
                 &mut |_| {},
@@ -576,6 +643,7 @@ echo "whisper_print_progress_callback: progress = 100%" >&2
                         pasta_de_saida: &edit,
                         idioma: Some("pt"),
                         nomes_proprios: &[],
+                        faixa: None,
                     },
                     &cancelar,
                     &mut |_| {},
@@ -605,6 +673,7 @@ echo "whisper_print_progress_callback: progress = 100%" >&2
                         pasta_de_saida: &cenario.edit,
                         idioma: Some("pt"),
                         nomes_proprios: &[],
+                        faixa: None,
                     },
                     &cancelar,
                     &mut |_| {},
@@ -832,6 +901,7 @@ fn com_o_motor_real_a_fala_de_20_segundos_vira_palavras_no_lugar() {
             pasta_de_saida: &tmp.path().join("edit"),
             idioma: None,
             nomes_proprios: &[],
+            faixa: None,
         },
         &AtomicBool::new(false),
         &mut |_| {},
@@ -893,6 +963,7 @@ fn com_o_ffmpeg_real_o_idioma_de_um_audio_curto_e_detectado() {
             pasta_de_saida: &tmp.path().join("edit"),
             idioma: None,
             nomes_proprios: &[],
+            faixa: None,
         },
         &AtomicBool::new(false),
         &mut |_| {},

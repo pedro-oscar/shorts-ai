@@ -92,6 +92,7 @@ impl Padroes {
                 .map(|nome| nome.trim().to_owned())
                 .filter(|nome| !nome.is_empty())
                 .collect(),
+            faixa: None,
         }
     }
 

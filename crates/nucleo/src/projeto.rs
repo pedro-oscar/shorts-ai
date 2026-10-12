@@ -87,6 +87,38 @@ impl Origem {
     }
 }
 
+/// A parte do vídeo original, em segundos inteiros, a que a análise se limita.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct Faixa {
+    pub inicio: u32,
+    /// `None` vai até o fim do vídeo.
+    pub fim: Option<u32>,
+}
+
+impl Faixa {
+    /// A faixa que pede o vídeo inteiro vira `None`; o fim tem de vir depois do início.
+    pub(crate) fn validar(faixa: Option<Self>) -> Result<Option<Self>, String> {
+        match faixa {
+            Some(Self {
+                inicio,
+                fim: Some(fim),
+            }) if fim <= inicio => Err("o fim tem de vir depois do início".to_owned()),
+            Some(Self {
+                inicio: 0,
+                fim: None,
+            })
+            | None => Ok(None),
+            faixa => Ok(faixa),
+        }
+    }
+
+    /// `-ss`/`-t` do ffmpeg, em segundos, para extrair só a faixa.
+    pub(crate) fn duracao(self) -> Option<u32> {
+        self.fim.map(|fim| fim - self.inicio)
+    }
+}
+
 /// As opções efetivas do projeto: os padrões do lote, até haver exceções.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -97,6 +129,9 @@ pub(crate) struct Opcoes {
     pub revisoes: u8,
     pub modelo: String,
     pub nomes_proprios: Vec<String>,
+    /// A faixa do vídeo original a que a análise se limita; `None` usa o vídeo inteiro.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub faixa: Option<Faixa>,
 }
 
 impl Default for Opcoes {
@@ -108,6 +143,7 @@ impl Default for Opcoes {
             revisoes: 1,
             modelo: "padrao".to_owned(),
             nomes_proprios: Vec::new(),
+            faixa: None,
         }
     }
 }

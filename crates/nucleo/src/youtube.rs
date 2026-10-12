@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::process::{self, Stream};
+use crate::projeto::Faixa;
 
 /// O nome do vídeo baixado em `bruto/`; o título fica no projeto, fora do caminho.
 pub(crate) const NOME_DO_ARQUIVO: &str = "video.mp4";
@@ -40,6 +41,8 @@ pub struct LinkDoLote {
     pub canal: String,
     /// A pessoa marcou "Tenho direito de uso deste vídeo".
     pub direito_de_uso: bool,
+    /// Só esta seção do vídeo é baixada.
+    pub faixa: Option<Faixa>,
 }
 
 /// O endereço de um vídeo do YouTube (`youtube.com/watch`, `youtu.be`, `/shorts` ou `/live`)
@@ -127,10 +130,11 @@ impl Ytdlp {
     }
 
     /// Baixa o vídeo para `pasta/video.mp4`, avisando o percentual (0 a 100) de cada
-    /// arquivo que o `yt-dlp` baixa.
+    /// arquivo que o `yt-dlp` baixa. Com `faixa`, baixa só a seção, cortando nos keyframes.
     pub fn baixar(
         &self,
         url: &str,
+        faixa: Option<Faixa>,
         pasta: &Path,
         progresso: &mut dyn FnMut(u8),
     ) -> Result<PathBuf, String> {
@@ -148,8 +152,11 @@ impl Ytdlp {
                 "{}{MAIN_SEPARATOR}video.%(ext)s",
                 // Num caminho com `%`, o modelo de saída do yt-dlp o leria como campo.
                 pasta.display().to_string().replace('%', "%%")
-            ))
-            .args(["--", url]);
+            ));
+        if let Some(faixa) = faixa {
+            command.args(["--download-sections", &secao(faixa)]);
+        }
+        command.args(["--", url]);
         let mut ultimo = None;
         let saida = process::run(command, &AtomicBool::new(false), &mut |stream, linha| {
             if stream != Stream::Stdout {
@@ -206,6 +213,14 @@ impl Ytdlp {
             }
         }
     }
+}
+
+/// `*início-fim` em segundos, o formato do `--download-sections`; sem fim, vai até o fim.
+fn secao(faixa: Faixa) -> String {
+    let fim = faixa
+        .fim
+        .map_or_else(|| "inf".to_owned(), |fim| fim.to_string());
+    format!("*{}-{fim}", faixa.inicio)
 }
 
 #[cfg(test)]

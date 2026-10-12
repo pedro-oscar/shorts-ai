@@ -19,6 +19,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::files::write_json;
 use crate::process::{self, Interrupted, Stream};
+use crate::projeto::Faixa;
 
 /// O modelo do Whisper escolhido no spike (ADR 0005), que a preparação baixa.
 pub const MODEL_FILE: &str = "ggml-large-v3-q5_0.bin";
@@ -85,6 +86,8 @@ pub struct Pedido<'a> {
     /// O idioma definido pelos padrões ou pelas exceções; `None` detecta o idioma do vídeo.
     pub idioma: Option<&'a str>,
     pub nomes_proprios: &'a [String],
+    /// Transcreve só esta faixa do vídeo; os tempos das palavras continuam os do vídeo inteiro.
+    pub faixa: Option<Faixa>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -161,7 +164,7 @@ impl Transcritor {
         progresso: &mut dyn FnMut(f64),
     ) -> Result<Transcricao, ErroDaTranscricao> {
         let audio = work_dir.join("audio.wav");
-        self.extract_audio(pedido.video, &audio, cancelar)?;
+        self.extract_audio(pedido.video, pedido.faixa, &audio, cancelar)?;
         // Se o Vulkan falha uma vez, o resto desta transcrição vai direto para a CPU.
         let mut cpu_only = false;
         let idioma = match pedido.idioma {
@@ -217,35 +220,45 @@ impl Transcritor {
         let whisper = read_whisper_json(&base)?;
         let vad = vad_segments(&stderr);
         let idioma = whisper.result.language.unwrap_or(idioma);
-        Ok(Transcricao {
-            idioma,
-            palavras: palavras_do_whisper(&whisper.transcription, &vad),
-        })
+        let mut palavras = palavras_do_whisper(&whisper.transcription, &vad);
+        if let Some(faixa) = pedido.faixa {
+            let deslocamento = f64::from(faixa.inicio);
+            for palavra in &mut palavras {
+                palavra.inicio = round_ms(palavra.inicio + deslocamento);
+                palavra.fim = round_ms(palavra.fim + deslocamento);
+            }
+        }
+        Ok(Transcricao { idioma, palavras })
     }
 
-    /// Extrai o áudio em 16 kHz mono, o que o whisper.cpp lê.
+    /// Extrai o áudio (só o da `faixa`, se houver) em 16 kHz mono, o que o whisper.cpp lê.
     fn extract_audio(
         &self,
         video: &Path,
+        faixa: Option<Faixa>,
         audio: &Path,
         cancel: &AtomicBool,
     ) -> Result<(), ErroDaTranscricao> {
-        self.ffmpeg(
-            vec![
-                "-y".into(),
-                "-i".into(),
-                video.into(),
-                "-vn".into(),
-                "-ac".into(),
-                "1".into(),
-                "-ar".into(),
-                "16000".into(),
-                "-c:a".into(),
-                "pcm_s16le".into(),
-                audio.into(),
-            ],
-            cancel,
-        )
+        let mut args: Vec<OsString> = vec!["-y".into()];
+        if let Some(faixa) = faixa {
+            args.extend(["-ss".into(), faixa.inicio.to_string().into()]);
+            if let Some(duracao) = faixa.duracao() {
+                args.extend(["-t".into(), duracao.to_string().into()]);
+            }
+        }
+        args.extend([
+            "-i".into(),
+            video.into(),
+            "-vn".into(),
+            "-ac".into(),
+            "1".into(),
+            "-ar".into(),
+            "16000".into(),
+            "-c:a".into(),
+            "pcm_s16le".into(),
+            audio.into(),
+        ]);
+        self.ffmpeg(args, cancel)
     }
 
     /// Detecta o idioma numa amostra do áudio, deixando o whisper-cli em `-l auto`.

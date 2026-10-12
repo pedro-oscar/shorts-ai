@@ -136,6 +136,11 @@ export const ptBR = {
     direitoDeUso: "Tenho direito de uso deste vídeo",
     direitoDeUsoDe: "Tenho direito de uso de {{titulo}}",
     direitoParaTodos: "Confirmo para todos",
+    faixaInicio: "Início de {{nome}} (m:ss)",
+    faixaFim: "Fim de {{nome}} (m:ss)",
+    faixaDica: "Opcional: limite a análise a uma parte do vídeo.",
+    faixaInvalida:
+      "A faixa de {{nome}} não vale: use m:ss e um fim depois do início.",
     removerLink: "Remover {{titulo}}",
   },
   padroes: {

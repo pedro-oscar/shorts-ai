@@ -19,6 +19,7 @@ import type {
   ProjetoResumo,
 } from "./bindings";
 import type { Nucleo } from "./nucleo";
+import { lerFaixa } from "./screens/formatos";
 
 /** Um link do YouTube da lista do passo Vídeos, desde que foi colado. */
 export type LinkNaLista = {
@@ -121,6 +122,8 @@ export interface AppState {
   erroDeArquivos: Erro | null;
   /** Os links do YouTube da lista do passo Vídeos, antes de Gerar. */
   links: LinkNaLista[];
+  /** Os campos Início e Fim de cada vídeo da lista (por caminho ou endereço), como digitados. */
+  faixas: Record<string, { inicio: string; fim: string }>;
   /** As opções que valem para todos os projetos do lote. */
   padroes: Padroes;
   /** Os projetos criados, com o estado de cada etapa, em ordem de criação. */
@@ -155,6 +158,8 @@ export interface AppStore extends AppState {
   adicionarArquivos: (caminhos: string[]) => Promise<void>;
   escolherArquivos: () => Promise<void>;
   removerArquivo: (caminho: string) => void;
+  /** Escreve o Início ou o Fim da faixa do vídeo (caminho ou endereço), como a pessoa digitou. */
+  definirFaixa: (chave: string, campo: "inicio" | "fim", texto: string) => void;
   /** Consulta cada endereço de `texto` (um por linha) e põe na lista os que ainda não estão. */
   adicionarLinks: (texto: string) => Promise<void>;
   removerLink: (url: string) => void;
@@ -351,6 +356,7 @@ export function createAppStore(nucleo: Nucleo) {
       arquivos: [],
       erroDeArquivos: null,
       links: [],
+      faixas: {},
       padroes: PADROES_INICIAIS,
       projetos: [],
       galeria: {},
@@ -525,6 +531,20 @@ export function createAppStore(nucleo: Nucleo) {
         );
       },
 
+      definirFaixa: (chave, campo, texto) => {
+        set((current) => ({
+          faixas: {
+            ...current.faixas,
+            [chave]: {
+              inicio: "",
+              fim: "",
+              ...current.faixas[chave],
+              [campo]: texto,
+            },
+          },
+        }));
+      },
+
       removerLink: (url) => {
         set((current) => ({
           links: current.links.filter((link) => link.url !== url),
@@ -574,8 +594,16 @@ export function createAppStore(nucleo: Nucleo) {
       urlDoArquivo: nucleo.urlDoArquivo,
 
       gerar: async () => {
+        const faixaDe = (chave: string) => {
+          const campos = get().faixas[chave];
+          const faixa = campos ? lerFaixa(campos.inicio, campos.fim) : null;
+          return faixa === "invalida" ? null : faixa;
+        };
         const result = await nucleo.criarLote(
-          get().arquivos.map((a) => a.caminho),
+          get().arquivos.map((a) => ({
+            caminho: a.caminho,
+            faixa: faixaDe(a.caminho),
+          })),
           get().links.flatMap((link) =>
             link.estado === "pronto"
               ? [
@@ -584,6 +612,7 @@ export function createAppStore(nucleo: Nucleo) {
                     titulo: link.info.titulo,
                     canal: link.info.canal,
                     direitoDeUso: link.direitoDeUso,
+                    faixa: faixaDe(link.url),
                   },
                 ]
               : [],
@@ -594,7 +623,7 @@ export function createAppStore(nucleo: Nucleo) {
           set({ erroDeArquivos: result.error });
           return false;
         }
-        set({ arquivos: [], links: [], erroDeArquivos: null });
+        set({ arquivos: [], links: [], faixas: {}, erroDeArquivos: null });
         return true;
       },
     };

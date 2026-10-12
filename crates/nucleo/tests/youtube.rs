@@ -10,7 +10,8 @@ use std::sync::mpsc::{self, Receiver};
 use std::time::Duration;
 
 use nucleo::{
-    Config, Erro, EstadoDaEtapa, Etapa, Evento, LinkDoLote, Nucleo, Padroes, ProjetoResumo,
+    ArquivoDoLote, Config, Erro, EstadoDaEtapa, Etapa, Evento, Faixa, LinkDoLote, Nucleo, Padroes,
+    ProjetoResumo,
 };
 
 const URL: &str = "https://youtu.be/KGfmaHnBQx4?si=abc";
@@ -128,6 +129,7 @@ fn link(direito_de_uso: bool) -> LinkDoLote {
         titulo: "Pregação: a fé".to_owned(),
         canal: "Canal da Ana".to_owned(),
         direito_de_uso,
+        faixa: None,
     }
 }
 
@@ -316,7 +318,10 @@ fn lote_misto_cria_os_arquivos_e_depois_os_links() {
     let projetos = cenario
         .nucleo
         .criar_lote_com_links(
-            &[arquivo.display().to_string()],
+            &[ArquivoDoLote {
+                caminho: arquivo.display().to_string(),
+                faixa: None,
+            }],
             &[link(true)],
             &Padroes::default(),
         )
@@ -324,4 +329,165 @@ fn lote_misto_cria_os_arquivos_e_depois_os_links() {
 
     let titulos: Vec<_> = projetos.iter().map(|p| p.titulo.as_str()).collect();
     assert_eq!(titulos, ["aula", "Pregação: a fé"]);
+}
+
+#[test]
+fn link_com_faixa_baixa_so_a_secao_e_grava_a_faixa_no_projeto() {
+    let cenario = Cenario::novo();
+    let faixa = Faixa {
+        inicio: 600,
+        fim: Some(1800),
+    };
+    let link = LinkDoLote {
+        faixa: Some(faixa),
+        ..link(true)
+    };
+
+    let projeto = cenario
+        .nucleo
+        .criar_lote_com_links(&[], &[link], &Padroes::default())
+        .unwrap()
+        .remove(0);
+    cenario.esperar_importacao(&projeto.id);
+
+    let download = cenario
+        .chamadas()
+        .into_iter()
+        .find(|c| c.contains("--merge-output-format"))
+        .unwrap();
+    assert!(
+        download.contains("--download-sections *600-1800 -- "),
+        "{download}"
+    );
+    assert!(
+        !download.contains("--force-keyframes-at-cuts"),
+        "{download}"
+    );
+    let json = cenario.projeto_json(&projeto.id);
+    assert_eq!(
+        json["opcoes"]["faixa"],
+        serde_json::json!({"inicio": 600, "fim": 1800})
+    );
+}
+
+#[test]
+fn faixa_sem_fim_baixa_ate_o_fim_do_video() {
+    let cenario = Cenario::novo();
+    let link = LinkDoLote {
+        faixa: Some(Faixa {
+            inicio: 90,
+            fim: None,
+        }),
+        ..link(true)
+    };
+
+    let projeto = cenario
+        .nucleo
+        .criar_lote_com_links(&[], &[link], &Padroes::default())
+        .unwrap()
+        .remove(0);
+    cenario.esperar_importacao(&projeto.id);
+
+    assert!(
+        cenario
+            .chamadas()
+            .iter()
+            .any(|c| c.contains("--download-sections *90-inf -- "))
+    );
+}
+
+#[test]
+fn link_sem_faixa_baixa_o_video_inteiro() {
+    let cenario = Cenario::novo();
+    let projeto = um_projeto(&cenario);
+    cenario.esperar_importacao(&projeto.id);
+
+    assert!(
+        !cenario
+            .chamadas()
+            .iter()
+            .any(|c| c.contains("--download-sections"))
+    );
+    assert!(cenario.projeto_json(&projeto.id)["opcoes"]["faixa"].is_null());
+}
+
+#[test]
+fn arquivo_local_guarda_a_faixa_sem_recortar_o_arquivo() {
+    let cenario = Cenario::novo();
+    let arquivo = cenario.videos.join("aula.mp4");
+    fs::create_dir_all(&cenario.videos).unwrap();
+    fs::write(&arquivo, b"video").unwrap();
+    let faixa = Faixa {
+        inicio: 30,
+        fim: Some(90),
+    };
+
+    let projeto = cenario
+        .nucleo
+        .criar_lote_com_links(
+            &[ArquivoDoLote {
+                caminho: arquivo.display().to_string(),
+                faixa: Some(faixa),
+            }],
+            &[],
+            &Padroes::default(),
+        )
+        .unwrap()
+        .remove(0);
+
+    assert_eq!(
+        cenario.projeto_json(&projeto.id)["opcoes"]["faixa"],
+        serde_json::json!({"inicio": 30, "fim": 90})
+    );
+}
+
+#[test]
+fn faixa_com_fim_antes_do_inicio_nao_cria_nada() {
+    let cenario = Cenario::novo();
+    for faixa in [
+        Faixa {
+            inicio: 90,
+            fim: Some(30),
+        },
+        Faixa {
+            inicio: 30,
+            fim: Some(30),
+        },
+    ] {
+        let link = LinkDoLote {
+            faixa: Some(faixa),
+            ..link(true)
+        };
+
+        let erro = cenario
+            .nucleo
+            .criar_lote_com_links(&[], &[link], &Padroes::default())
+            .unwrap_err();
+
+        assert!(
+            matches!(&erro, Erro::PadroesInvalidos { opcao, .. } if opcao == "faixa"),
+            "{erro:?}"
+        );
+    }
+    assert!(!cenario.biblioteca().join("Pregação: a fé").exists());
+}
+
+#[test]
+fn faixa_do_video_inteiro_nao_e_gravada() {
+    let cenario = Cenario::novo();
+    let link = LinkDoLote {
+        faixa: Some(Faixa {
+            inicio: 0,
+            fim: None,
+        }),
+        ..link(true)
+    };
+
+    let projeto = cenario
+        .nucleo
+        .criar_lote_com_links(&[], &[link], &Padroes::default())
+        .unwrap()
+        .remove(0);
+
+    assert!(cenario.projeto_json(&projeto.id)["opcoes"]["faixa"].is_null());
 }

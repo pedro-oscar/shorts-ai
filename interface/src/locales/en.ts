@@ -133,6 +133,11 @@ export const en: typeof ptBR = {
     direitoDeUso: "I have the right to use this video",
     direitoDeUsoDe: "I have the right to use {{titulo}}",
     direitoParaTodos: "I confirm for all",
+    faixaInicio: "Start of {{nome}} (m:ss)",
+    faixaFim: "End of {{nome}} (m:ss)",
+    faixaDica: "Optional: limit the analysis to part of the video.",
+    faixaInvalida:
+      "The range of {{nome}} is not valid: use m:ss and an end after the start.",
     removerLink: "Remove {{titulo}}",
   },
   padroes: {
