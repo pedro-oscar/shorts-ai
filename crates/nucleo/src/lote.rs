@@ -151,9 +151,10 @@ pub(crate) fn resumos(biblioteca: &Path) -> Vec<LoteResumo> {
         .collect()
 }
 
-/// Reabrir o app deixa Pausado todo projeto que não terminou, não falhou e não está parado (quem aguarda a cota também fica Pausado): a
-/// fila não sobrevive ao app, então nada retoma sozinho. A etapa que estava em andamento é
-/// descartada. Quem não se lê ou não se grava fica como está.
+/// Reabrir o app deixa Pausado todo projeto que não terminou, não falhou e não está parado;
+/// quem aguarda a cota também fica Pausado. A fila não sobrevive ao app, então nada retoma
+/// sozinho. A etapa que estava em andamento é descartada. Quem não se lê ou não se grava fica
+/// como está.
 pub(crate) fn pausar_interrompidos(biblioteca: &Path) {
     for lote in LoteJson::listar(biblioteca) {
         for id in &lote.projetos {

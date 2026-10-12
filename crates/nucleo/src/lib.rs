@@ -1022,8 +1022,8 @@ impl Nucleo {
         }
     }
 
-    /// Devolve o projeto pausado, cancelado ou aguardando a cota ao fim da fila, para recomeçar da última etapa
-    /// concluída.
+    /// Devolve o projeto pausado, cancelado ou aguardando a cota ao fim da fila, para recomeçar
+    /// da última etapa concluída.
     pub fn retomar(&self, id: &str) -> Result<(), Erro> {
         let (pasta, mut projeto) = self.projeto_em_curso(id, "retomar")?;
         if projeto.parada.take().is_none() {
