@@ -177,6 +177,14 @@ impl Fila {
         }
     }
 
+    /// O projeto está na fila esperando a vez.
+    pub fn esperando(&self, id: &str) -> bool {
+        travar(&self.compartilhado)
+            .pendentes
+            .iter()
+            .any(|trabalho| trabalho.projeto().as_deref() == Some(id))
+    }
+
     /// Tira da fila o projeto que espera a vez; `false` se ele não estava lá.
     pub fn tirar(&self, id: &str) -> bool {
         let mut estado = travar(&self.compartilhado);

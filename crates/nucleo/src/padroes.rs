@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::Erro;
-use crate::projeto::Opcoes;
+use crate::projeto::{Faixa, Opcoes};
 
 /// O modelo das sessões do Claude.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -55,6 +55,38 @@ impl Default for Padroes {
     }
 }
 
+/// As exceções de um projeto: cada opção definida vale no lugar do padrão do lote.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Excecoes {
+    /// De 1 a 12.
+    pub quantidade_de_reels: Option<u8>,
+    /// Substitui o pedido do lote, inclusive por um pedido vazio.
+    pub pedido: Option<String>,
+    /// A parte do vídeo a que a análise se limita; o lote não tem faixa padrão.
+    pub faixa: Option<Faixa>,
+    pub nomes_proprios: Option<Vec<String>>,
+    pub idioma_do_video: Option<IdiomaDoVideo>,
+}
+
+impl Excecoes {
+    /// Confere os limites e a faixa; a faixa que pede o vídeo inteiro deixa de ser exceção.
+    pub(crate) fn validar(mut self) -> Result<Self, Erro> {
+        let invalido = |opcao: &str, motivo: &str| Erro::PadroesInvalidos {
+            opcao: opcao.to_owned(),
+            motivo: motivo.to_owned(),
+        };
+        if self
+            .quantidade_de_reels
+            .is_some_and(|quantidade| !(1..=12).contains(&quantidade))
+        {
+            return Err(invalido("quantidadeDeReels", "vai de 1 a 12"));
+        }
+        self.faixa = Faixa::validar(self.faixa).map_err(|motivo| invalido("faixa", &motivo))?;
+        Ok(self)
+    }
+}
+
 impl Padroes {
     /// Confere os limites das opções.
     pub(crate) fn validar(&self) -> Result<(), Erro> {
@@ -73,12 +105,26 @@ impl Padroes {
         Ok(())
     }
 
-    /// As opções efetivas de um projeto novo: os padrões, enquanto não há exceções.
-    pub(crate) fn opcoes(&self) -> Opcoes {
+    /// As opções efetivas de um projeto: os padrões, com as exceções no lugar.
+    pub(crate) fn opcoes(&self, excecoes: &Excecoes) -> Opcoes {
+        let limpar = |nomes: &[String]| -> Vec<String> {
+            nomes
+                .iter()
+                .map(|nome| nome.trim().to_owned())
+                .filter(|nome| !nome.is_empty())
+                .collect()
+        };
         Opcoes {
-            quantidade_de_reels: self.quantidade_de_reels,
+            quantidade_de_reels: excecoes
+                .quantidade_de_reels
+                .unwrap_or(self.quantidade_de_reels),
             previa: self.previa,
-            pedido: self.pedido.trim().to_owned(),
+            pedido: excecoes
+                .pedido
+                .as_deref()
+                .unwrap_or(&self.pedido)
+                .trim()
+                .to_owned(),
             revisoes: self.revisoes,
             modelo: match self.modelo {
                 ModeloDoClaude::Padrao => "padrao",
@@ -86,19 +132,19 @@ impl Padroes {
                 ModeloDoClaude::Sonnet => "sonnet",
             }
             .to_owned(),
-            nomes_proprios: self
-                .nomes_proprios
-                .iter()
-                .map(|nome| nome.trim().to_owned())
-                .filter(|nome| !nome.is_empty())
-                .collect(),
-            faixa: None,
+            nomes_proprios: limpar(
+                excecoes
+                    .nomes_proprios
+                    .as_deref()
+                    .unwrap_or(&self.nomes_proprios),
+            ),
+            faixa: excecoes.faixa,
         }
     }
 
     /// O idioma que já fica definido no projeto; `None` deixa a Transcrição detectar.
-    pub(crate) fn idioma(&self) -> Option<&'static str> {
-        match self.idioma_do_video {
+    pub(crate) fn idioma(&self, excecoes: &Excecoes) -> Option<&'static str> {
+        match excecoes.idioma_do_video.unwrap_or(self.idioma_do_video) {
             IdiomaDoVideo::Automatico => None,
             IdiomaDoVideo::Pt => Some("pt"),
             IdiomaDoVideo::En => Some("en"),

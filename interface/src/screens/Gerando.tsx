@@ -4,6 +4,7 @@ import type { LoteResumo, Movimento } from "../bindings";
 import { useAppStore } from "../context";
 import type { AcaoDoClaude, ProjetoNaFila } from "../store";
 import { ErrorMessage, Screen, Topo } from "./common";
+import { ExcecoesDoProjeto, ResumoDasExcecoes } from "./Excecoes";
 import {
   emAberto,
   formatarDuracao,
@@ -298,6 +299,11 @@ function Linha({
         max={projeto.etapas.length}
         aria-label={t("gerando.progresso", { nome: projeto.titulo })}
       />
+      {resumo.estado === "naFila" ? (
+        <ExcecoesDoProjeto projeto={projeto} />
+      ) : (
+        <ResumoDasExcecoes excecoes={projeto.excecoes} />
+      )}
       <Controles projeto={projeto} estado={resumo.estado} fila={fila} />
       {projeto.videoAusente && <VideoAusente projeto={projeto} />}
       {projeto.falha && (

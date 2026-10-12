@@ -1,4 +1,9 @@
-import type { Faixa, ProjetoResumo } from "../bindings";
+import type {
+  Excecoes,
+  Faixa,
+  IdiomaDoVideo,
+  ProjetoResumo,
+} from "../bindings";
 
 /** `m:ss`, ou `h:mm:ss` a partir de uma hora; `—` quando a duração não é conhecida. */
 export function formatarDuracao(segundos: number | null): string {
@@ -73,4 +78,53 @@ export function resumir(projeto: ProjetoResumo) {
 export function emAberto(projeto: ProjetoResumo): boolean {
   const { estado } = resumir(projeto);
   return estado !== "falhou" && estado !== "pronto";
+}
+
+/** Os campos das Exceções de um vídeo, como a pessoa os digita; vazio usa o padrão do lote. */
+export interface CamposDasExcecoes {
+  quantidade: string;
+  pedido: string;
+  /** Um nome por linha. */
+  nomes: string;
+  idioma: "" | IdiomaDoVideo;
+}
+
+export const SEM_CAMPOS: CamposDasExcecoes = {
+  quantidade: "",
+  pedido: "",
+  nomes: "",
+  idioma: "",
+};
+
+/** As Exceções que os campos definem; o que está vazio fica de fora. */
+export function lerExcecoes(
+  campos: CamposDasExcecoes,
+  faixa: Faixa | null,
+): Excecoes {
+  const nomes = campos.nomes
+    .split("\n")
+    .map((nome) => nome.trim())
+    .filter((nome) => nome !== "");
+  const pedido = campos.pedido.trim();
+  return {
+    quantidadeDeReels:
+      campos.quantidade === "" ? null : Number(campos.quantidade),
+    pedido: pedido === "" ? null : pedido,
+    faixa,
+    nomesProprios: nomes.length === 0 ? null : nomes,
+    idiomaDoVideo: campos.idioma === "" ? null : campos.idioma,
+  };
+}
+
+/** Os campos que mostram as Exceções já definidas. */
+export function camposDas(excecoes: Excecoes): CamposDasExcecoes {
+  return {
+    quantidade:
+      excecoes.quantidadeDeReels == null
+        ? ""
+        : String(excecoes.quantidadeDeReels),
+    pedido: excecoes.pedido ?? "",
+    nomes: (excecoes.nomesProprios ?? []).join("\n"),
+    idioma: excecoes.idiomaDoVideo ?? "",
+  };
 }

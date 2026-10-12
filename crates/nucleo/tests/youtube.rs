@@ -10,8 +10,8 @@ use std::sync::mpsc::{self, Receiver};
 use std::time::Duration;
 
 use nucleo::{
-    ArquivoDoLote, Config, Erro, EstadoDaEtapa, Etapa, Evento, Faixa, LinkDoLote, Nucleo, Padroes,
-    ProjetoResumo,
+    ArquivoDoLote, Config, Erro, EstadoDaEtapa, Etapa, Evento, Excecoes, Faixa, LinkDoLote, Nucleo,
+    Padroes, ProjetoResumo,
 };
 
 const URL: &str = "https://youtu.be/KGfmaHnBQx4?si=abc";
@@ -130,6 +130,7 @@ fn link(direito_de_uso: bool) -> LinkDoLote {
         canal: "Canal da Ana".to_owned(),
         direito_de_uso,
         faixa: None,
+        excecoes: Excecoes::default(),
     }
 }
 
@@ -321,6 +322,7 @@ fn lote_misto_cria_os_arquivos_e_depois_os_links() {
             &[ArquivoDoLote {
                 caminho: arquivo.display().to_string(),
                 faixa: None,
+                excecoes: Excecoes::default(),
             }],
             &[link(true)],
             &Padroes::default(),
@@ -428,6 +430,7 @@ fn arquivo_local_guarda_a_faixa_sem_recortar_o_arquivo() {
             &[ArquivoDoLote {
                 caminho: arquivo.display().to_string(),
                 faixa: Some(faixa),
+                excecoes: Excecoes::default(),
             }],
             &[],
             &Padroes::default(),

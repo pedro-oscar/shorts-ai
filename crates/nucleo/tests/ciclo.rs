@@ -9,8 +9,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use nucleo::{
-    ArquivoDoLote, Config, Erro, EstadoDaEtapa, Etapa, Evento, LigarArquivo, Movimento, Nucleo,
-    Padroes, Parada, ProjetoResumo,
+    ArquivoDoLote, Config, Erro, EstadoDaEtapa, Etapa, Evento, Excecoes, LigarArquivo, Movimento,
+    Nucleo, Padroes, Parada, ProjetoResumo,
 };
 
 struct Cenario {
@@ -79,6 +79,7 @@ impl Cenario {
         ArquivoDoLote {
             caminho: caminho.display().to_string(),
             faixa: None,
+            excecoes: Excecoes::default(),
         }
     }
 

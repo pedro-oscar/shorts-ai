@@ -38,6 +38,7 @@ function projeto(
     falha: null,
     parada: null,
     videoAusente: false,
+    excecoes: {},
     ...extra,
   };
 }

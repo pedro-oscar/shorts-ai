@@ -44,6 +44,7 @@ function projeto(
     falha: falhouEm ? "boom" : null,
     parada: null,
     videoAusente: false,
+    excecoes: {},
     ...extra,
   };
 }

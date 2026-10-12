@@ -9,6 +9,7 @@ use specta::Type;
 use time::{Date, OffsetDateTime};
 
 use crate::files::write_json;
+use crate::padroes::{Excecoes, Padroes};
 use crate::{EstadoDaEtapa, Etapa};
 
 const FILE_NAME: &str = "projeto.json";
@@ -177,6 +178,9 @@ pub(crate) struct ProjetoJson {
     /// `None` (pendente) até a Transcrição detectar o idioma.
     pub idioma_do_video: Option<String>,
     pub opcoes: Opcoes,
+    /// O que o projeto define por conta própria; `opcoes` são os padrões do lote com isto.
+    #[serde(default)]
+    pub excecoes: Excecoes,
     pub etapas: Vec<EtapaDoProjeto>,
     /// Por que a etapa que falhou falhou.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -196,6 +200,7 @@ impl ProjetoJson {
             origem,
             idioma_do_video: None,
             opcoes: Opcoes::default(),
+            excecoes: Excecoes::default(),
             etapas: Etapa::TODAS
                 .iter()
                 .map(|&etapa| EtapaDoProjeto {
@@ -214,6 +219,21 @@ impl ProjetoJson {
 
     pub fn gravar(&self, pasta: &Path) -> io::Result<()> {
         write_json(&pasta.join(FILE_NAME), self)
+    }
+
+    /// Recalcula as opções efetivas e o idioma a partir dos padrões do lote e das exceções.
+    /// Num projeto de link, o título e o canal são nomes próprios que a Transcrição deve acertar.
+    pub fn aplicar(&mut self, padroes: &Padroes) {
+        self.opcoes = padroes.opcoes(&self.excecoes);
+        self.idioma_do_video = padroes.idioma(&self.excecoes).map(str::to_owned);
+        if let Origem::Youtube { canal, .. } = &self.origem {
+            for nome in [&self.titulo, canal] {
+                let nome = nome.trim();
+                if !nome.is_empty() && !self.opcoes.nomes_proprios.iter().any(|n| n == nome) {
+                    self.opcoes.nomes_proprios.push(nome.to_owned());
+                }
+            }
+        }
     }
 
     pub fn marcar(&mut self, etapa: Etapa, estado: EstadoDaEtapa) {

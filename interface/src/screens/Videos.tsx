@@ -2,7 +2,8 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useAppStore } from "../context";
 import { ErrorMessage, Screen, Topo } from "./common";
-import { formatarDuracao, lerFaixa } from "./formatos";
+import { CamposDeExcecoes, ResumoDasExcecoes } from "./Excecoes";
+import { SEM_CAMPOS, formatarDuracao, lerExcecoes, lerFaixa } from "./formatos";
 
 /**
  * O passo Vídeos: os arquivos do computador e os links do YouTube que formam o lote, que o
@@ -33,6 +34,8 @@ export function Videos({
   );
   const faixas = useAppStore((store) => store.faixas);
   const definirFaixa = useAppStore((store) => store.definirFaixa);
+  const excecoes = useAppStore((store) => store.excecoes);
+  const definirExcecoes = useAppStore((store) => store.definirExcecoesDoVideo);
   const [aba, setAba] = useState<"arquivos" | "link">("arquivos");
   const [texto, setTexto] = useState("");
   // Só links consultados e com o direito de uso confirmado seguem para o lote.
@@ -70,6 +73,32 @@ export function Videos({
       )}
     </>
   );
+  const excecoesDe = (chave: string, nome: string) => {
+    const campos = excecoes[chave] ?? SEM_CAMPOS;
+    const faixa = lerFaixa(
+      faixas[chave]?.inicio ?? "",
+      faixas[chave]?.fim ?? "",
+    );
+    return (
+      <>
+        <ResumoDasExcecoes
+          excecoes={lerExcecoes(campos, faixa === "invalida" ? null : faixa)}
+        />
+        <details>
+          <summary aria-label={t("excecoes.abrirDe", { nome })}>
+            {t("excecoes.titulo")}
+          </summary>
+          <CamposDeExcecoes
+            nome={nome}
+            campos={campos}
+            onChange={(mudancas) => {
+              definirExcecoes(chave, mudancas);
+            }}
+          />
+        </details>
+      </>
+    );
+  };
   const prontos = links.filter((link) => link.estado === "pronto");
   return (
     <>
@@ -148,6 +177,7 @@ export function Videos({
                   {formatarDuracao(arquivo.duracaoEmSegundos)}
                 </span>
                 {camposDaFaixa(arquivo.caminho, arquivo.nome)}
+                {excecoesDe(arquivo.caminho, arquivo.nome)}
                 <button
                   type="button"
                   aria-label={t("videos.removerArquivo", {
@@ -200,6 +230,7 @@ export function Videos({
                         {t("videos.direitoDeUso")}
                       </label>
                       {camposDaFaixa(link.url, link.info.titulo)}
+                      {excecoesDe(link.url, link.info.titulo)}
                     </>
                   )}
                   <button

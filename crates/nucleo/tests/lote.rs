@@ -9,8 +9,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use nucleo::{
-    ArquivoDoLote, Config, Erro, EstadoDaEtapa, Etapa, Evento, LigarArquivo, ModeloDoClaude,
-    Nucleo, Padroes, ProjetoResumo,
+    ArquivoDoLote, Config, Erro, EstadoDaEtapa, Etapa, Evento, Excecoes, Faixa, IdiomaDoVideo,
+    LigarArquivo, ModeloDoClaude, Nucleo, Padroes, ProjetoResumo,
 };
 
 struct Cenario {
@@ -61,6 +61,7 @@ impl Cenario {
         ArquivoDoLote {
             caminho: self.video(nome),
             faixa: None,
+            excecoes: Excecoes::default(),
         }
     }
 
@@ -182,6 +183,7 @@ fn adicionar_o_mesmo_video_de_novo_cria_outro_projeto() {
     let arquivo = ArquivoDoLote {
         caminho,
         faixa: None,
+        excecoes: Excecoes::default(),
     };
     let primeiros = cenario
         .nucleo
@@ -298,4 +300,148 @@ fn um_projeto_que_falha_nao_para_os_outros() {
             (projetos[2].id.clone(), EstadoDaEtapa::Concluida),
         ]
     );
+}
+
+/// Um cenário em que a Importação do primeiro projeto espera, para os outros ficarem na fila.
+fn cenario_com_o_primeiro_travado() -> (Cenario, mpsc::Sender<()>) {
+    let (libera, espera) = mpsc::channel::<()>();
+    let espera = Mutex::new(espera);
+    let primeira = AtomicBool::new(true);
+    let cenario = Cenario::com(Some(Arc::new(move |origem, destino| {
+        if primeira.swap(false, Ordering::SeqCst) {
+            let _ = espera.lock().unwrap().recv_timeout(Duration::from_secs(10));
+        }
+        fs::hard_link(origem, destino)
+    })));
+    (cenario, libera)
+}
+
+fn projeto_json(cenario: &Cenario, id: &str) -> serde_json::Value {
+    let biblioteca: PathBuf = cenario.nucleo.estado_inicial().biblioteca.parse().unwrap();
+    serde_json::from_slice(&fs::read(biblioteca.join(id).join("projeto.json")).unwrap()).unwrap()
+}
+
+#[test]
+fn excecoes_na_criacao_valem_so_para_o_projeto_e_ficam_nas_opcoes_efetivas() {
+    let cenario = Cenario::novo();
+    let padroes = Padroes {
+        quantidade_de_reels: 4,
+        pedido: "cortes sobre dinheiro".to_owned(),
+        nomes_proprios: vec!["Davi".to_owned()],
+        idioma_do_video: IdiomaDoVideo::Pt,
+        ..Padroes::default()
+    };
+    let diferente = ArquivoDoLote {
+        excecoes: Excecoes {
+            quantidade_de_reels: Some(2),
+            pedido: Some("  só os testemunhos ".to_owned()),
+            nomes_proprios: Some(vec![" Ana ".to_owned(), String::new()]),
+            idioma_do_video: Some(IdiomaDoVideo::En),
+            ..Excecoes::default()
+        },
+        ..cenario.arquivo("diferente.mp4")
+    };
+    let comum = cenario.arquivo("comum.mp4");
+    let lote = cenario
+        .nucleo
+        .criar_lote_com_links(&[diferente, comum], &[], &padroes)
+        .unwrap();
+
+    let diferente = projeto_json(&cenario, &lote[0].id);
+    assert_eq!(diferente["opcoes"]["quantidadeDeReels"], 2);
+    assert_eq!(diferente["opcoes"]["pedido"], "só os testemunhos");
+    assert_eq!(
+        diferente["opcoes"]["nomesProprios"],
+        serde_json::json!(["Ana"])
+    );
+    assert_eq!(diferente["idiomaDoVideo"], "en");
+    assert_eq!(lote[0].excecoes.quantidade_de_reels, Some(2));
+    let comum = projeto_json(&cenario, &lote[1].id);
+    assert_eq!(comum["opcoes"]["quantidadeDeReels"], 4);
+    assert_eq!(comum["opcoes"]["pedido"], "cortes sobre dinheiro");
+    assert_eq!(comum["idiomaDoVideo"], "pt");
+    assert_eq!(lote[1].excecoes, Excecoes::default());
+}
+
+#[test]
+fn excecoes_do_projeto_na_fila_mudam_e_voltam_aos_padroes() {
+    let (cenario, libera) = cenario_com_o_primeiro_travado();
+    let padroes = Padroes {
+        quantidade_de_reels: 5,
+        ..Padroes::default()
+    };
+    let projetos = cenario
+        .nucleo
+        .criar_lote(
+            &[cenario.video("um.mp4"), cenario.video("dois.mp4")],
+            &padroes,
+        )
+        .unwrap();
+    let na_fila = &projetos[1].id;
+    let faixa = Faixa {
+        inicio: 30,
+        fim: Some(90),
+    };
+
+    let resumo = cenario
+        .nucleo
+        .definir_excecoes(
+            na_fila,
+            &Excecoes {
+                quantidade_de_reels: Some(3),
+                faixa: Some(faixa),
+                ..Excecoes::default()
+            },
+        )
+        .unwrap();
+
+    assert_eq!(resumo.excecoes.faixa, Some(faixa));
+    let json = projeto_json(&cenario, na_fila);
+    assert_eq!(json["opcoes"]["quantidadeDeReels"], 3);
+    assert_eq!(json["opcoes"]["faixa"]["inicio"], 30);
+    assert_eq!(
+        cenario.nucleo.lotes()[0].projetos[1].excecoes,
+        resumo.excecoes
+    );
+
+    cenario
+        .nucleo
+        .definir_excecoes(na_fila, &Excecoes::default())
+        .unwrap();
+
+    let json = projeto_json(&cenario, na_fila);
+    assert_eq!(json["opcoes"]["quantidadeDeReels"], 5);
+    assert!(json["opcoes"]["faixa"].is_null());
+    libera.send(()).unwrap();
+}
+
+#[test]
+fn excecoes_invalidas_ou_de_projeto_que_ja_comecou_sao_recusadas() {
+    let (cenario, libera) = cenario_com_o_primeiro_travado();
+    let projetos = cenario
+        .nucleo
+        .criar_lote(
+            &[cenario.video("um.mp4"), cenario.video("dois.mp4")],
+            &Padroes::default(),
+        )
+        .unwrap();
+    let invalida = Excecoes {
+        quantidade_de_reels: Some(0),
+        ..Excecoes::default()
+    };
+
+    assert!(matches!(
+        cenario
+            .nucleo
+            .definir_excecoes(&projetos[1].id, &invalida)
+            .unwrap_err(),
+        Erro::PadroesInvalidos { .. }
+    ));
+    // O primeiro já saiu da fila: a Importação dele está rodando.
+    let erro = cenario
+        .nucleo
+        .definir_excecoes(&projetos[0].id, &Excecoes::default())
+        .unwrap_err();
+    assert!(matches!(erro, Erro::AcaoIndisponivel { .. }), "{erro:?}");
+    libera.send(()).unwrap();
 }

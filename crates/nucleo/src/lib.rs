@@ -46,7 +46,7 @@ use crate::fila::{Fila, Parou};
 pub use crate::galeria::{AlvoParaAbrir, DadosDoProjeto, ReelDoProjeto, Reserva};
 use crate::lote::LoteJson;
 pub use crate::lote::LoteResumo;
-pub use crate::padroes::{IdiomaDoVideo, ModeloDoClaude, Padroes};
+pub use crate::padroes::{Excecoes, IdiomaDoVideo, ModeloDoClaude, Padroes};
 use crate::preferencias::{PreferencesFile, Preferencias};
 use crate::preparacao::NodePortatil;
 pub use crate::preparacao::{Downloads, EstadoDaPreparacao, Pacote, PacoteDaPreparacao};
@@ -276,6 +276,8 @@ pub struct ProjetoResumo {
     pub parada: Option<Parada>,
     /// O vídeo original, de que o projeto ainda precisa, não está mais no caminho de origem.
     pub video_ausente: bool,
+    /// O que o projeto define no lugar dos padrões do lote.
+    pub excecoes: Excecoes,
 }
 
 /// Um arquivo de vídeo escolhido, para a lista do passo Vídeos.
@@ -778,6 +780,7 @@ impl Nucleo {
             .map(|caminho| ArquivoDoLote {
                 caminho: caminho.clone(),
                 faixa: None,
+                excecoes: Excecoes::default(),
             })
             .collect();
         self.criar_lote_com_links(&arquivos, &[], padroes)
@@ -811,6 +814,29 @@ impl Nucleo {
         let mut lote = self.ler_lote(id)?;
         let videos = validar_videos(arquivos, links)?;
         self.criar_projetos(&mut lote, OffsetDateTime::now_utc(), &videos)
+    }
+
+    /// Define as exceções do projeto que espera a vez ou está parado sem ter começado, no lugar
+    /// das de antes. Sem nenhuma exceção, ele volta a usar os padrões do lote.
+    pub fn definir_excecoes(&self, id: &str, excecoes: &Excecoes) -> Result<ProjetoResumo, Erro> {
+        let excecoes = excecoes.clone().validar()?;
+        let pasta = self.pasta_do_projeto(id)?;
+        let mut projeto = ProjetoJson::ler(&pasta).map_err(|error| Erro::ProjetoNaoLido {
+            id: id.to_owned(),
+            detalhe: error.to_string(),
+        })?;
+        let nunca_comecou = projeto
+            .etapas
+            .iter()
+            .all(|item| item.estado == EstadoDaEtapa::Pendente);
+        if !nunca_comecou || !(self.fila.esperando(id) || projeto.parada.is_some()) {
+            return Err(acao_indisponivel(id, "excecoes"));
+        }
+        let lote = self.ler_lote(&projeto.lote)?;
+        projeto.excecoes = excecoes;
+        projeto.aplicar(&lote.padroes);
+        self.gravar_projeto(&pasta, &projeto)?;
+        Ok(lote::resumir(&pasta, projeto))
     }
 
     /// Troca o nome do lote.
@@ -876,8 +902,8 @@ impl Nucleo {
     ) -> Result<(), Erro> {
         let padroes = &lote.padroes;
         for video in videos {
-            let (titulo, origem, faixa) = match video {
-                Video::Arquivo(arquivo, faixa) => (
+            let (titulo, origem, excecoes) = match video {
+                Video::Arquivo(arquivo, excecoes) => (
                     arquivo
                         .file_stem()
                         .map_or_else(String::new, |nome| nome.to_string_lossy().into_owned()),
@@ -888,7 +914,7 @@ impl Nucleo {
                         modificado_em: None,
                         modo: None,
                     },
-                    *faixa,
+                    excecoes.clone(),
                 ),
                 Video::Link(link) => (
                     link.titulo.clone(),
@@ -898,25 +924,15 @@ impl Nucleo {
                         direito_de_uso_em: agora,
                         nome: youtube::NOME_DO_ARQUIVO.to_owned(),
                     },
-                    link.faixa,
+                    link.excecoes.clone(),
                 ),
             };
             let nao_criado = |caminho: &Path, error: io::Error| lote_nao_criado(caminho, &error);
             let pasta = projeto::criar_pasta(&self.biblioteca, &titulo, agora.date())
                 .map_err(|error| nao_criado(&self.biblioteca, error))?;
             let mut json = ProjetoJson::novo(titulo, lote.id.clone(), origem, agora);
-            json.opcoes = padroes.opcoes();
-            json.opcoes.faixa = faixa;
-            if let Video::Link(link) = video {
-                // O título e o canal são nomes próprios que a Transcrição deve acertar.
-                for nome in [&link.titulo, &link.canal] {
-                    let nome = nome.trim();
-                    if !nome.is_empty() && !json.opcoes.nomes_proprios.iter().any(|n| n == nome) {
-                        json.opcoes.nomes_proprios.push(nome.to_owned());
-                    }
-                }
-            }
-            json.idioma_do_video = padroes.idioma().map(str::to_owned);
+            json.excecoes = excecoes;
+            json.aplicar(padroes);
             json.gravar(&pasta)
                 .map_err(|error| nao_criado(&pasta, error))?;
             self.remotion
@@ -1356,29 +1372,33 @@ fn find_program(
 pub struct ArquivoDoLote {
     pub caminho: String,
     pub faixa: Option<Faixa>,
+    /// O que este vídeo muda dos padrões do lote; a `faixa` acima vale no lugar da daqui.
+    #[serde(default)]
+    pub excecoes: Excecoes,
 }
 
 /// Um vídeo do lote: um arquivo do computador ou um link do YouTube já confirmado.
 enum Video {
-    Arquivo(PathBuf, Option<Faixa>),
+    Arquivo(PathBuf, Excecoes),
     Link(LinkDoLote),
 }
 
 /// Confere os arquivos e os links de um lote e os junta na ordem da fila: os arquivos e,
 /// depois, os links.
 fn validar_videos(arquivos: &[ArquivoDoLote], links: &[LinkDoLote]) -> Result<Vec<Video>, Erro> {
-    let faixa_valida = |faixa| {
-        Faixa::validar(faixa).map_err(|motivo| Erro::PadroesInvalidos {
-            opcao: "faixa".to_owned(),
-            motivo,
-        })
+    let excecoes_validas = |faixa: Option<Faixa>, excecoes: &Excecoes| {
+        Excecoes {
+            faixa: faixa.or(excecoes.faixa),
+            ..excecoes.clone()
+        }
+        .validar()
     };
     let mut videos = arquivos
         .iter()
         .map(|arquivo| {
             Ok(Video::Arquivo(
                 validar_arquivo(&arquivo.caminho)?,
-                faixa_valida(arquivo.faixa)?,
+                excecoes_validas(arquivo.faixa, &arquivo.excecoes)?,
             ))
         })
         .collect::<Result<Vec<_>, Erro>>()?;
@@ -1391,7 +1411,7 @@ fn validar_videos(arquivos: &[ArquivoDoLote], links: &[LinkDoLote]) -> Result<Ve
         }
         videos.push(Video::Link(LinkDoLote {
             url,
-            faixa: faixa_valida(link.faixa)?,
+            excecoes: excecoes_validas(link.faixa, &link.excecoes)?,
             ..link.clone()
         }));
     }

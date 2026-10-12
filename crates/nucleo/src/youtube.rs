@@ -8,6 +8,7 @@ use std::sync::{Arc, Once};
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
+use crate::padroes::Excecoes;
 use crate::process::{self, Stream};
 use crate::projeto::Faixa;
 
@@ -43,6 +44,9 @@ pub struct LinkDoLote {
     pub direito_de_uso: bool,
     /// Só esta seção do vídeo é baixada.
     pub faixa: Option<Faixa>,
+    /// O que este vídeo muda dos padrões do lote; a `faixa` acima vale no lugar da daqui.
+    #[serde(default)]
+    pub excecoes: Excecoes,
 }
 
 /// O endereço de um vídeo do YouTube (`youtube.com/watch`, `youtu.be`, `/shorts` ou `/live`)

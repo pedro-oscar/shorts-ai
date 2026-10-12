@@ -107,6 +107,7 @@ pub(crate) fn resumir(pasta: &Path, json: ProjetoJson) -> ProjetoResumo {
         falha: json.falha,
         parada: json.parada,
         video_ausente: json.origem.ausente(pasta),
+        excecoes: json.excecoes,
     }
 }
 

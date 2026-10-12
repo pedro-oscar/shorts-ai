@@ -6,9 +6,9 @@
 
 use nucleo::{
     Aceite, AlvoParaAbrir, ArquivoDeVideo, ArquivoDoLote, Config, DadosDoProjeto, Erro,
-    EstadoDaConta, EstadoDaPreparacao, EstadoInicial, Evento, InfoDoLink, LinkDoLote, LoteResumo,
-    ModoDeLogin, Movimento, NivelDoPlano, Nucleo, Padroes, PeriodoDeCobranca, PlanoConfirmado,
-    ProjetoResumo,
+    EstadoDaConta, EstadoDaPreparacao, EstadoInicial, Evento, Excecoes, InfoDoLink, LinkDoLote,
+    LoteResumo, ModoDeLogin, Movimento, NivelDoPlano, Nucleo, Padroes, PeriodoDeCobranca,
+    PlanoConfirmado, ProjetoResumo,
 };
 use serde::Serialize;
 use specta::Type;
@@ -164,6 +164,17 @@ async fn criar_lote(
     padroes: Padroes,
 ) -> Result<Vec<ProjetoResumo>, Erro> {
     nucleo.criar_lote_com_links(&arquivos, &links, &padroes)
+}
+
+/// Define as exceções de um projeto que ainda não começou.
+#[tauri::command]
+#[specta::specta]
+async fn definir_excecoes(
+    nucleo: State<'_, Nucleo>,
+    projeto: String,
+    excecoes: Excecoes,
+) -> Result<ProjetoResumo, Erro> {
+    nucleo.definir_excecoes(&projeto, &excecoes)
 }
 
 /// Põe vídeos no fim da fila de um lote que já existe, com os padrões dele.
@@ -336,6 +347,7 @@ fn bindings() -> Builder<tauri::Wry> {
             criar_lote,
             adicionar_ao_lote,
             renomear_lote,
+            definir_excecoes,
             lotes,
             pausar_projeto,
             cancelar_projeto,

@@ -272,6 +272,13 @@ test("Continuar espera o direito de uso de cada link e Gerar envia a confirma√ß√
         canal: "Canal da Ana",
         direitoDeUso: true,
         faixa: null,
+        excecoes: {
+          quantidadeDeReels: null,
+          pedido: null,
+          faixa: null,
+          nomesProprios: null,
+          idiomaDoVideo: null,
+        },
       },
     ],
   ]);

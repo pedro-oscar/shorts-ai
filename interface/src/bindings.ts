@@ -27,6 +27,8 @@ export const commands = {
 	/**  Põe vídeos no fim da fila de um lote que já existe, com os padrões dele. */
 	adicionarAoLote: (lote: string, arquivos: ArquivoDoLote[], links: LinkDoLote[]) => typedError<ProjetoResumo[], Erro>(__TAURI_INVOKE("adicionar_ao_lote", { lote, arquivos, links })),
 	renomearLote: (lote: string, nome: string) => typedError<null, Erro>(__TAURI_INVOKE("renomear_lote", { lote, nome })),
+	/**  Define as exceções de um projeto que ainda não começou. */
+	definirExcecoes: (projeto: string, excecoes: Excecoes) => typedError<ProjetoResumo, Erro>(__TAURI_INVOKE("definir_excecoes", { projeto, excecoes })),
 	/**  Os lotes da Biblioteca, do mais novo para o mais antigo. */
 	lotes: () => __TAURI_INVOKE<LoteResumo[]>("lotes"),
 	/**  Pausa o projeto ao fim da etapa, ou o tira da fila se ainda não começou. */
@@ -99,6 +101,8 @@ export type ArquivoDeVideo = {
 export type ArquivoDoLote = {
 	caminho: string,
 	faixa: Faixa | null,
+	/**  O que este vídeo muda dos padrões do lote; a `faixa` acima vale no lugar da daqui. */
+	excecoes?: Excecoes,
 };
 
 /**  Como o uso do Claude é pago: pela cota da assinatura ou pelo preço de API. */
@@ -206,6 +210,18 @@ export type Evento = { tipo: "avisoAceito"; aceite: Aceite } | { tipo: "planoCon
 /**  Os eventos do núcleo num só canal: a interface os aplica em ordem no estado dela. */
 export type EventoDoNucleo = Evento;
 
+/**  As exceções de um projeto: cada opção definida vale no lugar do padrão do lote. */
+export type Excecoes = {
+	/**  De 1 a 12. */
+	quantidadeDeReels?: number | null,
+	/**  Substitui o pedido do lote, inclusive por um pedido vazio. */
+	pedido?: string | null,
+	/**  A parte do vídeo a que a análise se limita; o lote não tem faixa padrão. */
+	faixa?: Faixa | null,
+	nomesProprios?: string[] | null,
+	idiomaDoVideo?: IdiomaDoVideo | null,
+};
+
 /**  A parte do vídeo original, em segundos inteiros, a que a análise se limita. */
 export type Faixa = {
 	inicio: number,
@@ -243,6 +259,8 @@ export type LinkDoLote = {
 	direitoDeUso: boolean,
 	/**  Só esta seção do vídeo é baixada. */
 	faixa: Faixa | null,
+	/**  O que este vídeo muda dos padrões do lote; a `faixa` acima vale no lugar da daqui. */
+	excecoes?: Excecoes,
 };
 
 /**  Um lote como a interface o mostra no histórico. */
@@ -345,6 +363,8 @@ export type ProjetoResumo = {
 	parada: Parada | null,
 	/**  O vídeo original, de que o projeto ainda precisa, não está mais no caminho de origem. */
 	videoAusente: boolean,
+	/**  O que o projeto define no lugar dos padrões do lote. */
+	excecoes: Excecoes,
 };
 
 /**  Um corte a produzir, com o arquivo publicado dele se já existe. */

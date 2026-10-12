@@ -8,6 +8,7 @@ import type {
   EstadoDaEtapa,
   EstadoDaPreparacao,
   Evento,
+  Excecoes,
   IdiomaDaInterface,
   InfoDoLink,
   LoteResumo,
@@ -21,7 +22,12 @@ import type {
   ProjetoResumo,
 } from "./bindings";
 import type { Nucleo } from "./nucleo";
-import { lerFaixa } from "./screens/formatos";
+import {
+  type CamposDasExcecoes,
+  SEM_CAMPOS,
+  lerExcecoes,
+  lerFaixa,
+} from "./screens/formatos";
 
 /** Um link do YouTube da lista do passo Vídeos, desde que foi colado. */
 export type LinkNaLista = {
@@ -142,6 +148,8 @@ export interface AppState {
   links: LinkNaLista[];
   /** Os campos Início e Fim de cada vídeo da lista (por caminho ou endereço), como digitados. */
   faixas: Record<string, { inicio: string; fim: string }>;
+  /** As Exceções de cada vídeo do passo Vídeos (caminho ou endereço), como digitadas. */
+  excecoes: Record<string, CamposDasExcecoes>;
   /** As opções que valem para todos os projetos do lote. */
   padroes: Padroes;
   /** Os projetos de todos os lotes, com o estado de cada etapa, na ordem da fila. */
@@ -190,6 +198,13 @@ export interface AppStore extends AppState {
   removerArquivo: (caminho: string) => void;
   /** Escreve o Início ou o Fim da faixa do vídeo (caminho ou endereço), como a pessoa digitou. */
   definirFaixa: (chave: string, campo: "inicio" | "fim", texto: string) => void;
+  /** Muda campos das Exceções do vídeo (caminho ou endereço). */
+  definirExcecoesDoVideo: (
+    chave: string,
+    mudancas: Partial<CamposDasExcecoes>,
+  ) => void;
+  /** Grava as Exceções de um projeto que ainda espera a vez. */
+  definirExcecoes: (id: string, excecoes: Excecoes) => Promise<void>;
   /** Consulta cada endereço de `texto` (um por linha) e põe na lista os que ainda não estão. */
   adicionarLinks: (texto: string) => Promise<void>;
   removerLink: (url: string) => void;
@@ -472,6 +487,7 @@ export function createAppStore(nucleo: Nucleo) {
       erroDeArquivos: null,
       links: [],
       faixas: {},
+      excecoes: {},
       padroes: PADROES_INICIAIS,
       projetos: [],
       lotes: [],
@@ -720,6 +736,32 @@ export function createAppStore(nucleo: Nucleo) {
         }));
       },
 
+      definirExcecoesDoVideo: (chave, mudancas) => {
+        set((current) => ({
+          excecoes: {
+            ...current.excecoes,
+            [chave]: {
+              ...(current.excecoes[chave] ?? SEM_CAMPOS),
+              ...mudancas,
+            },
+          },
+        }));
+      },
+
+      definirExcecoes: async (id, excecoes) => {
+        const result = await nucleo.definirExcecoes(id, excecoes);
+        if (result.status === "error") {
+          set({ erroDoCiclo: result.error });
+          return;
+        }
+        set({ erroDoCiclo: null });
+        mudarProjeto(id, (projeto) => ({
+          ...projeto,
+          excecoes: result.data.excecoes,
+        }));
+        await get().carregarLotes();
+      },
+
       pausarProjeto: (id) => executarCiclo(nucleo.pausarProjeto(id)),
       cancelarProjeto: (id) => executarCiclo(nucleo.cancelarProjeto(id)),
       retomarProjeto: (id) => executarCiclo(nucleo.retomarProjeto(id)),
@@ -768,9 +810,12 @@ export function createAppStore(nucleo: Nucleo) {
           const faixa = campos ? lerFaixa(campos.inicio, campos.fim) : null;
           return faixa === "invalida" ? null : faixa;
         };
+        const excecoesDe = (chave: string) =>
+          lerExcecoes(get().excecoes[chave] ?? SEM_CAMPOS, null);
         const arquivos = get().arquivos.map((a) => ({
           caminho: a.caminho,
           faixa: faixaDe(a.caminho),
+          excecoes: excecoesDe(a.caminho),
         }));
         const links = get().links.flatMap((link) =>
           link.estado === "pronto"
@@ -781,6 +826,7 @@ export function createAppStore(nucleo: Nucleo) {
                   canal: link.info.canal,
                   direitoDeUso: link.direitoDeUso,
                   faixa: faixaDe(link.url),
+                  excecoes: excecoesDe(link.url),
                 },
               ]
             : [],
@@ -798,6 +844,7 @@ export function createAppStore(nucleo: Nucleo) {
           arquivos: [],
           links: [],
           faixas: {},
+          excecoes: {},
           erroDeArquivos: null,
           adicionandoAoLote: false,
         });

@@ -1,4 +1,5 @@
 import type {
+  ArquivoDoLote,
   Aceite,
   AlvoParaAbrir,
   ArquivoDeVideo,
@@ -8,6 +9,7 @@ import type {
   EstadoDaPreparacao,
   EstadoInicial,
   Evento,
+  Excecoes,
   Faixa,
   LinkDoLote,
   LoteResumo,
@@ -106,6 +108,10 @@ export function createFakeNucleo(
     versoesFinais: [] as string[][],
     /** Cada ação do ciclo de vida pedida, como `pausar:<id>` ou `retomarLote:<lote>`. */
     ciclo: [] as string[],
+    /** O projeto e as exceções de cada `definirExcecoes`. */
+    excecoes: [] as { projeto: string; excecoes: Excecoes }[],
+    /** As exceções de cada arquivo de cada `criarLote`. */
+    excecoesDosArquivos: [] as Excecoes[][],
     /** O que cada `abrirNoSistema` pediu. */
     abertos: [] as { id: string; alvo: AlvoParaAbrir }[],
   };
@@ -127,6 +133,7 @@ export function createFakeNucleo(
     lote: LoteResumo,
     caminhos: string[],
     links: LinkDoLote[],
+    excecoes: Excecoes[] = [],
   ): ProjetoResumo[] => {
     const nomes = [
       ...caminhos.map((caminho) =>
@@ -134,7 +141,7 @@ export function createFakeNucleo(
       ),
       ...links.map((link) => link.titulo),
     ];
-    const novos = nomes.map((nome): ProjetoResumo => {
+    const novos = nomes.map((nome, indice): ProjetoResumo => {
       const existentes = lotes
         .flatMap((item) => item.projetos)
         .filter((projeto) => projeto.titulo === nome).length;
@@ -156,6 +163,7 @@ export function createFakeNucleo(
         falha: null,
         parada: null,
         videoAusente: false,
+        excecoes: excecoes[indice] ?? {},
       };
       lote.projetos.push(projeto);
       return projeto;
@@ -163,6 +171,12 @@ export function createFakeNucleo(
     for (const projeto of novos) emit({ tipo: "projetoCriado", projeto });
     return novos;
   };
+
+  /** As exceções de cada vídeo do lote, na ordem dos projetos: os arquivos e, depois, os links. */
+  const excecoesDe = (arquivos: ArquivoDoLote[], links: LinkDoLote[]) => [
+    ...arquivos.map((arquivo) => arquivo.excecoes ?? {}),
+    ...links.map((link) => link.excecoes ?? {}),
+  ];
 
   const cicloOk = (acao: string, id: string) => {
     calls.ciclo.push(`${acao}:${id}`);
@@ -278,6 +292,9 @@ export function createFakeNucleo(
       const caminhos = arquivos.map((arquivo) => arquivo.caminho);
       calls.lotes.push(caminhos);
       calls.faixasDosArquivos.push(arquivos.map((arquivo) => arquivo.faixa));
+      calls.excecoesDosArquivos.push(
+        arquivos.map((arquivo) => arquivo.excecoes ?? {}),
+      );
       calls.links.push(links);
       calls.padroes.push(padroes);
       if (batchError)
@@ -295,7 +312,7 @@ export function createFakeNucleo(
       lotes.unshift(lote);
       return Promise.resolve({
         status: "ok",
-        data: criarProjetos(lote, caminhos, links),
+        data: criarProjetos(lote, caminhos, links, excecoesDe(arquivos, links)),
       });
     },
     adicionarAoLote: (id, arquivos, links) => {
@@ -310,7 +327,7 @@ export function createFakeNucleo(
         });
       return Promise.resolve({
         status: "ok",
-        data: criarProjetos(lote, caminhos, links),
+        data: criarProjetos(lote, caminhos, links, excecoesDe(arquivos, links)),
       });
     },
     renomearLote: (id, nome) => {
@@ -350,6 +367,19 @@ export function createFakeNucleo(
           falha: null,
         });
       return Promise.resolve({ status: "ok", data: null });
+    },
+    definirExcecoes: (projeto, excecoes) => {
+      calls.excecoes.push({ projeto, excecoes });
+      const resumo = lotes
+        .flatMap((lote) => lote.projetos)
+        .find((item) => item.id === projeto);
+      if (!resumo)
+        return Promise.resolve({
+          status: "error",
+          error: { codigo: "projetoNaoEncontrado", id: projeto },
+        });
+      resumo.excecoes = excecoes;
+      return Promise.resolve({ status: "ok", data: structuredClone(resumo) });
     },
     pausarProjeto: (id) => cicloOk("pausar", id),
     cancelarProjeto: (id) => cicloOk("cancelar", id),
