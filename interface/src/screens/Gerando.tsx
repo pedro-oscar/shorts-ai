@@ -85,12 +85,16 @@ function Controles({
   const retomar = useAppStore((store) => store.retomarProjeto);
   const tentarDeNovo = useAppStore((store) => store.tentarDeNovo);
   const nome = projeto.titulo;
-  const botao = (rotulo: string, aria: string, acao: (id: string) => void) => (
+  const botao = (
+    rotulo: string,
+    aria: string,
+    acao: (id: string) => Promise<void>,
+  ) => (
     <button
       type="button"
       aria-label={aria}
       onClick={() => {
-        acao(projeto.id);
+        void acao(projeto.id);
       }}
     >
       {rotulo}
@@ -103,17 +107,13 @@ function Controles({
         botao(
           t("gerando.pausar"),
           t("gerando.pausarProjeto", { nome }),
-          (id) => {
-            void pausar(id);
-          },
+          pausar,
         )}
       {(estado === "pausado" || estado === "cancelado") &&
         botao(
           t("gerando.retomar"),
           t("gerando.retomarProjeto", { nome }),
-          (id) => {
-            void retomar(id);
-          },
+          retomar,
         )}
       {estado !== "falhou" &&
         estado !== "pronto" &&
@@ -121,9 +121,7 @@ function Controles({
         botao(
           t("gerando.cancelar"),
           t("gerando.cancelarProjeto", { nome }),
-          (id) => {
-            void cancelar(id);
-          },
+          cancelar,
         )}
       {falhou && (
         <button
