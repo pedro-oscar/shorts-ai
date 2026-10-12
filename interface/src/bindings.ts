@@ -184,8 +184,13 @@ export type Evento = { tipo: "avisoAceito"; aceite: Aceite } | { tipo: "planoCon
 { tipo: "progressoDaPreparacao"; pacote: Pacote; percentual: number } | 
 /**  Uma etapa do projeto mudou de estado. */
 { tipo: "etapaMudou"; projeto: string; etapa: Etapa; estado: EstadoDaEtapa; falha: string | null } | 
-/**  O projeto parou (`pausado`, `cancelado`) ou voltou para a fila (`None`). */
+/**  O projeto parou (`pausado`, `cancelado`, `aguardandoCota`) ou voltou para a fila (`None`). */
 { tipo: "paradaMudou"; projeto: string; parada: Parada | null } | 
+/**
+ *  Algo que a pessoa quer saber com a janela minimizada. `projeto` e `lote` são os nomes
+ *  como a pessoa os vê; num `loteTerminado`, `projeto` é o último que terminou.
+ */
+{ tipo: "notificacao"; motivo: MotivoDeNotificacao; projeto: string; lote: string } | 
 /**  A ordem do lote mudou: os ids dos projetos, na ordem nova da fila. */
 { tipo: "filaReordenada"; lote: string; projetos: string[] } | 
 /**  O projeto saiu do app: foi removido da lista ou excluído. */
@@ -286,6 +291,9 @@ export type ModeloDoClaude =
 /**  Como a pessoa entra: pela assinatura Claude ou pela conta do Console (cobrança por uso). */
 export type ModoDeLogin = "assinatura" | "console";
 
+/**  O motivo de uma notificação do sistema. */
+export type MotivoDeNotificacao = "projetoPronto" | "projetoFalhou" | "aguardandoCota" | "loteTerminado";
+
 /**  Para onde um projeto que espera a vez anda na fila. */
 export type Movimento = 
 /**  Uma posição mais perto da vez. */
@@ -334,7 +342,9 @@ export type Parada =
 /**  Parou ao fim de uma etapa, a pedido, ou o app foi fechado com o projeto interrompido. */
 "pausado" | 
 /**  Teve o processo morto na hora; a etapa em curso foi descartada. */
-"cancelado";
+"cancelado" | 
+/**  A cota do plano acabou no meio de uma sessão do Claude; a fila retoma quando ela libera. */
+"aguardandoCota";
 
 /**  Como a assinatura é paga. */
 export type PeriodoDeCobranca = "mensal" | "anual";

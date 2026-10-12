@@ -7,19 +7,41 @@
 use nucleo::{
     Aceite, AlvoParaAbrir, ArquivoDeVideo, ArquivoDoLote, Config, DadosDoProjeto, Erro,
     EstadoDaConta, EstadoDaPreparacao, EstadoInicial, Evento, Excecoes, InfoDoLink, LinkDoLote,
-    LoteResumo, ModoDeLogin, Movimento, NivelDoPlano, Nucleo, Padroes, PeriodoDeCobranca,
-    PlanoConfirmado, ProjetoResumo,
+    LoteResumo, ModoDeLogin, MotivoDeNotificacao, Movimento, NivelDoPlano, Nucleo, Padroes,
+    PeriodoDeCobranca, PlanoConfirmado, ProjetoResumo,
 };
 use serde::Serialize;
 use specta::Type;
 use std::path::PathBuf;
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_dialog::DialogExt;
+use tauri_plugin_notification::NotificationExt;
 use tauri_specta::{Builder, Event, collect_commands, collect_events};
 
 /// Os eventos do núcleo num só canal: a interface os aplica em ordem no estado dela.
 #[derive(Clone, Serialize, Type, Event)]
 struct EventoDoNucleo(Evento);
+
+/// O título e o corpo da notificação do sistema, no idioma do sistema (português ou inglês).
+fn texto_da_notificacao(
+    motivo: MotivoDeNotificacao,
+    projeto: &str,
+    lote: &str,
+    locale: Option<&str>,
+) -> (String, String) {
+    let em_portugues = locale.is_some_and(|locale| locale.to_lowercase().starts_with("pt"));
+    let (titulo, corpo) = match (motivo, em_portugues) {
+        (MotivoDeNotificacao::ProjetoPronto, true) => ("Projeto pronto", projeto),
+        (MotivoDeNotificacao::ProjetoPronto, false) => ("Project ready", projeto),
+        (MotivoDeNotificacao::ProjetoFalhou, true) => ("Projeto falhou", projeto),
+        (MotivoDeNotificacao::ProjetoFalhou, false) => ("Project failed", projeto),
+        (MotivoDeNotificacao::AguardandoCota, true) => ("Aguardando cota", projeto),
+        (MotivoDeNotificacao::AguardandoCota, false) => ("Waiting for quota", projeto),
+        (MotivoDeNotificacao::LoteTerminado, true) => ("Lote terminado", lote),
+        (MotivoDeNotificacao::LoteTerminado, false) => ("Batch finished", lote),
+    };
+    (titulo.to_owned(), corpo.to_owned())
+}
 
 // Os comandos são async para rodarem fora da thread principal. Este pega o núcleo pelo
 // AppHandle porque um comando async com `State` emprestado precisa devolver Result.
@@ -379,6 +401,7 @@ fn main() {
             }
         }))
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
         .invoke_handler(bindings.invoke_handler())
         .setup(move |app| {
             bindings.mount_events(app);
@@ -405,6 +428,28 @@ fn main() {
                     downloads: None,
                 },
                 move |evento| {
+                    if let Evento::Notificacao {
+                        motivo,
+                        projeto,
+                        lote,
+                    } = &evento
+                    {
+                        let (titulo, corpo) = texto_da_notificacao(
+                            *motivo,
+                            projeto,
+                            lote,
+                            sys_locale::get_locale().as_deref(),
+                        );
+                        if let Err(error) = handle
+                            .notification()
+                            .builder()
+                            .title(titulo)
+                            .body(corpo)
+                            .show()
+                        {
+                            eprintln!("notificação do sistema não mostrada: {error}");
+                        }
+                    }
                     if let Err(error) = EventoDoNucleo(evento).emit(&handle) {
                         eprintln!("evento do núcleo não repassado à interface: {error}");
                     }
@@ -424,7 +469,32 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
+    use nucleo::MotivoDeNotificacao;
     use specta_typescript::Typescript;
+
+    use super::texto_da_notificacao;
+
+    #[test]
+    fn a_notificacao_segue_o_idioma_do_sistema_e_nomeia_o_projeto_ou_o_lote() {
+        let texto =
+            |motivo, locale| texto_da_notificacao(motivo, "Aula 1", "Lote de 12/10", locale);
+        assert_eq!(
+            texto(MotivoDeNotificacao::ProjetoFalhou, Some("pt-BR")),
+            ("Projeto falhou".to_owned(), "Aula 1".to_owned())
+        );
+        assert_eq!(
+            texto(MotivoDeNotificacao::AguardandoCota, Some("en-US")),
+            ("Waiting for quota".to_owned(), "Aula 1".to_owned())
+        );
+        assert_eq!(
+            texto(MotivoDeNotificacao::LoteTerminado, None),
+            ("Batch finished".to_owned(), "Lote de 12/10".to_owned())
+        );
+        assert_eq!(
+            texto(MotivoDeNotificacao::ProjetoPronto, Some("pt-PT")).0,
+            "Projeto pronto"
+        );
+    }
 
     /// Regenera os bindings e falha se eles mudaram, para a mudança ir no mesmo commit que
     /// o comando ou o evento que a causou.

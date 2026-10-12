@@ -151,7 +151,7 @@ pub(crate) fn resumos(biblioteca: &Path) -> Vec<LoteResumo> {
         .collect()
 }
 
-/// Reabrir o app deixa Pausado todo projeto que não terminou, não falhou e não está parado: a
+/// Reabrir o app deixa Pausado todo projeto que não terminou, não falhou e não está parado (quem aguarda a cota também fica Pausado): a
 /// fila não sobrevive ao app, então nada retoma sozinho. A etapa que estava em andamento é
 /// descartada. Quem não se lê ou não se grava fica como está.
 pub(crate) fn pausar_interrompidos(biblioteca: &Path) {
@@ -169,7 +169,8 @@ pub(crate) fn pausar_interrompidos(biblioteca: &Path) {
                 .etapas
                 .iter()
                 .all(|item| item.estado == EstadoDaEtapa::Concluida);
-            if falhou || pronto || projeto.parada.is_some() {
+            let aguardando_cota = projeto.parada == Some(Parada::AguardandoCota);
+            if falhou || pronto || (projeto.parada.is_some() && !aguardando_cota) {
                 continue;
             }
             for item in &mut projeto.etapas {
@@ -181,6 +182,27 @@ pub(crate) fn pausar_interrompidos(biblioteca: &Path) {
             let _ = projeto.gravar(&pasta);
         }
     }
+}
+
+/// O nome do lote quando nenhum projeto dele ainda vai andar: todos estão prontos, falharam ou
+/// foram cancelados. `None` com projeto na fila, rodando, pausado ou aguardando a cota, ou se o
+/// lote não se lê.
+pub(crate) fn nome_se_terminou(biblioteca: &Path, id: &str) -> Option<String> {
+    let lote = LoteJson::ler(biblioteca, id).ok()?;
+    let terminou = lote.projetos.iter().all(|projeto| {
+        ProjetoJson::ler(&biblioteca.join(projeto)).is_ok_and(|json| {
+            json.parada == Some(Parada::Cancelado)
+                || json
+                    .etapas
+                    .iter()
+                    .any(|item| item.estado == EstadoDaEtapa::Falhou)
+                || json
+                    .etapas
+                    .iter()
+                    .all(|item| item.estado == EstadoDaEtapa::Concluida)
+        })
+    });
+    terminou.then_some(lote.nome)
 }
 
 /// O projeto ainda vai andar: nenhuma etapa falhou e nem todas terminaram.

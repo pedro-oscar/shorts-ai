@@ -6,16 +6,21 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::thread;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
+use crate::lote::{self, LoteJson};
 use crate::producao::{self, Producao, Qualidade};
 use crate::projeto::{ModoDeImportacao, Origem, Parada, ProjetoJson};
-use crate::sessao::{self, EventoDaSessao, ResultadoDaRevisao, Roteirista};
+use crate::sessao::{self, ErroDoRoteiro, EventoDaSessao, ResultadoDaRevisao, Roteirista};
 use crate::transcricao::{Pedido, Transcritor};
 use crate::youtube::Ytdlp;
-use crate::{EstadoDaEtapa, Etapa, Evento, LigarArquivo, nome_do_arquivo};
+use crate::{EstadoDaEtapa, Etapa, Evento, LigarArquivo, MotivoDeNotificacao, nome_do_arquivo};
+
+/// Quanto esperar antes de tentar de novo quando o Claude não diz quando a cota libera.
+const ESPERA_SEM_HORA: Duration = Duration::from_secs(5 * 60);
 
 pub(crate) type Emitir = Arc<dyn Fn(Evento) + Send + Sync>;
 
@@ -50,6 +55,8 @@ struct Estado {
     /// O trabalho que espera a vez, na ordem em que o trabalhador o pega.
     pendentes: VecDeque<Trabalho>,
     atual: Option<(String, Controle)>,
+    /// Os projetos que esperam a cota liberar, com a hora de tentar de novo.
+    aguardando: Vec<(PathBuf, Instant)>,
     encerrar: bool,
 }
 
@@ -114,7 +121,17 @@ impl Fila {
         });
         let do_trabalhador = Arc::clone(&compartilhado);
         thread::spawn(move || {
-            while let Some((trabalho, controle)) = proximo(&do_trabalhador) {
+            while let Some(proxima) = proximo(&do_trabalhador) {
+                let (trabalho, controle) = match proxima {
+                    Proximo::Cota(pasta) => {
+                        voltar_da_espera(&pasta, &emit);
+                        travar(&do_trabalhador)
+                            .pendentes
+                            .push_back(Trabalho::Etapas(pasta));
+                        continue;
+                    }
+                    Proximo::Trabalho(trabalho, controle) => (trabalho, controle),
+                };
                 match trabalho {
                     Trabalho::Etapas(pasta) => {
                         rodar(
@@ -126,9 +143,15 @@ impl Fila {
                                 transcritor: transcritor.as_ref(),
                                 roteirista: roteirista.as_ref(),
                                 producao: producao.as_ref(),
+                                aguardar: &|pasta, libera_em| {
+                                    travar(&do_trabalhador)
+                                        .aguardando
+                                        .push((pasta, instante_da_liberacao(libera_em)));
+                                },
                             },
                             &controle,
                         );
+                        notificar(&pasta, &emit);
                         travar(&do_trabalhador).atual = None;
                     }
                     Trabalho::VersaoFinal(pasta) => {
@@ -147,6 +170,9 @@ impl Fila {
         estado
             .pendentes
             .retain(|trabalho| trabalho.projeto().as_deref() != Some(&id));
+        estado
+            .aguardando
+            .retain(|(pasta, _)| nome_do_arquivo(pasta) != id);
         estado.pendentes.push_back(Trabalho::Etapas(pasta));
         self.compartilhado.acordar.notify_one();
     }
@@ -185,14 +211,18 @@ impl Fila {
             .any(|trabalho| trabalho.projeto().as_deref() == Some(id))
     }
 
-    /// Tira da fila o projeto que espera a vez; `false` se ele não estava lá.
+    /// Tira da fila o projeto que espera a vez, ou a cota liberar; `false` se ele não estava
+    /// lá.
     pub fn tirar(&self, id: &str) -> bool {
         let mut estado = travar(&self.compartilhado);
-        let antes = estado.pendentes.len();
+        let antes = estado.pendentes.len() + estado.aguardando.len();
         estado
             .pendentes
             .retain(|trabalho| trabalho.projeto().as_deref() != Some(id));
-        estado.pendentes.len() != antes
+        estado
+            .aguardando
+            .retain(|(pasta, _)| nome_do_arquivo(pasta) != id);
+        estado.pendentes.len() + estado.aguardando.len() != antes
     }
 
     /// Anda com o projeto que espera a vez e devolve a nova ordem dos que esperam; `None` se
@@ -245,26 +275,84 @@ impl Fila {
     }
 }
 
+/// O que o trabalhador faz a seguir.
+enum Proximo {
+    Trabalho(Trabalho, Controle),
+    /// A cota deve ter liberado para o projeto: ele volta para a fila.
+    Cota(PathBuf),
+}
+
 /// Espera o próximo trabalho da fila; `None` quando a fila foi largada. O projeto que começa
 /// vira o que está rodando.
-fn proximo(compartilhado: &Compartilhado) -> Option<(Trabalho, Controle)> {
+fn proximo(compartilhado: &Compartilhado) -> Option<Proximo> {
     let mut estado = travar(compartilhado);
     loop {
         if estado.encerrar {
             return None;
+        }
+        let agora = Instant::now();
+        if let Some(lugar) = estado
+            .aguardando
+            .iter()
+            .position(|(_, libera)| *libera <= agora)
+        {
+            return Some(Proximo::Cota(estado.aguardando.remove(lugar).0));
         }
         if let Some(trabalho) = estado.pendentes.pop_front() {
             let controle = Controle::default();
             if let Some(id) = trabalho.projeto() {
                 estado.atual = Some((id, controle.clone()));
             }
-            return Some((trabalho, controle));
+            return Some(Proximo::Trabalho(trabalho, controle));
         }
-        estado = compartilhado
-            .acordar
-            .wait(estado)
-            .unwrap_or_else(PoisonError::into_inner);
+        let proxima_liberacao = estado.aguardando.iter().map(|(_, libera)| *libera).min();
+        estado = match proxima_liberacao {
+            Some(libera) => {
+                compartilhado
+                    .acordar
+                    .wait_timeout(estado, libera.saturating_duration_since(agora))
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .0
+            }
+            None => compartilhado
+                .acordar
+                .wait(estado)
+                .unwrap_or_else(PoisonError::into_inner),
+        };
     }
+}
+
+/// Quando tentar de novo: na hora que o Claude deu para a cota liberar, ou daqui a pouco.
+fn instante_da_liberacao(libera_em: Option<i64>) -> Instant {
+    let espera = libera_em
+        .and_then(|segundos| u64::try_from(segundos).ok())
+        .and_then(|segundos| {
+            Duration::from_secs(segundos)
+                .checked_sub(SystemTime::now().duration_since(UNIX_EPOCH).ok()?)
+        })
+        .unwrap_or(if libera_em.is_some() {
+            Duration::ZERO
+        } else {
+            ESPERA_SEM_HORA
+        });
+    Instant::now() + espera
+}
+
+/// A cota liberou: o projeto deixa de aguardar e volta ao fim da fila.
+fn voltar_da_espera(pasta: &Path, emit: &Emitir) {
+    let Ok(mut projeto) = ProjetoJson::ler(pasta) else {
+        return;
+    };
+    if projeto.parada != Some(Parada::AguardandoCota) {
+        return;
+    }
+    projeto.parada = None;
+    // Sem gravar, a parada some só até o app fechar; a reabertura pausa o projeto do mesmo jeito.
+    let _ = projeto.gravar(pasta);
+    emit(Evento::ParadaMudou {
+        projeto: nome_do_arquivo(pasta),
+        parada: None,
+    });
 }
 
 /// O render da versão final de um projeto cuja Produção já rodou. Os cortes e os rostos vêm do
@@ -311,6 +399,38 @@ struct Executores<'a> {
     transcritor: Option<&'a Transcritor>,
     roteirista: Option<&'a Roteirista>,
     producao: Option<&'a Producao>,
+    /// Põe o projeto para esperar a cota liberar (em segundos desde 1970, se o Claude disse).
+    aguardar: &'a dyn Fn(PathBuf, Option<i64>),
+}
+
+/// Por que uma etapa não terminou.
+enum Falha {
+    Erro(String),
+    /// A cota do plano acabou: a etapa recomeça quando ela liberar.
+    Cota {
+        libera_em: Option<i64>,
+    },
+}
+
+impl From<String> for Falha {
+    fn from(erro: String) -> Self {
+        Self::Erro(erro)
+    }
+}
+
+impl From<&str> for Falha {
+    fn from(erro: &str) -> Self {
+        Self::Erro(erro.to_owned())
+    }
+}
+
+impl From<ErroDoRoteiro> for Falha {
+    fn from(erro: ErroDoRoteiro) -> Self {
+        match erro {
+            ErroDoRoteiro::CotaEsgotada { libera_em } => Self::Cota { libera_em },
+            outro => Self::Erro(outro.to_string()),
+        }
+    }
 }
 
 /// Roda as etapas que existem, da primeira não concluída em diante, e para na primeira que
@@ -322,6 +442,7 @@ fn rodar(pasta: &Path, emit: &Emitir, executores: &Executores, controle: &Contro
         transcritor,
         roteirista,
         producao,
+        aguardar,
     } = *executores;
     let id = nome_do_arquivo(pasta);
     let mut projeto = match ProjetoJson::ler(pasta) {
@@ -385,18 +506,20 @@ fn rodar(pasta: &Path, emit: &Emitir, executores: &Executores, controle: &Contro
         let resultado = match (etapa, transcritor, roteirista, producao) {
             (Etapa::Transcricao, Some(transcritor), _, _) => {
                 transcrever(pasta, &mut projeto, transcritor, &id, emit, cancelar)
+                    .map_err(Falha::Erro)
             }
             (Etapa::Roteiro, _, Some(roteirista), _) => {
                 roteirizar(pasta, &projeto, roteirista, &id, emit, cancelar)
             }
             (Etapa::Producao, _, _, Some(producao)) => {
-                produzir(pasta, &projeto, producao, &id, emit, cancelar)
+                produzir(pasta, &projeto, producao, &id, emit, cancelar).map_err(Falha::Erro)
             }
             (Etapa::Revisao, _, Some(roteirista), Some(producao)) => {
                 revisar(pasta, &projeto, roteirista, producao, &id, emit, cancelar)
             }
             (Etapa::Revisao, ..) => Ok(()),
-            _ => importar(pasta, &mut projeto, ligar, ytdlp, &id, emit, cancelar),
+            _ => importar(pasta, &mut projeto, ligar, ytdlp, &id, emit, cancelar)
+                .map_err(Falha::Erro),
         };
         // Cancelar descarta a etapa em curso, tenha ela terminado ou não.
         if cancelar.load(Ordering::SeqCst) {
@@ -406,11 +529,66 @@ fn rodar(pasta: &Path, emit: &Emitir, executores: &Executores, controle: &Contro
         }
         match resultado {
             Ok(()) => transicao(&mut projeto, EstadoDaEtapa::Concluida, None),
-            Err(falha) => {
+            Err(Falha::Cota { libera_em }) => {
+                transicao(&mut projeto, EstadoDaEtapa::Pendente, None);
+                parar(pasta, &mut projeto, Parada::AguardandoCota, emit);
+                aguardar(pasta.to_path_buf(), libera_em);
+                return;
+            }
+            Err(Falha::Erro(falha)) => {
                 transicao(&mut projeto, EstadoDaEtapa::Falhou, Some(falha));
                 return;
             }
         }
+    }
+}
+
+/// Avisa, por notificação do sistema, como o projeto terminou o que podia fazer: pronto,
+/// falhou ou aguardando a cota; e, se isso fechou o lote, que o lote terminou.
+fn notificar(pasta: &Path, emit: &Emitir) {
+    let Ok(projeto) = ProjetoJson::ler(pasta) else {
+        return;
+    };
+    let falhou = projeto
+        .etapas
+        .iter()
+        .any(|item| item.estado == EstadoDaEtapa::Falhou);
+    let pronto = projeto
+        .etapas
+        .iter()
+        .all(|item| item.estado == EstadoDaEtapa::Concluida);
+    let tipo = if projeto.parada == Some(Parada::AguardandoCota) {
+        MotivoDeNotificacao::AguardandoCota
+    } else if falhou {
+        MotivoDeNotificacao::ProjetoFalhou
+    } else if pronto {
+        MotivoDeNotificacao::ProjetoPronto
+    } else {
+        return;
+    };
+    let biblioteca = pasta.parent();
+    let lote_terminou = biblioteca
+        .filter(|_| tipo != MotivoDeNotificacao::AguardandoCota)
+        .and_then(|biblioteca| lote::nome_se_terminou(biblioteca, &projeto.lote));
+    let nome_do_lote = lote_terminou
+        .clone()
+        .or_else(|| {
+            biblioteca
+                .and_then(|biblioteca| LoteJson::ler(biblioteca, &projeto.lote).ok())
+                .map(|lote| lote.nome)
+        })
+        .unwrap_or_default();
+    emit(Evento::Notificacao {
+        motivo: tipo,
+        projeto: projeto.titulo.clone(),
+        lote: nome_do_lote.clone(),
+    });
+    if lote_terminou.is_some() {
+        emit(Evento::Notificacao {
+            motivo: MotivoDeNotificacao::LoteTerminado,
+            projeto: projeto.titulo,
+            lote: nome_do_lote,
+        });
     }
 }
 
@@ -527,7 +705,7 @@ fn roteirizar(
     id: &str,
     emit: &Emitir,
     cancelar: &AtomicBool,
-) -> Result<(), String> {
+) -> Result<(), Falha> {
     let nome = projeto.origem.nome();
     let idioma = projeto
         .idioma_do_video
@@ -547,7 +725,7 @@ fn roteirizar(
             cancelar,
             &mut |evento| emit(evento_da_sessao(id, Etapa::Roteiro, evento)),
         )
-        .map_err(|error| error.to_string())
+        .map_err(Falha::from)
 }
 
 fn evento_da_sessao(id: &str, etapa: Etapa, evento: EventoDaSessao) -> Evento {
@@ -578,7 +756,7 @@ fn revisar(
     id: &str,
     emit: &Emitir,
     cancelar: &AtomicBool,
-) -> Result<(), String> {
+) -> Result<(), Falha> {
     if projeto.opcoes.revisoes == 0 {
         return Ok(());
     }
@@ -622,7 +800,7 @@ fn revisar(
                 cancelar,
                 &mut |evento| emit(evento_da_sessao(id, Etapa::Revisao, evento)),
             )
-            .map_err(|error| error.to_string())?;
+            .map_err(Falha::from)?;
         if resultado == ResultadoDaRevisao::SemMudancas {
             break;
         }

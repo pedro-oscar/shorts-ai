@@ -535,6 +535,83 @@ fn sessao_que_cai_falha_com_o_stderr_e_ainda_registra_o_custo() {
 }
 
 #[test]
+fn rate_limit_event_de_limite_atingido_leva_a_cota_esgotada_com_a_hora_de_liberar() {
+    let cenario = Cenario::novo();
+    cenario.desmarcar("roteiro-valido");
+    fs::write(
+        cenario.bin().join("stream.jsonl"),
+        concat!(
+            r#"{"type":"system","subtype":"init","session_id":"abc"}"#,
+            "\n",
+            r#"{"type":"rate_limit_event","rate_limit_info":{"status":"rejected","resetsAt":1791397200,"rateLimitType":"five_hour"}}"#,
+            "\n",
+            r#"{"type":"result","subtype":"success","is_error":true,"result":"limite atingido","total_cost_usd":0.1}"#,
+            "\n",
+        ),
+    )
+    .unwrap();
+
+    let (resultado, _) = cenario.rodar(None);
+
+    assert!(
+        matches!(
+            resultado,
+            Err(ErroDoRoteiro::CotaEsgotada {
+                libera_em: Some(1_791_397_200)
+            })
+        ),
+        "{resultado:?}"
+    );
+    assert_eq!(cenario.custos().len(), 1);
+}
+
+#[test]
+fn credits_required_tambem_e_cota_esgotada_mesmo_com_a_sessao_caindo() {
+    let cenario = Cenario::novo();
+    cenario.desmarcar("roteiro-valido");
+    cenario.marcar("cai");
+    fs::write(
+        cenario.bin().join("stream.jsonl"),
+        concat!(
+            r#"{"type":"rate_limit_event","rate_limit_info":{"status":"allowed_warning","errorCode":"credits_required"}}"#,
+            "\n",
+        ),
+    )
+    .unwrap();
+
+    let (resultado, _) = cenario.rodar(None);
+
+    assert!(
+        matches!(
+            resultado,
+            Err(ErroDoRoteiro::CotaEsgotada { libera_em: None })
+        ),
+        "{resultado:?}"
+    );
+}
+
+#[test]
+fn rate_limit_event_permitido_nao_atrapalha_a_sessao() {
+    let cenario = Cenario::novo();
+
+    let (resultado, _) = cenario.rodar(None);
+
+    resultado.unwrap();
+}
+
+#[test]
+fn limite_atingido_numa_sessao_que_terminou_bem_nao_e_cota_esgotada() {
+    let cenario = Cenario::novo();
+    cenario.acrescentar_ao_stream(
+        r#"{"type":"rate_limit_event","rate_limit_info":{"status":"rejected","resetsAt":1791397200}}"#,
+    );
+
+    let (resultado, _) = cenario.rodar(None);
+
+    resultado.unwrap();
+}
+
+#[test]
 fn sessao_sem_nenhum_result_falha() {
     let cenario = Cenario::novo();
     fs::write(
@@ -672,17 +749,15 @@ mod na_fila {
     use std::sync::mpsc;
     use std::time::Duration;
 
-    use nucleo::{Config, EstadoDaEtapa, Etapa, Evento, Nucleo, Padroes};
+    use nucleo::{
+        Config, EstadoDaEtapa, Etapa, Evento, MotivoDeNotificacao, Nucleo, Padroes, Parada,
+    };
 
     use super::*;
 
-    /// A etapa Roteiro depois da Transcrição: a sessão aparece como eventos e o roteiro
-    /// inválido leva o projeto a Falhou, com os erros.
-    #[test]
-    fn roteiro_invalido_falha_a_etapa_com_os_erros_depois_das_acoes_do_claude() {
-        let cenario = Cenario::novo();
-        cenario.desmarcar("roteiro-valido");
-        cenario.marcar("roteiro-invalido");
+    /// O núcleo com a Transcrição de mentira (ffmpeg e whisper-cli falsos) e o `claude` falso do
+    /// cenário, e um vídeo para o lote.
+    fn abrir_nucleo(cenario: &Cenario) -> (Nucleo, mpsc::Receiver<Evento>, PathBuf) {
         let tmp = cenario.tmp.path();
         let bin = tmp.join("bin-transcricao");
         fs::create_dir(&bin).unwrap();
@@ -727,10 +802,220 @@ mod na_fila {
         let video = tmp.join("aula.mp4");
         fs::write(&video, b"video de mentira").unwrap();
 
-        let projeto = nucleo
+        (nucleo, eventos, video)
+    }
+
+    fn criar_projeto(nucleo: &Nucleo, video: &Path) -> nucleo::ProjetoResumo {
+        nucleo
             .criar_lote(&[video.display().to_string()], &Padroes::default())
             .unwrap()
-            .remove(0);
+            .remove(0)
+    }
+
+    /// Espera o evento que o filtro aceita.
+    fn esperar<T>(
+        eventos: &mpsc::Receiver<Evento>,
+        mut filtro: impl FnMut(Evento) -> Option<T>,
+    ) -> T {
+        loop {
+            let evento = eventos
+                .recv_timeout(Duration::from_secs(20))
+                .expect("o evento esperado não veio");
+            if let Some(achado) = filtro(evento) {
+                return achado;
+            }
+        }
+    }
+
+    fn esperar_parada(eventos: &mpsc::Receiver<Evento>, esperada: Option<Parada>) {
+        esperar(eventos, |evento| match evento {
+            Evento::ParadaMudou { parada, .. } if parada == esperada => Some(()),
+            _ => None,
+        });
+    }
+
+    /// A sessão do Roteiro roda de novo, sem a Transcrição se repetir.
+    fn esperar_roteiro_retomado(eventos: &mpsc::Receiver<Evento>) {
+        esperar(eventos, |evento| match evento {
+            Evento::EtapaMudou {
+                etapa: Etapa::Transcricao,
+                estado: EstadoDaEtapa::EmAndamento,
+                ..
+            } => panic!("a Transcrição não pode se repetir"),
+            Evento::TokensDoClaude {
+                etapa: Etapa::Roteiro,
+                ..
+            } => Some(()),
+            _ => None,
+        });
+    }
+
+    /// A gravação que o `claude` falso repete passa a dizer que a cota acabou e libera em
+    /// `libera_em` (segundos desde 1970).
+    fn esgotar_a_cota(cenario: &Cenario, libera_em: i64) {
+        fs::write(
+            cenario.bin().join("stream.jsonl"),
+            format!(
+                "{{\"type\":\"rate_limit_event\",\"rate_limit_info\":{{\"status\":\"rejected\",\"resetsAt\":{libera_em}}}}}\n\
+                 {{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":true,\"result\":\"limite\",\"total_cost_usd\":0.1}}\n"
+            ),
+        )
+        .unwrap();
+    }
+
+    fn agora() -> i64 {
+        i64::try_from(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn cota_esgotada_deixa_o_projeto_aguardando_sem_refazer_e_retomar_agora_continua() {
+        let cenario = Cenario::novo();
+        esgotar_a_cota(&cenario, 4_102_444_800);
+        let (nucleo, eventos, video) = abrir_nucleo(&cenario);
+        let projeto = criar_projeto(&nucleo, &video);
+
+        esperar_parada(&eventos, Some(Parada::AguardandoCota));
+
+        let aguardando = nucleo
+            .lotes()
+            .into_iter()
+            .flat_map(|lote| lote.projetos)
+            .find(|item| item.id == projeto.id)
+            .unwrap();
+        assert_eq!(aguardando.parada, Some(Parada::AguardandoCota));
+        assert_eq!(aguardando.falha, None);
+        let estados: Vec<_> = aguardando.etapas.iter().map(|item| item.estado).collect();
+        assert_eq!(
+            estados[..3],
+            [
+                EstadoDaEtapa::Concluida,
+                EstadoDaEtapa::Concluida,
+                EstadoDaEtapa::Pendente
+            ]
+        );
+        assert!(
+            nucleo.pausar(&projeto.id).is_err(),
+            "quem aguarda a cota não pausa"
+        );
+
+        // Retomar agora, com a cota de volta: a Transcrição não se repete.
+        fs::copy(
+            gravacao("sessao-roteiro.jsonl"),
+            cenario.bin().join("stream.jsonl"),
+        )
+        .unwrap();
+        nucleo.retomar(&projeto.id).unwrap();
+
+        esperar_roteiro_retomado(&eventos);
+    }
+
+    #[test]
+    fn o_projeto_aguardando_a_cota_retoma_sozinho_quando_ela_libera() {
+        let cenario = Cenario::novo();
+        esgotar_a_cota(&cenario, agora() + 2);
+        let (nucleo, eventos, video) = abrir_nucleo(&cenario);
+        criar_projeto(&nucleo, &video);
+
+        esperar_parada(&eventos, Some(Parada::AguardandoCota));
+        fs::copy(
+            gravacao("sessao-roteiro.jsonl"),
+            cenario.bin().join("stream.jsonl"),
+        )
+        .unwrap();
+
+        esperar_parada(&eventos, None);
+        esperar_roteiro_retomado(&eventos);
+    }
+
+    #[test]
+    fn cancelar_o_projeto_aguardando_a_cota_impede_a_retomada() {
+        let cenario = Cenario::novo();
+        esgotar_a_cota(&cenario, agora() + 2);
+        let (nucleo, eventos, video) = abrir_nucleo(&cenario);
+        let projeto = criar_projeto(&nucleo, &video);
+
+        esperar_parada(&eventos, Some(Parada::AguardandoCota));
+        nucleo.cancelar(&projeto.id).unwrap();
+        esperar_parada(&eventos, Some(Parada::Cancelado));
+
+        assert!(
+            eventos
+                .recv_timeout(Duration::from_secs(4))
+                .map_or(true, |evento| !matches!(
+                    evento,
+                    Evento::ParadaMudou { parada: None, .. }
+                ))
+        );
+        let atual = nucleo
+            .lotes()
+            .into_iter()
+            .flat_map(|lote| lote.projetos)
+            .find(|item| item.id == projeto.id)
+            .unwrap();
+        assert_eq!(atual.parada, Some(Parada::Cancelado));
+    }
+
+    #[test]
+    fn notificacoes_avisam_que_aguarda_a_cota_e_que_falhou_e_o_lote_terminou() {
+        let cenario = Cenario::novo();
+        esgotar_a_cota(&cenario, 4_102_444_800);
+        let (nucleo, eventos, video) = abrir_nucleo(&cenario);
+        let projeto = criar_projeto(&nucleo, &video);
+
+        let (titulo, lote) = esperar(&eventos, |evento| match evento {
+            Evento::Notificacao {
+                motivo: MotivoDeNotificacao::AguardandoCota,
+                projeto,
+                lote,
+            } => Some((projeto, lote)),
+            _ => None,
+        });
+        assert_eq!(titulo, projeto.titulo);
+        assert!(lote.starts_with("Lote de"), "{lote}");
+
+        // Com a cota de volta e um roteiro inválido, o projeto falha e fecha o lote.
+        cenario.desmarcar("roteiro-valido");
+        cenario.marcar("roteiro-invalido");
+        fs::copy(
+            gravacao("sessao-roteiro.jsonl"),
+            cenario.bin().join("stream.jsonl"),
+        )
+        .unwrap();
+        nucleo.retomar(&projeto.id).unwrap();
+
+        let motivos: Vec<_> =
+            std::iter::from_fn(|| eventos.recv_timeout(Duration::from_secs(20)).ok())
+                .filter_map(|evento| match evento {
+                    Evento::Notificacao { motivo, .. } => Some(motivo),
+                    _ => None,
+                })
+                .take(2)
+                .collect();
+        assert_eq!(
+            motivos,
+            [
+                MotivoDeNotificacao::ProjetoFalhou,
+                MotivoDeNotificacao::LoteTerminado
+            ]
+        );
+    }
+
+    /// A etapa Roteiro depois da Transcrição: a sessão aparece como eventos e o roteiro
+    /// inválido leva o projeto a Falhou, com os erros.
+    #[test]
+    fn roteiro_invalido_falha_a_etapa_com_os_erros_depois_das_acoes_do_claude() {
+        let cenario = Cenario::novo();
+        cenario.desmarcar("roteiro-valido");
+        cenario.marcar("roteiro-invalido");
+        let (nucleo, eventos, video) = abrir_nucleo(&cenario);
+
+        let projeto = criar_projeto(&nucleo, &video);
 
         let mut acoes = 0;
         let mut ultimos_tokens = None;

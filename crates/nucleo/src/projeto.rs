@@ -32,6 +32,8 @@ pub enum Parada {
     Pausado,
     /// Teve o processo morto na hora; a etapa em curso foi descartada.
     Cancelado,
+    /// A cota do plano acabou no meio de uma sessão do Claude; a fila retoma quando ela libera.
+    AguardandoCota,
 }
 
 /// Como a Importação trouxe o arquivo para o projeto.

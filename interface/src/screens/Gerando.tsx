@@ -184,6 +184,12 @@ function Controles({
           t("gerando.cancelarProjeto", { nome }),
           cancelar,
         )}
+      {estado === "aguardandoCota" &&
+        botao(
+          t("gerando.retomarAgora"),
+          t("gerando.retomarAgoraProjeto", { nome }),
+          retomar,
+        )}
       {falhou && (
         <button
           type="button"

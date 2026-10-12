@@ -61,7 +61,13 @@ export function resumir(projeto: ProjetoResumo) {
   const iniciado = projeto.etapas.some((e) => e.estado !== "pendente");
   const falhou = projeto.etapas.some((e) => e.estado === "falhou");
   let estado:
-    "falhou" | "pronto" | "pausado" | "cancelado" | "emAndamento" | "naFila";
+    | "falhou"
+    | "pronto"
+    | "pausado"
+    | "cancelado"
+    | "aguardandoCota"
+    | "emAndamento"
+    | "naFila";
   if (falhou) estado = "falhou";
   else if (concluidas.length === projeto.etapas.length) estado = "pronto";
   else if (projeto.parada) estado = projeto.parada;

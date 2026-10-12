@@ -143,6 +143,12 @@ pub enum ErroDoRoteiro {
     ClaudeNaoEncontrado,
     #[error("sessão do Claude interrompida: {0}")]
     Io(#[from] io::Error),
+    /// Um `rate_limit_event` de limite atingido: o projeto espera a cota liberar.
+    #[error("a cota do plano acabou")]
+    CotaEsgotada {
+        /// Quando a cota libera, em segundos desde 1970 (`resetsAt`), se o Claude disse.
+        libera_em: Option<i64>,
+    },
     #[error("a sessão do Claude terminou sem resultado: {0}")]
     SessaoCaiu(String),
     #[error("o Claude terminou sem gravar o roteiro ({})", ROTEIRO)]
@@ -283,6 +289,15 @@ impl Roteirista {
             })?;
         if let Some(custo) = stream.custo(etapa, inicio) {
             registrar_custo(pedido.pasta, &custo)?;
+        }
+        let sem_resposta = stream
+            .results
+            .last()
+            .is_none_or(|result| result["is_error"].as_bool().unwrap_or(false));
+        if let Some(libera_em) = stream.cota
+            && (!output.status.success() || sem_resposta)
+        {
+            return Err(ErroDoRoteiro::CotaEsgotada { libera_em });
         }
         if !output.status.success() {
             return Err(ErroDoRoteiro::SessaoCaiu(failure_detail(
@@ -463,6 +478,8 @@ struct StreamState {
     usage_by_message: HashMap<String, (u32, u32)>,
     results: Vec<Value>,
     session_id: Option<String>,
+    /// Um `rate_limit_event` de limite atingido, com a hora em que a cota libera.
+    cota: Option<Option<i64>>,
 }
 
 impl StreamState {
@@ -476,6 +493,15 @@ impl StreamState {
         match value["type"].as_str() {
             Some("assistant") => self.assistant_message(&value["message"], evento),
             Some("result") => self.results.push(value),
+            Some("rate_limit_event") => {
+                let info = &value["rate_limit_info"];
+                let creditos = [&info["errorCode"], &value["errorCode"]]
+                    .iter()
+                    .any(|codigo| *codigo == "credits_required");
+                if info["status"] == "rejected" || creditos {
+                    self.cota = Some(info["resetsAt"].as_i64());
+                }
+            }
             _ => {}
         }
     }

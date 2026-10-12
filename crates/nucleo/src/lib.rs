@@ -292,6 +292,16 @@ pub struct ArquivoDeVideo {
     pub duracao_em_segundos: Option<f64>,
 }
 
+/// O motivo de uma notificação do sistema.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum MotivoDeNotificacao {
+    ProjetoPronto,
+    ProjetoFalhou,
+    AguardandoCota,
+    LoteTerminado,
+}
+
 /// O que muda no núcleo e a interface acompanha.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
 #[serde(
@@ -331,10 +341,17 @@ pub enum Evento {
         estado: EstadoDaEtapa,
         falha: Option<String>,
     },
-    /// O projeto parou (`pausado`, `cancelado`) ou voltou para a fila (`None`).
+    /// O projeto parou (`pausado`, `cancelado`, `aguardandoCota`) ou voltou para a fila (`None`).
     ParadaMudou {
         projeto: String,
         parada: Option<Parada>,
+    },
+    /// Algo que a pessoa quer saber com a janela minimizada. `projeto` e `lote` são os nomes
+    /// como a pessoa os vê; num `loteTerminado`, `projeto` é o último que terminou.
+    Notificacao {
+        motivo: MotivoDeNotificacao,
+        projeto: String,
+        lote: String,
     },
     /// A ordem do lote mudou: os ids dos projetos, na ordem nova da fila.
     FilaReordenada {
@@ -993,6 +1010,10 @@ impl Nucleo {
         match projeto.parada {
             Some(Parada::Cancelado) => Err(acao_indisponivel(id, "cancelar")),
             Some(Parada::Pausado) => self.registrar_parada(&pasta, projeto, Parada::Cancelado),
+            Some(Parada::AguardandoCota) => {
+                self.fila.tirar(id);
+                self.registrar_parada(&pasta, projeto, Parada::Cancelado)
+            }
             None => match self.fila.cancelar(id) {
                 Parou::NaFila => self.registrar_parada(&pasta, projeto, Parada::Cancelado),
                 Parou::EmAndamento => Ok(()),
@@ -1001,7 +1022,7 @@ impl Nucleo {
         }
     }
 
-    /// Devolve o projeto pausado ou cancelado ao fim da fila, para recomeçar da última etapa
+    /// Devolve o projeto pausado, cancelado ou aguardando a cota ao fim da fila, para recomeçar da última etapa
     /// concluída.
     pub fn retomar(&self, id: &str) -> Result<(), Erro> {
         let (pasta, mut projeto) = self.projeto_em_curso(id, "retomar")?;
