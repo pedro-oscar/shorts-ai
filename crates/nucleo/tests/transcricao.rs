@@ -636,8 +636,7 @@ mod na_fila {
     use super::gravado;
 
     /// O núcleo acha o ffmpeg e o whisper-cli na pasta dos sidecars e os modelos nos dados do
-    /// app.
-    /// Roda a etapa com whisper-cli e ffmpeg falsos; devolve o que ela avisou e onde ficou.
+    /// app. Roda a etapa com whisper-cli e ffmpeg falsos; devolve o que ela avisou e onde ficou.
     fn transcrever_com(padroes: &Padroes) -> Rodada {
         let tmp = tempfile::tempdir().unwrap();
         let bin = tmp.path().join("bin");
