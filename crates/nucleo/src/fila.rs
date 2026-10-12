@@ -1,7 +1,6 @@
 //! A fila serial: um trabalhador roda, em ordem, as etapas que existem de cada projeto.
 
 use std::fs;
-use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
@@ -12,6 +11,7 @@ use crate::producao::{self, Producao, Qualidade};
 use crate::projeto::{ModoDeImportacao, Origem, ProjetoJson};
 use crate::sessao::{self, EventoDaSessao, ResultadoDaRevisao, Roteirista};
 use crate::transcricao::{Pedido, Transcritor};
+use crate::youtube::Ytdlp;
 use crate::{EstadoDaEtapa, Etapa, Evento, LigarArquivo, nome_do_arquivo};
 
 pub(crate) type Emitir = Arc<dyn Fn(Evento) + Send + Sync>;
@@ -35,6 +35,7 @@ impl Fila {
         transcritor: Option<Transcritor>,
         roteirista: Option<Roteirista>,
         producao: Option<Producao>,
+        ytdlp: Option<Ytdlp>,
     ) -> Self {
         let (envio, recebimento) = mpsc::channel::<Trabalho>();
         thread::spawn(move || {
@@ -44,6 +45,7 @@ impl Fila {
                         &pasta,
                         &emit,
                         &ligar,
+                        ytdlp.as_ref(),
                         transcritor.as_ref(),
                         roteirista.as_ref(),
                         producao.as_ref(),
@@ -110,6 +112,7 @@ fn rodar(
     pasta: &Path,
     emit: &Emitir,
     ligar: &LigarArquivo,
+    ytdlp: Option<&Ytdlp>,
     transcritor: Option<&Transcritor>,
     roteirista: Option<&Roteirista>,
     producao: Option<&Producao>,
@@ -178,7 +181,7 @@ fn rodar(
                 revisar(pasta, &projeto, roteirista, producao, &id, emit)
             }
             (Etapa::Revisao, ..) => Ok(()),
-            _ => importar(pasta, &mut projeto, ligar).map_err(|error| error.to_string()),
+            _ => importar(pasta, &mut projeto, ligar, ytdlp, &id, emit),
         };
         match resultado {
             Ok(()) => transicao(&mut projeto, EstadoDaEtapa::Concluida, None),
@@ -190,26 +193,51 @@ fn rodar(
     }
 }
 
-/// A Importação de um arquivo local: um hardlink em `bruto/` quando o arquivo está no mesmo
-/// volume e, senão, só a referência a ele.
-fn importar(pasta: &Path, projeto: &mut ProjetoJson, ligar: &LigarArquivo) -> io::Result<()> {
-    let Origem::Arquivo {
-        caminho,
-        nome,
-        tamanho,
-        modificado_em,
-        modo,
-    } = &mut projeto.origem;
-    let metadados = fs::metadata(&caminho)?;
-    *tamanho = metadados.len();
-    *modificado_em = metadados.modified().ok().map(Into::into);
-    let destino = pasta.join("bruto").join(&*nome);
-    *modo = Some(if ligar(Path::new(caminho.as_str()), &destino).is_ok() {
-        ModoDeImportacao::Hardlink
-    } else {
-        ModoDeImportacao::Referencia
-    });
-    Ok(())
+/// A Importação: um arquivo local vira um hardlink em `bruto/` (ou só a referência a ele,
+/// noutro volume) e um link do YouTube é baixado para `bruto/`.
+fn importar(
+    pasta: &Path,
+    projeto: &mut ProjetoJson,
+    ligar: &LigarArquivo,
+    ytdlp: Option<&Ytdlp>,
+    id: &str,
+    emit: &Emitir,
+) -> Result<(), String> {
+    match &mut projeto.origem {
+        Origem::Arquivo {
+            caminho,
+            nome,
+            tamanho,
+            modificado_em,
+            modo,
+        } => {
+            let metadados = fs::metadata(&caminho).map_err(|error| error.to_string())?;
+            *tamanho = metadados.len();
+            *modificado_em = metadados.modified().ok().map(Into::into);
+            let destino = pasta.join("bruto").join(&*nome);
+            *modo = Some(if ligar(Path::new(caminho.as_str()), &destino).is_ok() {
+                ModoDeImportacao::Hardlink
+            } else {
+                ModoDeImportacao::Referencia
+            });
+            Ok(())
+        }
+        Origem::Youtube { url, nome, .. } => {
+            let bruto = pasta.join("bruto");
+            if bruto.join(&*nome).is_file() {
+                return Ok(());
+            }
+            let ytdlp = ytdlp.ok_or("o yt-dlp não está disponível")?;
+            ytdlp.baixar(url, &bruto, &mut |percentual| {
+                emit(Evento::ProgressoDaEtapa {
+                    projeto: id.to_owned(),
+                    etapa: Etapa::Importacao,
+                    percentual,
+                });
+            })?;
+            Ok(())
+        }
+    }
 }
 
 /// A Transcrição do vídeo original: grava `edit/transcricao.json` e a transcrição compactada,
@@ -222,7 +250,7 @@ fn transcrever(
     id: &str,
     emit: &Emitir,
 ) -> Result<(), String> {
-    let video = video_original(pasta, projeto);
+    let video = projeto.origem.video(pasta);
     let mut ultimo = None;
     let transcricao = transcritor
         .transcrever(
@@ -260,7 +288,7 @@ fn roteirizar(
     id: &str,
     emit: &Emitir,
 ) -> Result<(), String> {
-    let Origem::Arquivo { nome, .. } = &projeto.origem;
+    let nome = projeto.origem.nome();
     let idioma = projeto
         .idioma_do_video
         .as_deref()
@@ -314,13 +342,13 @@ fn revisar(
     if projeto.opcoes.revisoes == 0 {
         return Ok(());
     }
-    let Origem::Arquivo { nome, .. } = &projeto.origem;
+    let nome = projeto.origem.nome();
     let idioma = projeto
         .idioma_do_video
         .as_deref()
         .ok_or("o idioma do vídeo não foi detectado")?;
     let modelo = (projeto.opcoes.modelo != "padrao").then_some(projeto.opcoes.modelo.as_str());
-    let video = video_original(pasta, projeto);
+    let video = projeto.origem.video(pasta);
     let qualidade = if projeto.opcoes.previa {
         Qualidade::Previa
     } else {
@@ -397,7 +425,7 @@ fn produzir_em(
     qualidade: Qualidade,
     progresso: &mut dyn FnMut(u8),
 ) -> Result<(), String> {
-    let video = video_original(pasta, projeto);
+    let video = projeto.origem.video(pasta);
     let mut ultimo = None;
     producao
         .produzir(
@@ -418,18 +446,4 @@ fn produzir_em(
         )
         .map(|_| ())
         .map_err(|error| error.to_string())
-}
-
-/// O vídeo original do projeto: o hardlink em `bruto/` ou o caminho de origem.
-fn video_original(pasta: &Path, projeto: &ProjetoJson) -> PathBuf {
-    let Origem::Arquivo {
-        caminho,
-        nome,
-        modo,
-        ..
-    } = &projeto.origem;
-    match modo {
-        Some(ModoDeImportacao::Hardlink) => pasta.join("bruto").join(nome),
-        _ => PathBuf::from(caminho),
-    }
 }

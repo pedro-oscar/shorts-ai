@@ -21,7 +21,9 @@ export const commands = {
 	/**  O seletor de arquivos do sistema, só com os vídeos que o app aceita. */
 	escolherArquivos: () => __TAURI_INVOKE<string[]>("escolher_arquivos"),
 	inspecionarArquivos: (caminhos: string[]) => typedError<ArquivoDeVideo[], Erro>(__TAURI_INVOKE("inspecionar_arquivos", { caminhos })),
-	criarLote: (caminhos: string[], padroes: Padroes) => typedError<ProjetoResumo[], Erro>(__TAURI_INVOKE("criar_lote", { caminhos, padroes })),
+	/**  Título, canal e duração de um vídeo do YouTube, antes de baixar. */
+	consultarLink: (url: string) => typedError<InfoDoLink, Erro>(__TAURI_INVOKE("consultar_link", { url })),
+	criarLote: (caminhos: string[], links: LinkDoLote[], padroes: Padroes) => typedError<ProjetoResumo[], Erro>(__TAURI_INVOKE("criar_lote", { caminhos, links, padroes })),
 	dadosDoProjeto: (id: string) => typedError<DadosDoProjeto, Erro>(__TAURI_INVOKE("dados_do_projeto", { id })),
 	abrirNoSistema: (id: string, alvo: AlvoParaAbrir) => typedError<null, Erro>(__TAURI_INVOKE("abrir_no_sistema", { id, alvo })),
 	gerarVersaoFinal: (ids: string[]) => typedError<null, Erro>(__TAURI_INVOKE("gerar_versao_final", { ids })),
@@ -85,7 +87,7 @@ export type DadosDoProjeto = {
  */
 export type Erro = { codigo: "preferenciasIlegiveis"; caminho: string; detalhe: string } | { codigo: "preferenciasNaoGravadas"; caminho: string; detalhe: string } | { codigo: "loginNaoConcluido"; detalhe: string } | { codigo: "instalacaoFalhou"; detalhe: string } | { codigo: "atualizacaoFalhou"; detalhe: string } | { codigo: "claudeNaoRespondeu"; detalhe: string } | { codigo: "arquivoInvalido"; caminho: string } | { codigo: "projetoNaoCriado"; caminho: string; detalhe: string } | { codigo: "dependenciasDoRemotionNaoInstaladas"; detalhe: string } | { codigo: "projetoNaoLido"; id: string; detalhe: string } | 
 /**  A pasta do projeto foi apagada ou movida. */
-{ codigo: "projetoNaoEncontrado"; id: string } | { codigo: "padroesInvalidos"; opcao: string; motivo: string } | { codigo: "preparacaoInterrompida"; detalhe: string } | { codigo: "naoAbriu"; caminho: string; detalhe: string };
+{ codigo: "projetoNaoEncontrado"; id: string } | { codigo: "padroesInvalidos"; opcao: string; motivo: string } | { codigo: "preparacaoInterrompida"; detalhe: string } | { codigo: "naoAbriu"; caminho: string; detalhe: string } | { codigo: "linkInvalido"; url: string } | { codigo: "linkNaoConsultado"; url: string; detalhe: string } | { codigo: "direitoDeUsoNaoConfirmado"; url: string };
 
 /**  Em que pé está a conta Claude do app. */
 export type EstadoDaConta = { tipo: "naoInstalado" } | { tipo: "versaoAntiga"; versao: string; minima: string } | { tipo: "semLogin"; versao: string } | { tipo: "logado"; versao: string; 
@@ -175,6 +177,25 @@ export type IdiomaDaInterface = "pt-BR" | "en";
 export type IdiomaDoVideo = 
 /**  A Transcrição detecta o idioma. */
 "automatico" | "pt" | "en";
+
+/**  O que o YouTube diz de um vídeo antes de baixá-lo. */
+export type InfoDoLink = {
+	/**  O endereço no formato canônico, `https://www.youtube.com/watch?v=<id>`. */
+	url: string,
+	titulo: string,
+	canal: string,
+	/**  `None` numa live em andamento. */
+	duracaoEmSegundos: number | null,
+};
+
+/**  Um link do lote, como a pessoa o viu e confirmou no passo Vídeos. */
+export type LinkDoLote = {
+	url: string,
+	titulo: string,
+	canal: string,
+	/**  A pessoa marcou "Tenho direito de uso deste vídeo". */
+	direitoDeUso: boolean,
+};
 
 /**  O modelo das sessões do Claude. */
 export type ModeloDoClaude = 

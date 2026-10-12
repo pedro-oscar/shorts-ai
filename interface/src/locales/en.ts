@@ -125,6 +125,15 @@ export const en: typeof ptBR = {
     removerArquivo: "Remove {{nome}}",
     biblioteca: "Projects are kept in the Library: {{pasta}}",
     continuar: "Continue",
+    abaLink: "YouTube link",
+    linksRotulo: "YouTube links (one per line)",
+    linksAdicionar: "Add links",
+    linksLista: "Chosen links",
+    linkConsultando: "Looking up {{url}}…",
+    direitoDeUso: "I have the right to use this video",
+    direitoDeUsoDe: "I have the right to use {{titulo}}",
+    direitoParaTodos: "I confirm for all",
+    removerLink: "Remove {{titulo}}",
   },
   padroes: {
     titulo: "Defaults",
@@ -249,6 +258,12 @@ export const en: typeof ptBR = {
       "The batch defaults were not accepted: check the number of reels (1 to 12) and of revisions (0 to 3).",
     preparacaoInterrompida: "The setup was interrupted.",
     naoAbriu: "Could not open {{caminho}}.",
+    linkInvalido:
+      "{{url}} is not a YouTube video link. Use a youtube.com/watch, youtu.be, /shorts or /live address.",
+    linkNaoConsultado:
+      "Could not look up {{url}}. Check that the video exists and is available, then try again.",
+    direitoDeUsoNaoConfirmado:
+      "Confirm that you have the right to use the video {{url}} to continue.",
     detalhe: "Technical details (from the system): {{detalhe}}",
   },
 };

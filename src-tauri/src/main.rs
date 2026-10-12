@@ -6,8 +6,8 @@
 
 use nucleo::{
     Aceite, AlvoParaAbrir, ArquivoDeVideo, Config, DadosDoProjeto, Erro, EstadoDaConta,
-    EstadoDaPreparacao, EstadoInicial, Evento, ModoDeLogin, NivelDoPlano, Nucleo, Padroes,
-    PeriodoDeCobranca, PlanoConfirmado, ProjetoResumo,
+    EstadoDaPreparacao, EstadoInicial, Evento, InfoDoLink, LinkDoLote, ModoDeLogin, NivelDoPlano,
+    Nucleo, Padroes, PeriodoDeCobranca, PlanoConfirmado, ProjetoResumo,
 };
 use serde::Serialize;
 use specta::Type;
@@ -159,9 +159,26 @@ async fn inspecionar_arquivos(
 async fn criar_lote(
     nucleo: State<'_, Nucleo>,
     caminhos: Vec<String>,
+    links: Vec<LinkDoLote>,
     padroes: Padroes,
 ) -> Result<Vec<ProjetoResumo>, Erro> {
-    nucleo.criar_lote(&caminhos, &padroes)
+    nucleo.criar_lote_com_links(&caminhos, &links, &padroes)
+}
+
+/// Título, canal e duração de um vídeo do YouTube, antes de baixar.
+#[tauri::command]
+#[specta::specta]
+async fn consultar_link(app: AppHandle, url: String) -> Result<InfoDoLink, Erro> {
+    // O `yt-dlp` roda como processo filho: fora da thread do runtime async.
+    tauri::async_runtime::spawn_blocking({
+        let url = url.clone();
+        move || app.state::<Nucleo>().consultar_link(&url)
+    })
+    .await
+    .map_err(|error| Erro::LinkNaoConsultado {
+        url,
+        detalhe: error.to_string(),
+    })?
 }
 
 #[tauri::command]
@@ -210,6 +227,7 @@ fn bindings() -> Builder<tauri::Wry> {
             testar_claude,
             escolher_arquivos,
             inspecionar_arquivos,
+            consultar_link,
             criar_lote,
             dados_do_projeto,
             abrir_no_sistema,

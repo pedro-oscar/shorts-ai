@@ -22,6 +22,7 @@ pub mod rosto;
 pub mod roteiro;
 pub mod sessao;
 pub mod transcricao;
+mod youtube;
 
 use std::env::consts::EXE_SUFFIX;
 use std::ffi::{OsStr, OsString};
@@ -51,6 +52,8 @@ use crate::projeto::{Origem, ProjetoJson};
 use crate::remotion::Remotion;
 use crate::sessao::Roteirista;
 use crate::transcricao::Transcritor;
+use crate::youtube::Ytdlp;
+pub use crate::youtube::{InfoDoLink, LinkDoLote};
 
 /// Como a Importação liga o vídeo original ao projeto sem copiá-lo: um hardlink. Se falha, o
 /// projeto fica só com a referência ao arquivo.
@@ -105,6 +108,7 @@ pub struct Nucleo {
     sidecar_dir: Option<PathBuf>,
     abrir_com: PathBuf,
     fila: Fila,
+    ytdlp: Option<Ytdlp>,
     remotion: Remotion,
     node_portatil: NodePortatil,
     node: Option<PathBuf>,
@@ -387,6 +391,12 @@ pub enum Erro {
     PreparacaoInterrompida { detalhe: String },
     #[error("{caminho} não aberto: {detalhe}")]
     NaoAbriu { caminho: String, detalhe: String },
+    #[error("{url} não é um link de vídeo do YouTube")]
+    LinkInvalido { url: String },
+    #[error("link {url} não consultado: {detalhe}")]
+    LinkNaoConsultado { url: String, detalhe: String },
+    #[error("falta confirmar o direito de uso de {url}")]
+    DireitoDeUsoNaoConfirmado { url: String },
 }
 
 impl Nucleo {
@@ -434,9 +444,33 @@ impl Nucleo {
                 producao
             }
         });
+        let ytdlp = config.sidecar_dir.as_deref().map(|dir| {
+            let node_configurado = config.node.clone();
+            let node_portatil = node_portatil.clone();
+            let dir = dir.to_path_buf();
+            let path_env = config.path_env.clone();
+            Ytdlp::new(
+                find_program("yt-dlp", Some(&dir), path_env.as_deref())
+                    .unwrap_or_else(|| dir.join(format!("yt-dlp{EXE_SUFFIX}"))),
+                Arc::new(move || {
+                    node_configurado
+                        .clone()
+                        .or_else(|| node_portatil.node())
+                        .or_else(|| find_program("node", Some(&dir), path_env.as_deref()))
+                }),
+            )
+        });
         Self {
             biblioteca,
-            fila: Fila::new(Arc::clone(&emit), ligar, transcritor, roteirista, producao),
+            fila: Fila::new(
+                Arc::clone(&emit),
+                ligar,
+                transcritor,
+                roteirista,
+                producao,
+                ytdlp.clone(),
+            ),
+            ytdlp,
             remotion: Remotion::new(
                 config.assets_dir,
                 &config.app_data_dir,
@@ -680,6 +714,22 @@ impl Nucleo {
         });
     }
 
+    /// Título, canal e duração de um vídeo do YouTube, antes de baixá-lo.
+    pub fn consultar_link(&self, url: &str) -> Result<InfoDoLink, Erro> {
+        let url = youtube::normalizar_url(url).ok_or_else(|| Erro::LinkInvalido {
+            url: url.to_owned(),
+        })?;
+        let nao_consultado = |detalhe: String| Erro::LinkNaoConsultado {
+            url: url.clone(),
+            detalhe,
+        };
+        self.ytdlp
+            .as_ref()
+            .ok_or_else(|| nao_consultado("o yt-dlp não está disponível".to_owned()))?
+            .consultar(&url)
+            .map_err(nao_consultado)
+    }
+
     /// Cria um lote de projetos, um por arquivo, cada um com a sua pasta na Biblioteca, e
     /// põe todos na fila, com os padrões do lote. Nada é criado se algum arquivo ou padrão não
     /// for aceito.
@@ -688,15 +738,39 @@ impl Nucleo {
         caminhos: &[String],
         padroes: &Padroes,
     ) -> Result<Vec<ProjetoResumo>, Erro> {
+        self.criar_lote_com_links(caminhos, &[], padroes)
+    }
+
+    /// Como [`Nucleo::criar_lote`], com também um projeto por link do YouTube, depois dos
+    /// arquivos. Cada link precisa do direito de uso confirmado; a data da confirmação vai
+    /// para o projeto dele.
+    pub fn criar_lote_com_links(
+        &self,
+        caminhos: &[String],
+        links: &[LinkDoLote],
+        padroes: &Padroes,
+    ) -> Result<Vec<ProjetoResumo>, Erro> {
         padroes.validar()?;
-        let arquivos = caminhos
+        let mut videos = caminhos
             .iter()
-            .map(|caminho| validar_arquivo(caminho))
+            .map(|caminho| validar_arquivo(caminho).map(Video::Arquivo))
             .collect::<Result<Vec<_>, _>>()?;
+        for link in links {
+            let url = youtube::normalizar_url(&link.url).ok_or_else(|| Erro::LinkInvalido {
+                url: link.url.clone(),
+            })?;
+            if !link.direito_de_uso {
+                return Err(Erro::DireitoDeUsoNaoConfirmado { url });
+            }
+            videos.push(Video::Link(LinkDoLote {
+                url,
+                ..link.clone()
+            }));
+        }
         let agora = OffsetDateTime::now_utc();
         let lote = self.reservar_lote(agora)?;
         let mut projetos = Vec::new();
-        let resultado = self.criar_projetos(&lote, agora, &arquivos, padroes, &mut projetos);
+        let resultado = self.criar_projetos(&lote, agora, &videos, padroes, &mut projetos);
         self.registrar_lote(&lote, agora, &projetos)?;
         resultado.map(|()| projetos)
     }
@@ -705,30 +779,48 @@ impl Nucleo {
         &self,
         lote: &str,
         agora: OffsetDateTime,
-        arquivos: &[PathBuf],
+        videos: &[Video],
         padroes: &Padroes,
         projetos: &mut Vec<ProjetoResumo>,
     ) -> Result<(), Erro> {
-        for arquivo in arquivos {
-            let titulo = arquivo
-                .file_stem()
-                .map_or_else(String::new, |nome| nome.to_string_lossy().into_owned());
+        for video in videos {
+            let (titulo, origem) = match video {
+                Video::Arquivo(arquivo) => (
+                    arquivo
+                        .file_stem()
+                        .map_or_else(String::new, |nome| nome.to_string_lossy().into_owned()),
+                    Origem::Arquivo {
+                        caminho: arquivo.display().to_string(),
+                        nome: nome_do_arquivo(arquivo),
+                        tamanho: 0,
+                        modificado_em: None,
+                        modo: None,
+                    },
+                ),
+                Video::Link(link) => (
+                    link.titulo.clone(),
+                    Origem::Youtube {
+                        url: link.url.clone(),
+                        canal: link.canal.clone(),
+                        direito_de_uso_em: agora,
+                        nome: youtube::NOME_DO_ARQUIVO.to_owned(),
+                    },
+                ),
+            };
             let nao_criado = |caminho: &Path, error: io::Error| lote_nao_criado(caminho, &error);
             let pasta = projeto::criar_pasta(&self.biblioteca, &titulo, agora.date())
                 .map_err(|error| nao_criado(&self.biblioteca, error))?;
-            let mut json = ProjetoJson::novo(
-                titulo,
-                lote.to_owned(),
-                Origem::Arquivo {
-                    caminho: arquivo.display().to_string(),
-                    nome: nome_do_arquivo(arquivo),
-                    tamanho: 0,
-                    modificado_em: None,
-                    modo: None,
-                },
-                agora,
-            );
+            let mut json = ProjetoJson::novo(titulo, lote.to_owned(), origem, agora);
             json.opcoes = padroes.opcoes();
+            if let Video::Link(link) = video {
+                // O título e o canal são nomes próprios que a Transcrição deve acertar.
+                for nome in [&link.titulo, &link.canal] {
+                    let nome = nome.trim();
+                    if !nome.is_empty() && !json.opcoes.nomes_proprios.iter().any(|n| n == nome) {
+                        json.opcoes.nomes_proprios.push(nome.to_owned());
+                    }
+                }
+            }
             json.idioma_do_video = padroes.idioma().map(str::to_owned);
             json.gravar(&pasta)
                 .map_err(|error| nao_criado(&pasta, error))?;
@@ -937,6 +1029,12 @@ fn find_program(
         .chain(path_env.into_iter().flat_map(std::env::split_paths))
         .map(|dir| dir.join(&file))
         .find(|candidate| candidate.is_file())
+}
+
+/// Um vídeo do lote: um arquivo do computador ou um link do YouTube já confirmado.
+enum Video {
+    Arquivo(PathBuf),
+    Link(LinkDoLote),
 }
 
 /// O arquivo existe e tem uma das extensões aceitas.

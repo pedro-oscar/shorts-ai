@@ -200,3 +200,98 @@ test("um lote recusado pelo núcleo mostra o erro e fica em Padrões", async () 
   );
   screen.getByRole("heading", { name: "Padrões" });
 });
+
+async function colarLinks(
+  fake: Awaited<ReturnType<typeof renderVideos>>,
+  linhas: string[],
+) {
+  await fake.user.click(screen.getByRole("tab", { name: "Link do YouTube" }));
+  await fake.user.type(
+    screen.getByRole("textbox", { name: /Links do YouTube/ }),
+    linhas.join("\n"),
+  );
+  await fake.user.click(
+    screen.getByRole("button", { name: "Adicionar links" }),
+  );
+  return screen.findByRole("list", { name: "Links escolhidos" });
+}
+
+test("colar um link mostra título, canal e duração antes de baixar", async () => {
+  const fake = await renderVideos();
+
+  const lista = await colarLinks(fake, ["https://youtu.be/KGfmaHnBQx4"]);
+
+  const item = await within(lista).findByRole("listitem");
+  await within(item).findByText(/Vídeo KGfmaHnBQx4/);
+  expect(item).toHaveTextContent("Canal da Ana");
+  expect(item).toHaveTextContent("1:02:05");
+  expect(fake.calls.consultas).toEqual(["https://youtu.be/KGfmaHnBQx4"]);
+});
+
+test("um endereço que não é do YouTube recebe uma mensagem clara e trava o Continuar", async () => {
+  const fake = await renderVideos();
+
+  await colarLinks(fake, ["https://vimeo.com/123"]);
+
+  const alerta = await screen.findByRole("alert");
+  expect(alerta).toHaveTextContent(
+    "https://vimeo.com/123 não é um link de vídeo do YouTube",
+  );
+  expect(screen.getByRole("button", { name: "Continuar" })).toBeDisabled();
+
+  await fake.user.click(
+    screen.getByRole("button", { name: "Remover https://vimeo.com/123" }),
+  );
+  expect(screen.queryByRole("alert")).toBeNull();
+});
+
+test("Continuar espera o direito de uso de cada link e Gerar envia a confirmação", async () => {
+  const fake = await renderVideos();
+  await colarLinks(fake, ["https://youtu.be/KGfmaHnBQx4"]);
+  await screen.findByText(/Vídeo KGfmaHnBQx4/);
+  const continuar = screen.getByRole("button", { name: "Continuar" });
+  expect(continuar).toBeDisabled();
+
+  await fake.user.click(
+    screen.getByRole("checkbox", {
+      name: "Tenho direito de uso de Vídeo KGfmaHnBQx4",
+    }),
+  );
+  expect(continuar).toBeEnabled();
+  await fake.user.click(continuar);
+  await fake.user.click(
+    await screen.findByRole("button", { name: /^Gerar até/ }),
+  );
+
+  await screen.findByRole("heading", { name: "Gerando" });
+  expect(fake.calls.links).toEqual([
+    [
+      {
+        url: "https://www.youtube.com/watch?v=KGfmaHnBQx4",
+        titulo: "Vídeo KGfmaHnBQx4",
+        canal: "Canal da Ana",
+        direitoDeUso: true,
+      },
+    ],
+  ]);
+  screen.getByRole("listitem", { name: "Vídeo KGfmaHnBQx4" });
+});
+
+test("com vários links, 'Confirmo para todos' marca o direito de uso de cada um", async () => {
+  const fake = await renderVideos();
+  await colarLinks(fake, [
+    "https://youtu.be/KGfmaHnBQx4",
+    "https://www.youtube.com/shorts/abcdefghijk",
+  ]);
+  await screen.findByText(/Vídeo abcdefghijk/);
+
+  await fake.user.click(
+    screen.getByRole("checkbox", { name: "Confirmo para todos" }),
+  );
+
+  for (const checkbox of screen.getAllByRole("checkbox", {
+    name: /^Tenho direito de uso de/,
+  }))
+    expect(checkbox).toBeChecked();
+  expect(screen.getByRole("button", { name: "Continuar" })).toBeEnabled();
+});

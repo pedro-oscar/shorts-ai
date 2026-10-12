@@ -128,6 +128,15 @@ export const ptBR = {
     removerArquivo: "Remover {{nome}}",
     biblioteca: "Os projetos ficam na Biblioteca: {{pasta}}",
     continuar: "Continuar",
+    abaLink: "Link do YouTube",
+    linksRotulo: "Links do YouTube (um por linha)",
+    linksAdicionar: "Adicionar links",
+    linksLista: "Links escolhidos",
+    linkConsultando: "Consultando {{url}}…",
+    direitoDeUso: "Tenho direito de uso deste vídeo",
+    direitoDeUsoDe: "Tenho direito de uso de {{titulo}}",
+    direitoParaTodos: "Confirmo para todos",
+    removerLink: "Remover {{titulo}}",
   },
   padroes: {
     titulo: "Padrões",
@@ -252,6 +261,12 @@ export const ptBR = {
       "Os padrões do lote não foram aceitos: confira o número de reels (1 a 12) e o de revisões (0 a 3).",
     preparacaoInterrompida: "A preparação foi interrompida.",
     naoAbriu: "Não foi possível abrir {{caminho}}.",
+    linkInvalido:
+      "{{url}} não é um link de vídeo do YouTube. Use um endereço youtube.com/watch, youtu.be, /shorts ou /live.",
+    linkNaoConsultado:
+      "Não foi possível consultar {{url}}. Confira se o vídeo existe e está disponível e tente de novo.",
+    direitoDeUsoNaoConfirmado:
+      "Confirme que você tem direito de uso do vídeo {{url}} para continuar.",
     detalhe: "Detalhe técnico (do sistema): {{detalhe}}",
   },
 };

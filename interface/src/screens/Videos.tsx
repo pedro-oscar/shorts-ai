@@ -1,9 +1,13 @@
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useAppStore } from "../context";
 import { ErrorMessage, Screen, Topo } from "./common";
 import { formatarDuracao } from "./formatos";
 
-/** O passo Vídeos: os arquivos do computador que formam o lote, que o passo Padrões gera. */
+/**
+ * O passo Vídeos: os arquivos do computador e os links do YouTube que formam o lote, que o
+ * passo Padrões gera.
+ */
 export function Videos({
   onOpenSobre,
   onContinuar,
@@ -17,26 +21,82 @@ export function Videos({
   const biblioteca = useAppStore((store) => store.biblioteca);
   const escolher = useAppStore((store) => store.escolherArquivos);
   const remover = useAppStore((store) => store.removerArquivo);
+  const links = useAppStore((store) => store.links);
+  const adicionarLinks = useAppStore((store) => store.adicionarLinks);
+  const removerLink = useAppStore((store) => store.removerLink);
+  const definirDireito = useAppStore((store) => store.definirDireitoDeUso);
+  const definirDireitoDeTodos = useAppStore(
+    (store) => store.definirDireitoDeUsoDeTodos,
+  );
+  const [aba, setAba] = useState<"arquivos" | "link">("arquivos");
+  const [texto, setTexto] = useState("");
+  // Só links consultados e com o direito de uso confirmado seguem para o lote.
+  const linksPrecisamDeAtencao = links.some(
+    (link) => link.estado !== "pronto" || !link.direitoDeUso,
+  );
+  const prontos = links.filter((link) => link.estado === "pronto");
   return (
     <>
       <Topo onOpenSobre={onOpenSobre} />
       <Screen title={t("videos.titulo")}>
         <div role="tablist">
-          <button type="button" role="tab" aria-selected="true">
-            {t("videos.abaArquivos")}
-          </button>
-        </div>
-        <div role="tabpanel" className="drop-zone">
-          <p>{t("videos.soltar")}</p>
           <button
             type="button"
+            role="tab"
+            aria-selected={aba === "arquivos"}
             onClick={() => {
-              void escolher();
+              setAba("arquivos");
             }}
           >
-            {t("videos.escolher")}
+            {t("videos.abaArquivos")}
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={aba === "link"}
+            onClick={() => {
+              setAba("link");
+            }}
+          >
+            {t("videos.abaLink")}
           </button>
         </div>
+        {aba === "arquivos" ? (
+          <div role="tabpanel" className="drop-zone">
+            <p>{t("videos.soltar")}</p>
+            <button
+              type="button"
+              onClick={() => {
+                void escolher();
+              }}
+            >
+              {t("videos.escolher")}
+            </button>
+          </div>
+        ) : (
+          <form
+            role="tabpanel"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void adicionarLinks(texto);
+              setTexto("");
+            }}
+          >
+            <label>
+              {t("videos.linksRotulo")}
+              <textarea
+                rows={3}
+                value={texto}
+                onChange={(event) => {
+                  setTexto(event.target.value);
+                }}
+              />
+            </label>
+            <button type="submit" disabled={texto.trim() === ""}>
+              {t("videos.linksAdicionar")}
+            </button>
+          </form>
+        )}
         {erro && <ErrorMessage erro={erro} />}
         {arquivos.length > 0 && (
           <ul aria-label={t("videos.lista")} className="file-list">
@@ -61,12 +121,81 @@ export function Videos({
             ))}
           </ul>
         )}
+        {links.length > 0 && (
+          <>
+            <ul aria-label={t("videos.linksLista")} className="file-list">
+              {links.map((link) => (
+                <li key={link.url}>
+                  {link.estado === "consultando" && (
+                    <span className="file-name">
+                      {t("videos.linkConsultando", { url: link.url })}
+                    </span>
+                  )}
+                  {link.estado === "erro" && <ErrorMessage erro={link.erro} />}
+                  {link.estado === "pronto" && (
+                    <>
+                      <span className="file-name">
+                        {link.info.titulo}
+                        <span className="detail">
+                          {" · "}
+                          {link.info.canal}
+                        </span>
+                      </span>
+                      <span className="file-duration">
+                        {formatarDuracao(link.info.duracaoEmSegundos)}
+                      </span>
+                      <label>
+                        <input
+                          type="checkbox"
+                          aria-label={t("videos.direitoDeUsoDe", {
+                            titulo: link.info.titulo,
+                          })}
+                          checked={link.direitoDeUso}
+                          onChange={(event) => {
+                            definirDireito(link.url, event.target.checked);
+                          }}
+                        />
+                        {t("videos.direitoDeUso")}
+                      </label>
+                    </>
+                  )}
+                  <button
+                    type="button"
+                    aria-label={t("videos.removerLink", {
+                      titulo:
+                        link.estado === "pronto" ? link.info.titulo : link.url,
+                    })}
+                    onClick={() => {
+                      removerLink(link.url);
+                    }}
+                  >
+                    {t("videos.remover")}
+                  </button>
+                </li>
+              ))}
+            </ul>
+            {prontos.length > 1 && (
+              <label>
+                <input
+                  type="checkbox"
+                  checked={prontos.every((link) => link.direitoDeUso)}
+                  onChange={(event) => {
+                    definirDireitoDeTodos(event.target.checked);
+                  }}
+                />
+                {t("videos.direitoParaTodos")}
+              </label>
+            )}
+          </>
+        )}
         <p className="detail">
           {t("videos.biblioteca", { pasta: biblioteca })}
         </p>
         <button
           type="button"
-          disabled={arquivos.length === 0}
+          disabled={
+            arquivos.length + links.length === 0 || linksPrecisamDeAtencao
+          }
           onClick={onContinuar}
         >
           {t("videos.continuar")}

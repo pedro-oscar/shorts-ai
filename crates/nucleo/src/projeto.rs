@@ -52,6 +52,39 @@ pub(crate) enum Origem {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         modo: Option<ModoDeImportacao>,
     },
+    /// Um vídeo do YouTube; a Importação o baixa para `bruto/`. O título é o do projeto.
+    Youtube {
+        url: String,
+        canal: String,
+        /// Quando a pessoa confirmou "Tenho direito de uso deste vídeo".
+        #[serde(with = "time::serde::rfc3339")]
+        direito_de_uso_em: OffsetDateTime,
+        /// O arquivo em `bruto/`, que existe depois da Importação.
+        nome: String,
+    },
+}
+
+impl Origem {
+    /// O nome do vídeo original: o do arquivo local ou o do que foi baixado.
+    pub fn nome(&self) -> &str {
+        match self {
+            Self::Arquivo { nome, .. } | Self::Youtube { nome, .. } => nome,
+        }
+    }
+
+    /// O vídeo original do projeto em `pasta`: o hardlink em `bruto/`, o caminho de origem
+    /// quando o arquivo local só tem a referência, ou o vídeo baixado.
+    pub fn video(&self, pasta: &Path) -> PathBuf {
+        match self {
+            Self::Arquivo {
+                modo: Some(ModoDeImportacao::Hardlink),
+                nome,
+                ..
+            }
+            | Self::Youtube { nome, .. } => pasta.join("bruto").join(nome),
+            Self::Arquivo { caminho, .. } => PathBuf::from(caminho),
+        }
+    }
 }
 
 /// As opções efetivas do projeto: os padrões do lote, até haver exceções.

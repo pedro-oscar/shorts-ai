@@ -9,6 +9,7 @@ import type {
   EstadoDaPreparacao,
   Evento,
   IdiomaDaInterface,
+  InfoDoLink,
   ModoDeLogin,
   NivelDoPlano,
   Pacote,
@@ -18,6 +19,18 @@ import type {
   ProjetoResumo,
 } from "./bindings";
 import type { Nucleo } from "./nucleo";
+
+/** Um link do YouTube da lista do passo Vídeos, desde que foi colado. */
+export type LinkNaLista = {
+  /** O texto colado, que identifica o link na lista. */
+  url: string;
+  /** Marcado em "Tenho direito de uso deste vídeo". */
+  direitoDeUso: boolean;
+} & (
+  | { estado: "consultando" }
+  | { estado: "pronto"; info: InfoDoLink }
+  | { estado: "erro"; erro: Erro }
+);
 
 /** Os padrões que o passo Padrões mostra antes de a pessoa mexer em algo. */
 export const PADROES_INICIAIS: Padroes = {
@@ -106,6 +119,8 @@ export interface AppState {
   /** Os vídeos da lista do passo Vídeos, antes de Gerar. */
   arquivos: ArquivoDeVideo[];
   erroDeArquivos: Erro | null;
+  /** Os links do YouTube da lista do passo Vídeos, antes de Gerar. */
+  links: LinkNaLista[];
   /** As opções que valem para todos os projetos do lote. */
   padroes: Padroes;
   /** Os projetos criados, com o estado de cada etapa, em ordem de criação. */
@@ -140,6 +155,13 @@ export interface AppStore extends AppState {
   adicionarArquivos: (caminhos: string[]) => Promise<void>;
   escolherArquivos: () => Promise<void>;
   removerArquivo: (caminho: string) => void;
+  /** Consulta cada endereço de `texto` (um por linha) e põe na lista os que ainda não estão. */
+  adicionarLinks: (texto: string) => Promise<void>;
+  removerLink: (url: string) => void;
+  /** Marca ou desmarca o direito de uso do link. */
+  definirDireitoDeUso: (url: string, direitoDeUso: boolean) => void;
+  /** Marca ou desmarca o direito de uso de todos os links da lista. */
+  definirDireitoDeUsoDeTodos: (direitoDeUso: boolean) => void;
   /** Muda só as opções de `mudancas`; as outras ficam como estão. */
   definirPadroes: (mudancas: Partial<Padroes>) => void;
   carregarGaleria: (id: string) => Promise<void>;
@@ -328,6 +350,7 @@ export function createAppStore(nucleo: Nucleo) {
       preparando: false,
       arquivos: [],
       erroDeArquivos: null,
+      links: [],
       padroes: PADROES_INICIAIS,
       projetos: [],
       galeria: {},
@@ -463,6 +486,65 @@ export function createAppStore(nucleo: Nucleo) {
         }));
       },
 
+      adicionarLinks: async (texto) => {
+        const novos = [
+          ...new Set(
+            texto
+              .split("\n")
+              .map((linha) => linha.trim())
+              .filter(Boolean),
+          ),
+        ].filter((url) => !get().links.some((link) => link.url === url));
+        set((current) => ({
+          links: [
+            ...current.links,
+            ...novos.map((url): LinkNaLista => ({
+              url,
+              direitoDeUso: false,
+              estado: "consultando",
+            })),
+          ],
+        }));
+        await Promise.all(
+          novos.map(async (url) => {
+            const result = await nucleo.consultarLink(url);
+            set((current) => ({
+              links: current.links.map((link) =>
+                link.url === url
+                  ? {
+                      url,
+                      direitoDeUso: link.direitoDeUso,
+                      ...(result.status === "ok"
+                        ? { estado: "pronto" as const, info: result.data }
+                        : { estado: "erro" as const, erro: result.error }),
+                    }
+                  : link,
+              ),
+            }));
+          }),
+        );
+      },
+
+      removerLink: (url) => {
+        set((current) => ({
+          links: current.links.filter((link) => link.url !== url),
+        }));
+      },
+
+      definirDireitoDeUso: (url, direitoDeUso) => {
+        set((current) => ({
+          links: current.links.map((link) =>
+            link.url === url ? { ...link, direitoDeUso } : link,
+          ),
+        }));
+      },
+
+      definirDireitoDeUsoDeTodos: (direitoDeUso) => {
+        set((current) => ({
+          links: current.links.map((link) => ({ ...link, direitoDeUso })),
+        }));
+      },
+
       definirPadroes: (mudancas) => {
         set((current) => ({ padroes: { ...current.padroes, ...mudancas } }));
       },
@@ -494,13 +576,25 @@ export function createAppStore(nucleo: Nucleo) {
       gerar: async () => {
         const result = await nucleo.criarLote(
           get().arquivos.map((a) => a.caminho),
+          get().links.flatMap((link) =>
+            link.estado === "pronto"
+              ? [
+                  {
+                    url: link.info.url,
+                    titulo: link.info.titulo,
+                    canal: link.info.canal,
+                    direitoDeUso: link.direitoDeUso,
+                  },
+                ]
+              : [],
+          ),
           get().padroes,
         );
         if (result.status === "error") {
           set({ erroDeArquivos: result.error });
           return false;
         }
-        set({ arquivos: [], erroDeArquivos: null });
+        set({ arquivos: [], links: [], erroDeArquivos: null });
         return true;
       },
     };

@@ -8,6 +8,7 @@ import type {
   EstadoDaPreparacao,
   EstadoInicial,
   Evento,
+  LinkDoLote,
   ModoDeLogin,
   Pacote,
   Padroes,
@@ -84,6 +85,10 @@ export function createFakeNucleo(
     atualizar: 0,
     /** Os caminhos de cada `criarLote`. */
     lotes: [] as string[][],
+    /** Os links de cada `criarLote`. */
+    links: [] as LinkDoLote[][],
+    /** Os endereços de cada `consultarLink`. */
+    consultas: [] as string[],
     /** Os padrões de cada `criarLote`. */
     padroes: [] as Padroes[],
     /** Os argumentos de cada `entrarNoClaudeCode`. */
@@ -98,6 +103,7 @@ export function createFakeNucleo(
   let testError: Erro | null = null;
   let acceptanceError: Erro | null = null;
   let batchError: Erro | null = null;
+  const linksQueFalham = new Map<string, Erro>();
   const readErrors = new Map<string, Erro>();
   let openError: Erro | null = null;
 
@@ -190,16 +196,39 @@ export function createFakeNucleo(
           duracaoEmSegundos: caminho.endsWith("aula.mp4") ? 125 : null,
         })),
       }),
-    criarLote: (caminhos, padroes) => {
+    consultarLink: (url) => {
+      calls.consultas.push(url);
+      const falha = linksQueFalham.get(url);
+      if (falha) return Promise.resolve({ status: "error", error: falha });
+      const id = /(?:v=|youtu\.be\/|shorts\/|live\/)([\w-]{11})/.exec(url)?.[1];
+      if (!id)
+        return Promise.resolve({
+          status: "error",
+          error: { codigo: "linkInvalido", url },
+        });
+      return Promise.resolve({
+        status: "ok",
+        data: {
+          url: `https://www.youtube.com/watch?v=${id}`,
+          titulo: `Vídeo ${id}`,
+          canal: "Canal da Ana",
+          duracaoEmSegundos: 3725,
+        },
+      });
+    },
+    criarLote: (caminhos, links, padroes) => {
       calls.lotes.push(caminhos);
+      calls.links.push(links);
       calls.padroes.push(padroes);
       if (batchError)
         return Promise.resolve({ status: "error", error: batchError });
-      projetos = caminhos.map((caminho) => {
-        const nome = (caminho.split("/").pop() ?? caminho).replace(
-          /\.\w+$/,
-          "",
-        );
+      const nomes = [
+        ...caminhos.map((caminho) =>
+          (caminho.split("/").pop() ?? caminho).replace(/\.\w+$/, ""),
+        ),
+        ...links.map((link) => link.titulo),
+      ];
+      projetos = nomes.map((nome) => {
         return {
           id: `${nome} (2026-10-09)`,
           titulo: nome,
@@ -296,6 +325,10 @@ export function createFakeNucleo(
     },
     failBatch: (erro: Erro) => {
       batchError = erro;
+    },
+    /** Consultar este endereço falha com este erro. */
+    falharConsulta: (url: string, erro: Erro) => {
+      linksQueFalham.set(url, erro);
     },
     /** Os reels e as reservas que o núcleo lê do projeto `id`. */
     definirDados: (id: string, projeto: DadosDoProjeto) => {
