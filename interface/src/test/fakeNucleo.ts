@@ -24,7 +24,6 @@ import type {
 } from "../bindings";
 import type { Nucleo } from "../nucleo";
 
-/** A data que o núcleo falso grava no aceite: 7 de outubro de 2026, 18:30 em UTC. */
 /** O custo de quem ainda não rodou nenhuma sessão do Claude. */
 export const SEM_CUSTO: ResumoDeCusto = {
   sessoes: [],
@@ -37,6 +36,7 @@ export const SEM_CUSTO: ResumoDeCusto = {
   porReelUsd: null,
 };
 
+/** A data que o núcleo falso grava no aceite: 7 de outubro de 2026, 18:30 em UTC. */
 export const ACCEPTED_AT = "2026-10-07T18:30:00Z";
 
 /** A conta que o núcleo falso tem por padrão: assinatura Max, com o Claude Code em dia. */
