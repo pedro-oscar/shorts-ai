@@ -4,7 +4,6 @@ import type {
   AlvoParaAbrir,
   ArquivoDeVideo,
   Diagnostico,
-  Regra,
   Erro,
   EstadoDaConta,
   EstadoDaEtapa,
@@ -22,6 +21,7 @@ import type {
   PeriodoDeCobranca,
   PlanoConfirmado,
   ProjetoResumo,
+  Regra,
 } from "./bindings";
 import type { Nucleo } from "./nucleo";
 import {

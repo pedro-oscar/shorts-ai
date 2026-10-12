@@ -5,7 +5,6 @@ import type {
   ArquivoDeVideo,
   DadosDoProjeto,
   Diagnostico,
-  Regra,
   Erro,
   EstadoDaConta,
   EstadoDaPreparacao,
@@ -20,6 +19,7 @@ import type {
   Padroes,
   PlanoConfirmado,
   ProjetoResumo,
+  Regra,
 } from "../bindings";
 import type { Nucleo } from "../nucleo";
 

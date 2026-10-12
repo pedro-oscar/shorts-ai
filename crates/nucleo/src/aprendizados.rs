@@ -73,16 +73,15 @@ impl Aprendizados {
     /// não há essa regra.
     pub fn alterar(&self, indice: u32, texto: Option<&str>) -> io::Result<bool> {
         let conteudo = self.conteudo()?;
-        let mut restantes = indice;
+        let mut posicao = 0;
         let mut achada = false;
         let mut linhas = Vec::new();
         for linha in conteudo.lines() {
             if !e_regra(linha) {
                 linhas.push(linha.to_owned());
-            } else if restantes > 0 || achada {
-                restantes = restantes.saturating_sub(1);
-                linhas.push(linha.to_owned());
-            } else {
+                continue;
+            }
+            if posicao == indice {
                 achada = true;
                 if let Some(texto) = texto {
                     linhas.push(format!(
@@ -90,7 +89,10 @@ impl Aprendizados {
                         texto.split_whitespace().collect::<Vec<_>>().join(" ")
                     ));
                 }
+            } else {
+                linhas.push(linha.to_owned());
             }
+            posicao += 1;
         }
         if !achada {
             return Ok(false);
