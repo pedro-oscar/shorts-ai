@@ -14,6 +14,7 @@ import type {
   Excecoes,
   IdiomaDaInterface,
   InfoDoLink,
+  Kit,
   LoteResumo,
   ModoDeLogin,
   Movimento,
@@ -54,6 +55,7 @@ export const PADROES_INICIAIS: Padroes = {
   modelo: "padrao",
   nomesProprios: [],
   idiomaDoVideo: "automatico",
+  kit: "Padrão",
 };
 
 /** Quantas ações do Claude o Gerando mostra por projeto. */
@@ -148,6 +150,10 @@ export interface AppState {
   diagnostico: Diagnostico | null;
   /** As regras que o Claude anotou; `null` até o núcleo entregá-las. */
   regrasAprendidas: Regra[] | null;
+  /** Os kits de marca, com o Padrão primeiro; vazio até o núcleo entregá-los. */
+  kits: Kit[];
+  /** As fontes embutidas que o kit pode usar. */
+  fontesEmbutidas: string[];
   /** O que a preparação da primeira execução tem e o que falta; `null` até o núcleo dizer. */
   preparacao: EstadoDaPreparacao | null;
   /** O que cada pacote que a preparação baixa informa, desde que ela começou. */
@@ -195,6 +201,11 @@ export interface AppStore extends AppState {
   trocarBiblioteca: () => Promise<void>;
   definirIdioma: (idioma: IdiomaDaInterface) => Promise<void>;
   carregarRegrasAprendidas: () => Promise<void>;
+  carregarKits: () => Promise<void>;
+  /** Salva o kit e o escolhe para o lote; devolve se salvou. */
+  salvarKit: (kit: Kit) => Promise<boolean>;
+  /** Apaga um kit salvo; se era o do lote, volta ao Padrão. */
+  apagarKit: (nome: string) => Promise<void>;
   /** Troca o texto de uma regra aprendida; texto vazio a apaga. */
   editarRegraAprendida: (indice: number, texto: string) => Promise<void>;
   apagarRegraAprendida: (indice: number) => Promise<void>;
@@ -527,6 +538,8 @@ export function createAppStore(nucleo: Nucleo) {
       erroDasConfiguracoes: null,
       diagnostico: null,
       regrasAprendidas: null,
+      kits: [],
+      fontesEmbutidas: [],
       preparacao: null,
       andamentoDaPreparacao: {},
       preparando: false,
@@ -655,6 +668,46 @@ export function createAppStore(nucleo: Nucleo) {
         if (result.status === "ok")
           set({ regrasAprendidas: result.data, erroDasConfiguracoes: null });
         else set({ erroDasConfiguracoes: result.error });
+      },
+
+      carregarKits: async () => {
+        const [kits, fontes] = await Promise.all([
+          nucleo.kits(),
+          nucleo.fontesEmbutidas(),
+        ]);
+        if (kits.status === "ok")
+          set({ kits: kits.data, fontesEmbutidas: fontes });
+        else set({ erroDeArquivos: kits.error });
+      },
+
+      salvarKit: async (kit) => {
+        const result = await nucleo.salvarKit(kit);
+        if (result.status !== "ok") {
+          set({ erroDeArquivos: result.error });
+          return false;
+        }
+        set((current) => ({
+          kits: result.data,
+          erroDeArquivos: null,
+          padroes: { ...current.padroes, kit: kit.nome.trim() },
+        }));
+        return true;
+      },
+
+      apagarKit: async (nome) => {
+        const result = await nucleo.apagarKit(nome);
+        if (result.status !== "ok") {
+          set({ erroDeArquivos: result.error });
+          return;
+        }
+        set((current) => ({
+          kits: result.data,
+          erroDeArquivos: null,
+          padroes:
+            current.padroes.kit === nome
+              ? { ...current.padroes, kit: PADROES_INICIAIS.kit }
+              : current.padroes,
+        }));
       },
 
       carregarDiagnostico: async () => {

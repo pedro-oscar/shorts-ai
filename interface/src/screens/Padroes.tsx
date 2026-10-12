@@ -3,6 +3,7 @@ import type { IdiomaDoVideo, ModeloDoClaude } from "../bindings";
 import { useAppStore } from "../context";
 import { ErrorMessage, Screen, Topo } from "./common";
 import { EstimativaDoLote } from "./Estimativa";
+import { KitDeMarca } from "./KitDeMarca";
 
 const MODELOS: ModeloDoClaude[] = ["padrao", "opus", "sonnet"];
 const IDIOMAS: IdiomaDoVideo[] = ["automatico", "pt", "en"];
@@ -65,6 +66,7 @@ export function Padroes({
           />
         </label>
         <p className="detail">{t("padroes.pedidoDica")}</p>
+        <KitDeMarca />
         <details>
           <summary>{t("padroes.maisOpcoes")}</summary>
           <label>

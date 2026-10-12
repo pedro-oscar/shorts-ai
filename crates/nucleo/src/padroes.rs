@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::Erro;
+use crate::kit::NOME_DO_KIT_PADRAO;
 use crate::projeto::{Faixa, Opcoes};
 
 /// O modelo das sessões do Claude.
@@ -39,6 +40,13 @@ pub struct Padroes {
     pub modelo: ModeloDoClaude,
     pub nomes_proprios: Vec<String>,
     pub idioma_do_video: IdiomaDoVideo,
+    /// O nome do kit de marca; os projetos do lote recebem uma cópia dele.
+    #[serde(default = "kit_padrao")]
+    pub kit: String,
+}
+
+fn kit_padrao() -> String {
+    NOME_DO_KIT_PADRAO.to_owned()
 }
 
 impl Default for Padroes {
@@ -51,6 +59,7 @@ impl Default for Padroes {
             modelo: ModeloDoClaude::Padrao,
             nomes_proprios: Vec::new(),
             idioma_do_video: IdiomaDoVideo::Automatico,
+            kit: kit_padrao(),
         }
     }
 }

@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
+use crate::kit::Kit;
 use crate::{Aceite, Cotacao, Erro, IdiomaDaInterface, PlanoConfirmado};
 
 const FILE_NAME: &str = "preferencias.json";
@@ -26,6 +27,9 @@ pub(crate) struct Preferencias {
     /// O idioma da interface que a pessoa escolheu; sem ele vale o do sistema.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub idioma: Option<IdiomaDaInterface>,
+    /// Os kits de marca que a pessoa salvou, além do Padrão.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub kits: Vec<Kit>,
 }
 
 pub(crate) struct PreferencesFile {

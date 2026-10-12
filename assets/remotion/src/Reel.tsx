@@ -1,10 +1,11 @@
-import React, {useMemo} from 'react';
-import {AbsoluteFill, interpolate, useCurrentFrame, useVideoConfig} from 'remotion';
+import React, {useEffect, useMemo, useState} from 'react';
+import {AbsoluteFill, cancelRender, continueRender, delayRender, interpolate, useCurrentFrame, useVideoConfig} from 'remotion';
 import {Captions} from './components/Captions';
 import {FaceCropVideo} from './components/FaceCropVideo';
 import {Grain} from './components/Grain';
 import {planejarLayout} from './motions/layout';
 import {MotionLayer} from './motions/MotionLayer';
+import {carregarFonte} from './fonts';
 import {resolveStyle} from './theme';
 import type {ReelProps} from './types';
 
@@ -22,12 +23,23 @@ export const Reel: React.FC<ReelProps> = ({clipId, data}) => {
   const {fps, width, height, durationInFrames} = useVideoConfig();
   const style = resolveStyle(data?.plan.style);
   const motions = data?.plan.motions ?? [];
+  // O layout mede o texto com a fonte real, então só começa depois de ela carregar neste navegador.
+  const [fontesProntas, setFontesProntas] = useState(false);
+  const [espera] = useState(() => delayRender('fontes do kit'));
+  useEffect(() => {
+    Promise.all([carregarFonte(style.fonteLegenda), carregarFonte(style.fonteTitulos)])
+      .then(() => {
+        setFontesProntas(true);
+        continueRender(espera);
+      })
+      .catch((erro: unknown) => cancelRender(erro));
+  }, [espera, style.fonteLegenda, style.fonteTitulos]);
   const placements = useMemo(
-    () => (data ? planejarLayout(motions, data.clip, data.face, style, fps, width, height) : []),
+    () => (data && fontesProntas ? planejarLayout(motions, data.clip, data.face, style, fps, width, height) : []),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [data, fps, width, height],
+    [data, fontesProntas, fps, width, height],
   );
-  if (!data) return null; // calculateMetadata sempre preenche
+  if (!data || !fontesProntas) return null; // calculateMetadata sempre preenche os dados
 
   const fimF = Math.round(style.fadeOut * fps);
   const escurecer =
@@ -39,7 +51,7 @@ export const Reel: React.FC<ReelProps> = ({clipId, data}) => {
       : 0;
 
   return (
-    <AbsoluteFill style={{backgroundColor: '#000'}}>
+    <AbsoluteFill style={{backgroundColor: '#000', fontSynthesis: 'none'}}>
       <FaceCropVideo clipId={clipId} clip={data.clip} face={data.face} motions={motions} fadeOut={style.fadeOut} />
       <MotionLayer motions={motions} placements={placements} style={style} fullScenesOnly />
       {style.grain ? <Grain /> : null}

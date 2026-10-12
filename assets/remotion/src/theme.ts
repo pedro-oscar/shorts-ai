@@ -1,24 +1,24 @@
-import montserrat700 from '@fontsource/montserrat/files/montserrat-latin-700-normal.woff2';
-import montserrat800 from '@fontsource/montserrat/files/montserrat-latin-800-normal.woff2';
-import montserrat900 from '@fontsource/montserrat/files/montserrat-latin-900-normal.woff2';
-import {loadFont} from '@remotion/fonts';
+import {carregarFonte, familia} from './fonts';
 import type {MotionStyle} from './types';
 
-// Fonte empacotada no bundle: o render não depende de internet (Google Fonts pode estar bloqueado).
+/** A fonte das cenas e do kit Padrão. */
 export const FONT = 'Montserrat';
-for (const [weight, url] of [
-  ['700', montserrat700],
-  ['800', montserrat800],
-  ['900', montserrat900],
-] as const) {
-  loadFont({family: FONT, url, weight});
-}
+void carregarFonte(FONT);
 
 export const WIDTH = 1080;
 export const HEIGHT = 1920;
 export const FPS = 30;
 
-export const resolveStyle = (s: MotionStyle | undefined): Required<MotionStyle> => ({
+/** O estilo com os padrões preenchidos; as fontes viram os nomes do kit. */
+export type Style = Required<Omit<MotionStyle, 'fontes'>> & {fonteLegenda: string; fonteTitulos: string};
+
+/** O CSS `font-family` da fonte da legenda e o da dos títulos. */
+export const familiaLegenda = (s: Style) => familia(s.fonteLegenda);
+export const familiaTitulos = (s: Style) => familia(s.fonteTitulos);
+
+export const resolveStyle = (s: MotionStyle | undefined): Style => ({
+  fonteLegenda: s?.fontes?.legenda ?? FONT,
+  fonteTitulos: s?.fontes?.titulos ?? FONT,
   accent: s?.accent ?? '#FF2D2D',
   highlight: s?.highlight ?? '#FFE600',
   captionY: s?.captionY ?? 0.66,

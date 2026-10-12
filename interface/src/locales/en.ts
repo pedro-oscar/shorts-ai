@@ -274,6 +274,23 @@ export const en: typeof ptBR = {
     videos_other: "{{count}} videos",
     gerar: "Generate up to {{reels}} from {{videos}}",
   },
+  kit: {
+    titulo: "Brand kit",
+    kit: "Kit",
+    corDeDestaque: "Accent color",
+    corDaPalavra: "Spoken word color",
+    fonteDaLegenda: "Caption font",
+    fonteDosTitulos: "Title font",
+    amostra: "Kit sample",
+    amostraTitulo: "The mistake that breaks companies",
+    amostraLegenda: "Nobody tells",
+    amostraPalavra: "you",
+    alteradoDica:
+      "You changed the kit. Save it with a name to use it in this batch.",
+    nome: "Kit name",
+    salvar: "Save as kit",
+    apagar: "Delete the {{nome}} kit",
+  },
   estimativa: {
     titulo: "Estimate",
     inicial: "Initial estimate: no runs of yours to calibrate with yet.",

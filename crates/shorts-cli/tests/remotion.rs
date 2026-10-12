@@ -202,5 +202,17 @@ fn o_remotion_empacota_com_node_modules_ligado_por_symlink() {
     let still = rodar(&["still", "demo", "1"]);
     assert!(still.status.success(), "{}", texto(&still.stderr));
     assert!(remotion.join("out/demo_t1.png").is_file());
+
+    // Com fontes condensadas, o layout mede o título com a fonte real, já carregada, e o
+    // render termina: a medição falha se a fonte não estiver carregada.
+    let motion = remotion.join("public/clips/demo/motion.json");
+    let plano: String = fs::read_to_string(&motion).unwrap().replacen(
+        "\"style\": {",
+        "\"style\": {\"fontes\": {\"legenda\": \"Bebas Neue\", \"titulos\": \"Anton\"}, ",
+        1,
+    );
+    fs::write(&motion, plano).unwrap();
+    let condensada = rodar(&["still", "demo", "1"]);
+    assert!(condensada.status.success(), "{}", texto(&condensada.stderr));
     assert!(!compartilhado.join("node_modules/.cache").exists());
 }

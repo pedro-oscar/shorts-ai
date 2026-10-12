@@ -7,7 +7,7 @@
 use nucleo::{
     Aceite, AlvoParaAbrir, ArquivoDeVideo, ArquivoDoLote, Config, Cotacao, DadosDoProjeto,
     Diagnostico, Erro, EstadoDaConta, EstadoDaPreparacao, EstadoInicial, Estimativa, Evento,
-    Excecoes, IdiomaDaInterface, InfoDoLink, LinkDoLote, LoteResumo, ModoDeLogin,
+    Excecoes, IdiomaDaInterface, InfoDoLink, Kit, LinkDoLote, LoteResumo, ModoDeLogin,
     MotivoDeNotificacao, Movimento, NivelDoPlano, Nucleo, Padroes, PeriodoDeCobranca,
     PlanoConfirmado, ProjetoResumo, Regra,
 };
@@ -193,6 +193,30 @@ async fn definir_biblioteca(app: AppHandle, caminho: String) -> Result<String, E
 #[specta::specta]
 async fn definir_idioma(nucleo: State<'_, Nucleo>, idioma: IdiomaDaInterface) -> Result<(), Erro> {
     nucleo.definir_idioma(idioma)
+}
+
+#[tauri::command]
+#[specta::specta]
+async fn kits(nucleo: State<'_, Nucleo>) -> Result<Vec<Kit>, Erro> {
+    nucleo.kits()
+}
+
+#[tauri::command]
+#[specta::specta]
+async fn salvar_kit(nucleo: State<'_, Nucleo>, kit: Kit) -> Result<Vec<Kit>, Erro> {
+    nucleo.salvar_kit(kit)
+}
+
+#[tauri::command]
+#[specta::specta]
+async fn apagar_kit(nucleo: State<'_, Nucleo>, nome: String) -> Result<Vec<Kit>, Erro> {
+    nucleo.apagar_kit(&nome)
+}
+
+#[tauri::command]
+#[specta::specta]
+async fn fontes_embutidas() -> Vec<String> {
+    nucleo::kit::fontes_embutidas()
 }
 
 #[tauri::command]
@@ -470,6 +494,10 @@ fn bindings() -> Builder<tauri::Wry> {
             escolher_pasta,
             definir_biblioteca,
             definir_idioma,
+            kits,
+            salvar_kit,
+            apagar_kit,
+            fontes_embutidas,
             regras_aprendidas,
             editar_regra_aprendida,
             apagar_regra_aprendida,

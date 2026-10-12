@@ -1,7 +1,8 @@
 import React from 'react';
 import {AbsoluteFill, Sequence, useVideoConfig} from 'remotion';
 import {SCENES} from '../scenes';
-import type {Motion, MotionStyle} from '../types';
+import {familiaTitulos, type Style} from '../theme';
+import type {Motion} from '../types';
 import type {Placement} from './layout';
 import {Counter, Flash, Keyword, Slot, Title} from './Overlays';
 import {SceneFrame} from './SceneFrame';
@@ -13,7 +14,7 @@ import {SceneFrame} from './SceneFrame';
 export const MotionLayer: React.FC<{
   motions: Motion[];
   placements: (Placement | null)[];
-  style: Required<MotionStyle>;
+  style: Style;
   /** true = só cenas em tela cheia (ficam por baixo da legenda); false = o resto */
   fullScenesOnly: boolean;
 }> = ({motions, placements, style, fullScenesOnly}) => {
@@ -41,21 +42,21 @@ export const MotionLayer: React.FC<{
           case 'title':
             el = (
               <Slot p={p}>
-                <Title text={m.text} color={m.color ?? style.accent} />
+                <Title text={m.text} color={m.color ?? style.accent} fontFamily={familiaTitulos(style)} />
               </Slot>
             );
             break;
           case 'keyword':
             el = (
               <Slot p={p}>
-                <Keyword text={m.text} color={m.color ?? style.highlight} />
+                <Keyword text={m.text} color={m.color ?? style.highlight} fontFamily={familiaTitulos(style)} />
               </Slot>
             );
             break;
           case 'counter':
             el = (
               <Slot p={p}>
-                <Counter {...m} color={style.highlight} />
+                <Counter {...m} color={style.highlight} fontFamily={familiaTitulos(style)} />
               </Slot>
             );
             break;

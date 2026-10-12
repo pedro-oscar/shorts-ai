@@ -1179,3 +1179,67 @@ fn roteiro_invalido_depois_da_revisao_falha_com_os_erros() {
     assert!(erros.contains("o corte não tem trechos"), "{erros}");
     assert_eq!(cenario.ultimo_custo()["etapa"], "revisao");
 }
+
+const KIT_COM_TITULOS_CONDENSADOS: &str = r##"{"nome": "Canal", "corDeDestaque": "#00AAFF", "corDaPalavra": "#FFFFFF", "fonteDaLegenda": "Inter", "fonteDosTitulos": "Anton"}"##;
+
+fn estilo_do_roteiro(cenario: &Cenario) -> Value {
+    let roteiro: Value =
+        serde_json::from_str(&fs::read_to_string(cenario.pasta.join("edit/roteiro.json")).unwrap())
+            .unwrap();
+    roteiro["estilo"].clone()
+}
+
+#[test]
+fn o_resumo_do_kit_entra_no_prompt() {
+    let cenario = Cenario::novo();
+    fs::write(cenario.pasta.join("kit.json"), KIT_COM_TITULOS_CONDENSADOS).unwrap();
+
+    cenario.rodar(None).0.unwrap();
+
+    let prompt = cenario.lido("prompt.log");
+    assert!(prompt.contains("Kit de marca do projeto"), "{prompt}");
+    assert!(prompt.contains("Anton (condensada"), "{prompt}");
+    assert!(prompt.contains("Inter (larga"), "{prompt}");
+}
+
+#[test]
+fn o_estilo_do_kit_vai_para_o_roteiro_que_veio_sem_ele() {
+    let cenario = Cenario::novo();
+    let escrito = cenario.bin().join("roteiro.json");
+    let mut roteiro: Value = serde_json::from_slice(&fs::read(&escrito).unwrap()).unwrap();
+    roteiro.as_object_mut().unwrap().remove("estilo");
+    fs::write(&escrito, roteiro.to_string()).unwrap();
+    fs::write(cenario.pasta.join("kit.json"), KIT_COM_TITULOS_CONDENSADOS).unwrap();
+
+    cenario.rodar(None).0.unwrap();
+
+    let estilo = estilo_do_roteiro(&cenario);
+    assert_eq!(estilo["accent"], "#00AAFF");
+    assert_eq!(estilo["highlight"], "#FFFFFF");
+    assert_eq!(estilo["fontes"]["legenda"], "Inter");
+    assert_eq!(estilo["fontes"]["titulos"], "Anton");
+}
+
+#[test]
+fn o_roteiro_semeado_com_o_estilo_e_sem_cortes_nao_vale_como_escrito() {
+    let cenario = Cenario::novo();
+    cenario.desmarcar("roteiro-valido");
+    fs::write(cenario.pasta.join("kit.json"), KIT_COM_TITULOS_CONDENSADOS).unwrap();
+
+    let (resultado, _) = cenario.rodar(None);
+
+    assert!(matches!(resultado, Err(ErroDoRoteiro::SemRoteiro)));
+    assert_eq!(estilo_do_roteiro(&cenario)["fontes"]["titulos"], "Anton");
+}
+
+#[test]
+fn o_que_o_claude_escolheu_no_estilo_vale_mais_que_o_kit() {
+    let cenario = Cenario::novo();
+    fs::write(cenario.pasta.join("kit.json"), KIT_COM_TITULOS_CONDENSADOS).unwrap();
+
+    cenario.rodar(None).0.unwrap();
+
+    let estilo = estilo_do_roteiro(&cenario);
+    assert_eq!(estilo["accent"], "#FF2D2D");
+    assert_eq!(estilo["fontes"]["titulos"], "Anton");
+}

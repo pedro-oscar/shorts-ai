@@ -549,7 +549,7 @@ pub fn validar_na_pasta(pasta: &Path, texto: &str) -> Validacao {
         .and_then(|texto| Transcricao::do_json(&texto).ok());
     let contexto = Contexto {
         cenas: cenas_registradas(&pasta.join("remotion")),
-        fontes: None,
+        fontes: Some(crate::kit::catalogo_de_fontes()),
         pasta: pasta.to_owned(),
     };
     validar(texto, transcricao.as_ref(), &contexto)

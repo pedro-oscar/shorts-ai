@@ -32,6 +32,10 @@ export const commands = {
 	/**  Muda a Biblioteca e libera a pasta nova para o player da interface. */
 	definirBiblioteca: (caminho: string) => typedError<string, Erro>(__TAURI_INVOKE("definir_biblioteca", { caminho })),
 	definirIdioma: (idioma: IdiomaDaInterface) => typedError<null, Erro>(__TAURI_INVOKE("definir_idioma", { idioma })),
+	kits: () => typedError<Kit[], Erro>(__TAURI_INVOKE("kits")),
+	salvarKit: (kit: Kit) => typedError<Kit[], Erro>(__TAURI_INVOKE("salvar_kit", { kit })),
+	apagarKit: (nome: string) => typedError<Kit[], Erro>(__TAURI_INVOKE("apagar_kit", { nome })),
+	fontesEmbutidas: () => __TAURI_INVOKE<string[]>("fontes_embutidas"),
 	regrasAprendidas: () => typedError<Regra[], Erro>(__TAURI_INVOKE("regras_aprendidas")),
 	editarRegraAprendida: (indice: number, texto: string) => typedError<Regra[], Erro>(__TAURI_INVOKE("editar_regra_aprendida", { indice, texto })),
 	apagarRegraAprendida: (indice: number) => typedError<Regra[], Erro>(__TAURI_INVOKE("apagar_regra_aprendida", { indice })),
@@ -348,6 +352,17 @@ export type InfoDoLink = {
 	duracaoEmSegundos: number | null,
 };
 
+/**  Um kit de marca. */
+export type Kit = {
+	nome: string,
+	/**  `#RRGGBB`: títulos, palavras-chave e palavras de ênfase. */
+	corDeDestaque: string,
+	/**  `#RRGGBB`: a palavra sendo falada na legenda. */
+	corDaPalavra: string,
+	fonteDaLegenda: string,
+	fonteDosTitulos: string,
+};
+
 /**  Um link do lote, como a pessoa o viu e confirmou no passo Vídeos. */
 export type LinkDoLote = {
 	url: string,
@@ -433,6 +448,8 @@ export type Padroes = {
 	modelo: ModeloDoClaude,
 	nomesProprios: string[],
 	idiomaDoVideo: IdiomaDoVideo,
+	/**  O nome do kit de marca; os projetos do lote recebem uma cópia dele. */
+	kit?: string,
 };
 
 /**  Por que um projeto que não terminou nem falhou não está na fila. */

@@ -57,6 +57,8 @@ export type MotionStyle = {
   uppercase?: boolean;
   /** segundos de saída suave no fim do reel (áudio baixa e imagem escurece). Padrão 0.5; 0 desliga */
   fadeOut?: number;
+  /** fontes do kit de marca (nomes do catálogo embutido). Padrão Montserrat */
+  fontes?: {legenda?: string; titulos?: string};
 };
 
 export type MotionPlan = {

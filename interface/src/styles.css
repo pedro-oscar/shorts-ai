@@ -277,3 +277,31 @@ fieldset label {
   gap: 0.125rem;
   margin-bottom: 0.5rem;
 }
+
+.kit-amostra {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 1.25rem;
+  width: 12rem;
+  aspect-ratio: 9 / 16;
+  padding: 0.75rem;
+  background: #1f2330;
+  text-align: center;
+}
+
+.kit-amostra-titulo {
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.25rem;
+  color: #fff;
+  font-size: 1.1rem;
+  line-height: 1.05;
+}
+
+.kit-amostra-legenda {
+  color: #fff;
+  font-size: 1.4rem;
+  line-height: 1.1;
+  -webkit-text-stroke: 3px #000;
+  paint-order: stroke fill;
+}

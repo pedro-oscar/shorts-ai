@@ -1,8 +1,7 @@
 import {createTikTokStyleCaptions, type Caption} from '@remotion/captions';
 import React, {useMemo} from 'react';
 import {AbsoluteFill, interpolate, spring, useCurrentFrame, useVideoConfig} from 'remotion';
-import {FONT, normalizeWord, outline} from '../theme';
-import type {MotionStyle} from '../types';
+import {familiaLegenda, normalizeWord, outline, type Style} from '../theme';
 
 /**
  * Legenda palavra a palavra estilo TikTok/Reels: poucas palavras por página,
@@ -10,7 +9,7 @@ import type {MotionStyle} from '../types';
  */
 export const Captions: React.FC<{
   captions: Caption[];
-  style: Required<MotionStyle>;
+  style: Style;
   emphasis: string[];
 }> = ({captions, style, emphasis}) => {
   const frame = useCurrentFrame();
@@ -53,7 +52,7 @@ export const Captions: React.FC<{
           justifyContent: 'center',
           columnGap: 30,
           rowGap: 4,
-          fontFamily: FONT,
+          fontFamily: familiaLegenda(style),
           fontWeight: 900,
           fontSize: 78,
           lineHeight: 1.08,

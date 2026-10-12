@@ -13,6 +13,7 @@ import type {
   Evento,
   Excecoes,
   Faixa,
+  Kit,
   LinkDoLote,
   LoteResumo,
   ModoDeLogin,
@@ -38,6 +39,26 @@ export const SEM_CUSTO: ResumoDeCusto = {
 };
 
 /** A data que o núcleo falso grava no aceite: 7 de outubro de 2026, 18:30 em UTC. */
+/** O kit que o núcleo sempre tem, como o núcleo o devolve. */
+export const KIT_PADRAO: Kit = {
+  nome: "Padrão",
+  corDeDestaque: "#FF2D2D",
+  corDaPalavra: "#FFE600",
+  fonteDaLegenda: "Montserrat",
+  fonteDosTitulos: "Montserrat",
+};
+
+const FONTES_EMBUTIDAS = [
+  "Montserrat",
+  "Anton",
+  "Bebas Neue",
+  "Archivo Black",
+  "Bangers",
+  "Oswald",
+  "Poppins",
+  "Inter",
+];
+
 export const ACCEPTED_AT = "2026-10-07T18:30:00Z";
 
 /** A conta que o núcleo falso tem por padrão: assinatura Max, com o Claude Code em dia. */
@@ -157,6 +178,7 @@ export function createFakeNucleo(
   let diagnostico: Diagnostico = DIAGNOSTICO_PADRAO;
   let bibliotecaError: Erro | null = null;
   let regras: Regra[] = [];
+  let kits: Kit[] = [KIT_PADRAO];
   let estimativa: Estimativa = {
     porVideo: { deUsd: 0.7, ateUsd: 1.8 },
     lote: { deUsd: 0.7, ateUsd: 1.8 },
@@ -186,6 +208,8 @@ export function createFakeNucleo(
     consultas: [] as string[],
     /** Os padrões de cada `criarLote`. */
     padroes: [] as Padroes[],
+    kitsSalvos: [] as Kit[],
+    kitsApagados: [] as string[],
     /** O lote e os caminhos de cada `adicionarAoLote`. */
     adicoes: [] as { lote: string; caminhos: string[] }[],
     /** O lote e o nome de cada `renomearLote`. */
@@ -402,6 +426,18 @@ export function createFakeNucleo(
       calls.idiomas.push(idioma);
       state = { ...state, idiomaDaInterface: idioma };
       return Promise.resolve({ status: "ok", data: null });
+    },
+    kits: () => Promise.resolve({ status: "ok", data: kits }),
+    fontesEmbutidas: () => Promise.resolve(FONTES_EMBUTIDAS),
+    salvarKit: (kit) => {
+      calls.kitsSalvos.push(kit);
+      kits = [...kits.filter((salvo) => salvo.nome !== kit.nome), kit];
+      return Promise.resolve({ status: "ok", data: kits });
+    },
+    apagarKit: (nome) => {
+      calls.kitsApagados.push(nome);
+      kits = kits.filter((salvo) => salvo.nome !== nome);
+      return Promise.resolve({ status: "ok", data: kits });
     },
     regrasAprendidas: () => Promise.resolve({ status: "ok", data: regras }),
     editarRegraAprendida: (indice, texto) => {

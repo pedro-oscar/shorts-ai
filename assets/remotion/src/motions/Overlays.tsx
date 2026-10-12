@@ -1,6 +1,6 @@
 import React from 'react';
 import {AbsoluteFill, Easing, interpolate, spring, useCurrentFrame, useVideoConfig} from 'remotion';
-import {FONT, outline} from '../theme';
+import {outline} from '../theme';
 import type {Placement} from './layout';
 
 /** Entrada com mola e saída nos últimos 8 frames. `frame` é local à Sequence. */
@@ -39,7 +39,7 @@ export const Slot: React.FC<{p: Placement; children: React.ReactNode}> = ({p, ch
 );
 
 /** Título do gancho numa tarja de cor. */
-export const Title: React.FC<{text: string; color: string}> = ({text, color}) => {
+export const Title: React.FC<{text: string; color: string; fontFamily: string}> = ({text, color, fontFamily}) => {
   const {enter, exit} = useEnterExit();
   return (
     <div
@@ -50,7 +50,7 @@ export const Title: React.FC<{text: string; color: string}> = ({text, color}) =>
         padding: '18px 34px',
         borderRadius: 14,
         maxWidth: 940,
-        fontFamily: FONT,
+        fontFamily,
         fontWeight: 900,
         fontSize: 64,
         lineHeight: 1.05,
@@ -66,7 +66,7 @@ export const Title: React.FC<{text: string; color: string}> = ({text, color}) =>
 };
 
 /** Palavra-chave que "bate" na tela: começa grande e assenta com mola. */
-export const Keyword: React.FC<{text: string; color: string}> = ({text, color}) => {
+export const Keyword: React.FC<{text: string; color: string; fontFamily: string}> = ({text, color, fontFamily}) => {
   const {enter, exit} = useEnterExit();
   const scale = interpolate(enter, [0, 1], [1.7, 1]);
   return (
@@ -74,7 +74,7 @@ export const Keyword: React.FC<{text: string; color: string}> = ({text, color}) 
       style={{
         transform: `scale(${scale}) rotate(${interpolate(enter, [0, 1], [-6, -3])}deg)`,
         opacity: Math.min(1, enter * 1.4) * exit,
-        fontFamily: FONT,
+        fontFamily,
         fontWeight: 900,
         fontSize: 120,
         lineHeight: 0.95,
@@ -101,7 +101,8 @@ export const Counter: React.FC<{
   decimals?: number;
   label?: string;
   color: string;
-}> = ({from, to, prefix = '', suffix = '', decimals = 0, label, color}) => {
+  fontFamily: string;
+}> = ({from, to, prefix = '', suffix = '', decimals = 0, label, color, fontFamily}) => {
   const {frame, enter, exit, durationInFrames} = useEnterExit();
   const p = interpolate(frame, [0, Math.min(durationInFrames - 8, 36)], [0, 1], {
     extrapolateRight: 'clamp',
@@ -119,7 +120,7 @@ export const Counter: React.FC<{
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
-        fontFamily: FONT,
+        fontFamily,
       }}
     >
       <div style={{fontWeight: 900, fontSize: 150, lineHeight: 1, color, letterSpacing: -3, ...outline(18)}}>

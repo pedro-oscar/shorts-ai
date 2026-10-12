@@ -12,15 +12,16 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Mutex, PoisonError};
 
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Map, Value};
 use time::OffsetDateTime;
 
 use crate::Etapa;
 use crate::claude_code::ClaudeCode;
 use crate::custo::{TabelaDePrecos, preco_a_conferir};
 use crate::files::{copy_dir, write_json};
+use crate::kit::Kit;
 use crate::process::{self, Interrupted, Stream};
-use crate::roteiro::{ROTEIRO, validar_na_pasta};
+use crate::roteiro::{ROTEIRO, VERSAO_DO_ROTEIRO, validar_na_pasta};
 
 /// O log das sessões: uma linha do `stream-json` por linha, como o Claude as emitiu. Cada
 /// tentativa acrescenta a sua, que começa no `init` com o `session_id`.
@@ -286,6 +287,9 @@ impl Roteirista {
             _ => ("prompts/roteirizar.md", LOG),
         };
         let skill = self.skill()?;
+        if etapa == Etapa::Roteiro {
+            semear_estilo(pedido.pasta)?;
+        }
         let prompt = prompt(&skill, pedido, modelo_do_prompt)?;
         let command = self.command(&skill, pedido)?;
         let inicio = OffsetDateTime::now_utc();
@@ -324,6 +328,9 @@ impl Roteirista {
             return Err(ErroDoRoteiro::SessaoCaiu(
                 "nenhum resultado no stream".to_owned(),
             ));
+        }
+        if etapa == Etapa::Roteiro {
+            completar_estilo(pedido.pasta)?;
         }
         validar_roteiro(pedido.pasta)?;
         Ok(stream.marca_da_revisao())
@@ -399,6 +406,14 @@ fn prompt(skill: &Skill, pedido: &Pedido<'_>, arquivo: &str) -> io::Result<Strin
             pedido.pedido.trim()
         ));
     }
+    if let Some(kit) = Kit::ler(pedido.pasta) {
+        extra.push_str(&format!(
+            "\n## Kit de marca do projeto\n\nO `estilo` de `{ROTEIRO}` já traz as cores e as \
+             fontes do kit: mantenha-o. Para os títulos caberem na caixa e fora do canto da \
+             logo:\n\n{}",
+            kit.resumo()
+        ));
+    }
     if let Ok(erros) = fs::read_to_string(pedido.pasta.join(ERROS)) {
         extra.push_str(&format!(
             "\n## Erros da tentativa anterior\n\nO roteiro anterior terminou inválido, e o \
@@ -419,6 +434,56 @@ fn prompt(skill: &Skill, pedido: &Pedido<'_>, arquivo: &str) -> io::Result<Strin
         .fold(modelo, |texto, (chave, valor)| texto.replace(chave, valor)))
 }
 
+/// Escreve o `estilo` do kit do projeto em `edit/roteiro.json` antes do Claude. Um roteiro que já
+/// existe (a tentativa anterior, inválida) fica como está.
+fn semear_estilo(pasta: &Path) -> io::Result<()> {
+    let caminho = pasta.join(ROTEIRO);
+    let Some(kit) = Kit::ler(pasta) else {
+        return Ok(());
+    };
+    if caminho.exists() {
+        return Ok(());
+    }
+    write_json(
+        &caminho,
+        &serde_json::json!({"versao": VERSAO_DO_ROTEIRO, "estilo": kit.estilo(), "cortes": []}),
+    )
+}
+
+/// Repõe no `estilo` do roteiro o que o kit define e o Claude deixou de fora; o que ele
+/// escolheu de propósito fica.
+fn completar_estilo(pasta: &Path) -> io::Result<()> {
+    let caminho = pasta.join(ROTEIRO);
+    let Some(kit) = Kit::ler(pasta) else {
+        return Ok(());
+    };
+    let Ok(Value::Object(mut roteiro)) = fs::read(&caminho)
+        .map_err(|_| ())
+        .and_then(|bytes| serde_json::from_slice(&bytes).map_err(|_| ()))
+    else {
+        return Ok(());
+    };
+    let mut estilo = match roteiro.remove("estilo") {
+        Some(Value::Object(estilo)) => estilo,
+        _ => Map::new(),
+    };
+    for (chave, valor) in kit.estilo() {
+        match (estilo.get_mut(&chave), valor) {
+            (Some(Value::Object(atual)), Value::Object(padrao)) => {
+                for (chave, valor) in padrao {
+                    atual.entry(chave).or_insert(valor);
+                }
+            }
+            (Some(_), _) => {}
+            (None, valor) => {
+                estilo.insert(chave, valor);
+            }
+        }
+    }
+    roteiro.insert("estilo".to_owned(), Value::Object(estilo));
+    write_json(&caminho, &roteiro)
+}
+
 fn validar_roteiro(pasta: &Path) -> Result<(), ErroDoRoteiro> {
     let texto = match fs::read_to_string(pasta.join(ROTEIRO)) {
         Ok(texto) => texto,
@@ -427,6 +492,9 @@ fn validar_roteiro(pasta: &Path) -> Result<(), ErroDoRoteiro> {
         }
         Err(error) => return Err(error.into()),
     };
+    if sem_cortes(&texto) {
+        return Err(ErroDoRoteiro::SemRoteiro);
+    }
     let validacao = validar_na_pasta(pasta, &texto);
     if validacao.tem_erros() {
         let relatorio = validacao.relatorio();
@@ -437,6 +505,12 @@ fn validar_roteiro(pasta: &Path) -> Result<(), ErroDoRoteiro> {
         Err(error) if error.kind() != io::ErrorKind::NotFound => Err(error.into()),
         _ => Ok(()),
     }
+}
+
+/// O roteiro é o que o núcleo semeou com o `estilo`: o Claude não escreveu nenhum corte.
+fn sem_cortes(texto: &str) -> bool {
+    serde_json::from_str::<Value>(texto)
+        .is_ok_and(|roteiro| roteiro["cortes"].as_array().is_some_and(Vec::is_empty))
 }
 
 /// Acrescenta a linha da sessão ao `custos.json`, sem tocar nas das sessões anteriores.

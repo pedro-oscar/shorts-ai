@@ -14,6 +14,7 @@ mod estimativa;
 mod fila;
 mod files;
 mod galeria;
+pub mod kit;
 mod lote;
 mod padroes;
 mod preferencias;
@@ -55,6 +56,7 @@ pub use crate::estimativa::{Estimativa, FaixaDeCusto, FaixaDeTempo};
 pub use crate::fila::Movimento;
 use crate::fila::{Fila, Parou};
 pub use crate::galeria::{AlvoParaAbrir, DadosDoProjeto, ReelDoProjeto, Reserva};
+pub use crate::kit::Kit;
 use crate::lote::LoteJson;
 pub use crate::lote::LoteResumo;
 pub use crate::padroes::{Excecoes, IdiomaDoVideo, ModeloDoClaude, Padroes};
@@ -1136,10 +1138,11 @@ impl Nucleo {
     ) -> Result<Vec<ProjetoResumo>, Erro> {
         padroes.validar()?;
         let videos = validar_videos(arquivos, links)?;
+        let kit = self.kit_do_lote(padroes)?;
         let agora = OffsetDateTime::now_utc();
         let mut lote = LoteJson::novo(self.reservar_lote(agora)?, agora, padroes.clone());
         self.gravar_lote(&lote)?;
-        self.criar_projetos(&mut lote, agora, &videos)
+        self.criar_projetos(&mut lote, agora, &videos, &kit)
     }
 
     /// Põe vídeos no fim da fila de um lote que já existe, com os padrões dele. Como em
@@ -1152,7 +1155,8 @@ impl Nucleo {
     ) -> Result<Vec<ProjetoResumo>, Erro> {
         let mut lote = self.ler_lote(id)?;
         let videos = validar_videos(arquivos, links)?;
-        self.criar_projetos(&mut lote, OffsetDateTime::now_utc(), &videos)
+        let kit = self.kit_do_lote(&lote.padroes)?;
+        self.criar_projetos(&mut lote, OffsetDateTime::now_utc(), &videos, &kit)
     }
 
     /// Define as exceções do projeto que espera a vez ou está parado sem ter começado, no lugar
@@ -1197,6 +1201,60 @@ impl Nucleo {
         lote::resumos(&self.biblioteca())
     }
 
+    /// Os kits de marca: o Padrão e os que a pessoa salvou.
+    pub fn kits(&self) -> Result<Vec<Kit>, Erro> {
+        Ok(kit::todos(&self.preferences_file().read()?.kits))
+    }
+
+    /// Salva o kit, no lugar do que tem o mesmo nome. O nome do kit Padrão não se usa.
+    pub fn salvar_kit(&self, kit: Kit) -> Result<Vec<Kit>, Erro> {
+        let kit = kit.validar()?;
+        if kit.nome == kit::NOME_DO_KIT_PADRAO {
+            return Err(Erro::PadroesInvalidos {
+                opcao: "nome".to_owned(),
+                motivo: "o kit Padrão não muda".to_owned(),
+            });
+        }
+        let mut file = self.preferences_file();
+        let mut preferencias = file.read()?;
+        match preferencias
+            .kits
+            .iter_mut()
+            .find(|salvo| salvo.nome == kit.nome)
+        {
+            Some(salvo) => *salvo = kit,
+            None => preferencias.kits.push(kit),
+        }
+        file.write(&preferencias)?;
+        Ok(kit::todos(&preferencias.kits))
+    }
+
+    /// Apaga o kit salvo; o Padrão não se apaga. Os projetos já criados guardam a cópia deles.
+    pub fn apagar_kit(&self, nome: &str) -> Result<Vec<Kit>, Erro> {
+        if nome == kit::NOME_DO_KIT_PADRAO {
+            return Err(Erro::PadroesInvalidos {
+                opcao: "nome".to_owned(),
+                motivo: "o kit Padrão não se apaga".to_owned(),
+            });
+        }
+        let mut file = self.preferences_file();
+        let mut preferencias = file.read()?;
+        preferencias.kits.retain(|salvo| salvo.nome != nome);
+        file.write(&preferencias)?;
+        Ok(kit::todos(&preferencias.kits))
+    }
+
+    /// O kit que os padrões do lote escolhem; um que não existe mais é recusado.
+    fn kit_do_lote(&self, padroes: &Padroes) -> Result<Kit, Erro> {
+        self.kits()?
+            .into_iter()
+            .find(|kit| kit.nome == padroes.kit)
+            .ok_or_else(|| Erro::PadroesInvalidos {
+                opcao: "kit".to_owned(),
+                motivo: "o kit não existe".to_owned(),
+            })
+    }
+
     fn ler_lote(&self, id: &str) -> Result<LoteJson, Erro> {
         let simples = !id.is_empty() && !id.contains(['/', '\\', '.']);
         if !simples {
@@ -1223,9 +1281,10 @@ impl Nucleo {
         lote: &mut LoteJson,
         agora: OffsetDateTime,
         videos: &[Video],
+        kit: &Kit,
     ) -> Result<Vec<ProjetoResumo>, Erro> {
         let mut projetos = Vec::new();
-        let resultado = self.criar_cada_projeto(lote, agora, videos, &mut projetos);
+        let resultado = self.criar_cada_projeto(lote, agora, videos, kit, &mut projetos);
         lote.projetos
             .extend(projetos.iter().map(|projeto| projeto.id.clone()));
         self.gravar_lote(lote)?;
@@ -1237,6 +1296,7 @@ impl Nucleo {
         lote: &LoteJson,
         agora: OffsetDateTime,
         videos: &[Video],
+        kit: &Kit,
         projetos: &mut Vec<ProjetoResumo>,
     ) -> Result<(), Erro> {
         let padroes = &lote.padroes;
@@ -1273,6 +1333,8 @@ impl Nucleo {
             json.excecoes = excecoes;
             json.aplicar(padroes);
             json.gravar(&pasta)
+                .map_err(|error| nao_criado(&pasta, error))?;
+            kit.gravar(&pasta)
                 .map_err(|error| nao_criado(&pasta, error))?;
             self.remotion
                 .montar_no_projeto(&pasta)

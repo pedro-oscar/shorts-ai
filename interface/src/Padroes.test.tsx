@@ -77,6 +77,7 @@ test("as opções escolhidas seguem para o núcleo ao gerar", async () => {
       modelo: "sonnet",
       nomesProprios: ["Ana Souza", "Remotion"],
       idiomaDoVideo: "en",
+      kit: "Padrão",
     },
   ]);
 });
@@ -144,4 +145,82 @@ test("a estimativa calibrada diz de quantas execuções vem", async () => {
     "1 h 20 min a 1 h 30 min",
   );
   expect(screen.queryByText(/Estimativa inicial/)).toBeNull();
+});
+
+test("o kit de marca mostra as cores e as fontes do Padrão e a Amostra", async () => {
+  await abrirPadroes();
+
+  expect(await screen.findByLabelText("Fonte da legenda")).toHaveValue(
+    "Montserrat",
+  );
+  expect(screen.getByLabelText("Cor de destaque")).toHaveValue("#ff2d2d");
+  expect(screen.getByLabelText("Cor da palavra falada")).toHaveValue("#ffe600");
+  expect(screen.getByLabelText("Fonte dos títulos").children).toHaveLength(8);
+  expect(screen.getByTestId("amostra-do-kit")).toBeInTheDocument();
+});
+
+test("a Amostra acompanha as fontes escolhidas", async () => {
+  const { user } = await abrirPadroes();
+
+  await user.selectOptions(
+    await screen.findByLabelText("Fonte dos títulos"),
+    "Anton",
+  );
+
+  expect(screen.getByText("O erro que quebra empresas")).toHaveStyle({
+    fontFamily: '"Anton", sans-serif',
+  });
+  expect(screen.getByText(/Ninguém te/)).toHaveStyle({
+    fontFamily: '"Montserrat", sans-serif',
+  });
+});
+
+test("o kit só vale depois de salvo com nome, e o lote o usa", async () => {
+  const { user, calls } = await abrirPadroes();
+  await user.selectOptions(
+    await screen.findByLabelText("Fonte da legenda"),
+    "Bebas Neue",
+  );
+  const salvar = screen.getByRole("button", { name: "Salvar como kit" });
+  expect(salvar).toBeDisabled();
+
+  await user.type(screen.getByLabelText("Nome do kit"), "Canal");
+  await user.click(salvar);
+
+  expect(calls.kitsSalvos).toEqual([
+    {
+      nome: "Canal",
+      corDeDestaque: "#FF2D2D",
+      corDaPalavra: "#FFE600",
+      fonteDaLegenda: "Bebas Neue",
+      fonteDosTitulos: "Montserrat",
+    },
+  ]);
+  await waitFor(() => {
+    expect(screen.getByLabelText("Kit")).toHaveValue("Canal");
+  });
+  await user.click(
+    screen.getByRole("button", { name: "Gerar até 6 reels de 1 vídeo" }),
+  );
+  await screen.findByRole("heading", { name: "Gerando" });
+  expect(calls.padroes[0]?.kit).toBe("Canal");
+});
+
+test("o kit Padrão não tem como apagar, e apagar outro volta ao Padrão", async () => {
+  const { user, calls } = await abrirPadroes();
+  await screen.findByLabelText("Fonte da legenda");
+  expect(
+    screen.queryByRole("button", { name: /Apagar o kit/ }),
+  ).not.toBeInTheDocument();
+  await user.type(screen.getByLabelText("Nome do kit"), "Canal");
+  await user.click(screen.getByRole("button", { name: "Salvar como kit" }));
+
+  await user.click(
+    await screen.findByRole("button", { name: "Apagar o kit Canal" }),
+  );
+
+  expect(calls.kitsApagados).toEqual(["Canal"]);
+  await waitFor(() => {
+    expect(screen.getByLabelText("Kit")).toHaveValue("Padrão");
+  });
 });

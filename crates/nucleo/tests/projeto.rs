@@ -371,6 +371,7 @@ fn os_padroes_do_lote_ficam_gravados_como_opcoes_efetivas_de_cada_projeto() {
             "Remotion".to_owned(),
         ],
         idioma_do_video: IdiomaDoVideo::En,
+        ..Padroes::default()
     };
 
     let projetos = cenario
