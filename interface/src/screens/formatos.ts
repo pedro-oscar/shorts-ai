@@ -163,3 +163,14 @@ export function camposDas(excecoes: Excecoes): CamposDasExcecoes {
 
 /** A faixa em torno do custo efetivo: o multiplicador do plano é uma estimativa. */
 export const INCERTEZA_DO_MULTIPLICADOR = 0.3;
+
+/** Um tempo estimado, arredondado: `45 s`, `12 min` ou `1 h 20 min`. */
+export function formatarTempoEstimado(segundos: number): string {
+  if (segundos < 90) return `${String(Math.max(Math.round(segundos), 1))} s`;
+  const minutos = Math.round(segundos / 60);
+  if (minutos < 60) return `${String(minutos)} min`;
+  const resto = minutos % 60;
+  return resto === 0
+    ? `${String(Math.floor(minutos / 60))} h`
+    : `${String(Math.floor(minutos / 60))} h ${String(resto)} min`;
+}

@@ -9,6 +9,7 @@ import type {
   EstadoDaConta,
   EstadoDaPreparacao,
   EstadoInicial,
+  Estimativa,
   Evento,
   Excecoes,
   Faixa,
@@ -156,6 +157,15 @@ export function createFakeNucleo(
   let diagnostico: Diagnostico = DIAGNOSTICO_PADRAO;
   let bibliotecaError: Erro | null = null;
   let regras: Regra[] = [];
+  let estimativa: Estimativa = {
+    porVideo: { deUsd: 0.7, ateUsd: 1.8 },
+    lote: { deUsd: 0.7, ateUsd: 1.8 },
+    sessoes: 2,
+    tempo: { deS: 600, ateS: 1500 },
+    inicial: true,
+    execucoes: 0,
+    semPreco: false,
+  };
   /** Os lotes que cada pasta de Biblioteca tem, além dos da pasta de agora. */
   const bibliotecas = new Map<string, LoteResumo[]>();
   const dados = new Map<string, DadosDoProjeto>();
@@ -194,6 +204,11 @@ export function createFakeNucleo(
     idiomas: [] as string[],
     multiplicadores: [] as (number | null)[],
     cotacoes: [] as (number | null)[],
+    /** Os padrões e as durações de cada `estimarLote`. */
+    estimativas: [] as {
+      padroes: Padroes;
+      duracoes: (number | null)[];
+    }[],
     /** Quantas vezes o Diagnóstico conferiu o computador. */
     diagnosticos: 0,
     /** O que cada `abrirNoSistema` pediu. */
@@ -405,6 +420,10 @@ export function createFakeNucleo(
     diagnosticar: () => {
       calls.diagnosticos++;
       return Promise.resolve({ status: "ok", data: diagnostico });
+    },
+    estimarLote: (padroes, duracoes) => {
+      calls.estimativas.push({ padroes, duracoes });
+      return Promise.resolve({ status: "ok", data: estimativa });
     },
     inspecionarArquivos: (caminhos) =>
       Promise.resolve({
@@ -630,6 +649,10 @@ export function createFakeNucleo(
         secao: null,
         texto,
       }));
+    },
+    /** A estimativa que o núcleo devolve. */
+    definirEstimativa: (nova: Estimativa) => {
+      estimativa = nova;
     },
     /** O que o Diagnóstico acha da máquina. */
     definirDiagnostico: (retrato: Diagnostico) => {

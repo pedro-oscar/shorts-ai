@@ -80,7 +80,7 @@ impl TabelaDePrecos {
     }
 
     /// Os preços do modelo; `claude-haiku-4-5-20251001` vale o `claude-haiku-4-5`.
-    fn precos(&self, modelo: &str) -> Option<&PrecosDoModelo> {
+    pub(crate) fn precos(&self, modelo: &str) -> Option<&PrecosDoModelo> {
         self.modelos
             .iter()
             .filter(|(nome, _)| modelo.starts_with(nome.as_str()))

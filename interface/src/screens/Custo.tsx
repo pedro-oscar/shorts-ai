@@ -4,17 +4,10 @@ import type { CustoDaSessao, ResumoDeCusto } from "../bindings";
 import { useAppStore } from "../context";
 import {
   INCERTEZA_DO_MULTIPLICADOR,
-  formatarDolar,
   formatarDuracao,
   temCusto,
 } from "./formatos";
-
-/** Formata um valor em US$ no idioma da interface, em R$ se a pessoa digitou a cotação. */
-function useDinheiro() {
-  const { i18n } = useTranslation();
-  const cotacao = useAppStore((store) => store.cotacao);
-  return (usd: number) => formatarDolar(usd, i18n.language, cotacao);
-}
+import { useDinheiro } from "./useDinheiro";
 
 /** O custo estimado de um projeto ou de um lote, com o rateio por reel e a marca de conferir. */
 export function ResumoDoCusto({

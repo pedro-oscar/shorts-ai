@@ -10,6 +10,7 @@ mod conta;
 pub mod corte;
 pub mod custo;
 mod diagnostico;
+mod estimativa;
 mod fila;
 mod files;
 mod galeria;
@@ -50,6 +51,7 @@ pub use crate::custo::{CustoDaSessao, ResumoDeCusto, TabelaDePrecos, Tokens};
 pub use crate::diagnostico::{
     Dependencia, Diagnostico, Gpu, NomeDaDependencia, Situacao as SituacaoDaDependencia,
 };
+pub use crate::estimativa::{Estimativa, FaixaDeCusto, FaixaDeTempo};
 pub use crate::fila::Movimento;
 use crate::fila::{Fila, Parou};
 pub use crate::galeria::{AlvoParaAbrir, DadosDoProjeto, ReelDoProjeto, Reserva};
@@ -922,6 +924,35 @@ impl Nucleo {
             ],
             conta: self.conta.estado(),
         }
+    }
+
+    /// Estima o custo, as sessões do Claude e o tempo do lote antes de gerar. `duracoes_em_segundos`
+    /// tem a duração de cada vídeo escolhido (`None` quando não se sabe). As execuções anteriores
+    /// da Biblioteca calibram a faixa.
+    pub fn estimar(
+        &self,
+        padroes: &Padroes,
+        duracoes_em_segundos: &[Option<f64>],
+    ) -> Result<Estimativa, Erro> {
+        padroes.validar()?;
+        let whisper = find_program(
+            "whisper-cli",
+            self.sidecar_dir.as_deref(),
+            self.path_env.as_deref(),
+        );
+        let historico = estimativa::historico(&self.biblioteca(), |pasta, json| {
+            let faixa = json.opcoes.faixa.and_then(Faixa::duracao).map(f64::from);
+            faixa
+                .or_else(|| self.duracao(&json.origem.video(pasta)))
+                .map(|segundos| segundos / 60.0)
+        });
+        Ok(estimativa::estimar(
+            padroes,
+            duracoes_em_segundos,
+            &TabelaDePrecos::atual(&self.app_data_dir),
+            &historico,
+            diagnostico::gpu(whisper.is_some(), &self.carregadores_do_vulkan),
+        ))
     }
 
     /// Confere os arquivos escolhidos e lê a duração de cada um (com o `ffprobe`, se houver).

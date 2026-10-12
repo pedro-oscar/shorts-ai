@@ -38,6 +38,8 @@ export const commands = {
 	/**  O retrato da máquina; roda programas filhos, fora da thread do runtime async. */
 	diagnosticar: () => typedError<Diagnostico, Erro>(__TAURI_INVOKE("diagnosticar")),
 	inspecionarArquivos: (caminhos: string[]) => typedError<ArquivoDeVideo[], Erro>(__TAURI_INVOKE("inspecionar_arquivos", { caminhos })),
+	/**  Estima o custo, as sessões do Claude e o tempo do lote antes de gerar. */
+	estimarLote: (padroes: Padroes, duracoesEmSegundos: (number | null)[]) => typedError<Estimativa, Erro>(__TAURI_INVOKE("estimar_lote", { padroes, duracoesEmSegundos })),
 	/**  Título, canal e duração de um vídeo do YouTube, antes de baixar. */
 	consultarLink: (url: string) => typedError<InfoDoLink, Erro>(__TAURI_INVOKE("consultar_link", { url })),
 	criarLote: (arquivos: ArquivoDoLote[], links: LinkDoLote[], padroes: Padroes) => typedError<ProjetoResumo[], Erro>(__TAURI_INVOKE("criar_lote", { arquivos, links, padroes })),
@@ -225,6 +227,22 @@ export type EstadoInicial = {
 	backupDasPreferencias: string | null,
 };
 
+/**  A estimativa do passo Padrões. */
+export type Estimativa = {
+	/**  O custo de um vídeo do lote: a média entre eles. */
+	porVideo: FaixaDeCusto,
+	lote: FaixaDeCusto,
+	/**  As sessões do Claude do lote, contando todas as revisões pedidas. */
+	sessoes: number,
+	tempo: FaixaDeTempo,
+	/**  Menos de 3 execuções: a faixa vem dos coeficientes iniciais. */
+	inicial: boolean,
+	/**  As execuções do histórico que calibram a faixa. */
+	execucoes: number,
+	/**  O modelo cujos preços entram na conta não está na tabela: o custo sai zerado. */
+	semPreco: boolean,
+};
+
 /**  As etapas por que passa cada projeto, nesta ordem. */
 export type Etapa = "importacao" | "transcricao" | "roteiro" | "producao" | "revisao";
 
@@ -292,6 +310,18 @@ export type Faixa = {
 	inicio: number,
 	/**  `None` vai até o fim do vídeo. */
 	fim: number | null,
+};
+
+/**  De quanto a quanto o lote deve custar, em US$ de preço de API. */
+export type FaixaDeCusto = {
+	deUsd: number | null,
+	ateUsd: number | null,
+};
+
+/**  De quanto a quanto tempo o lote deve levar. */
+export type FaixaDeTempo = {
+	deS: number | null,
+	ateS: number | null,
 };
 
 /**  Onde os trabalhos pesados rodam: na GPU, por Vulkan, ou só na CPU. */

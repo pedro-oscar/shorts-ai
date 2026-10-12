@@ -1,13 +1,26 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { App } from "./App";
-import { ACCEPTED_AT, createFakeNucleo } from "./test/fakeNucleo";
+import {
+  ACCEPTED_AT,
+  createFakeNucleo,
+  planoCompleto,
+} from "./test/fakeNucleo";
 
 async function abrirPadroes(videos = ["/v/aula.mp4"]) {
+  const { fake, user } = await abrirPadroesComFake(videos);
+  return { ...fake, user };
+}
+
+async function abrirPadroesComFake(videos = ["/v/aula.mp4"]) {
   const fake = createFakeNucleo({
     aceite: { data: ACCEPTED_AT },
-    plano: { nivel: "max5x", periodo: "mensal", precoDeApi: false },
+    plano: planoCompleto({
+      nivel: "max5x",
+      periodo: "mensal",
+      precoDeApi: false,
+    }),
   });
   render(<App nucleo={fake.nucleo} />);
   const user = userEvent.setup();
@@ -17,7 +30,7 @@ async function abrirPadroes(videos = ["/v/aula.mp4"]) {
   await screen.findByRole("list", { name: "Vídeos escolhidos" });
   await user.click(screen.getByRole("button", { name: "Continuar" }));
   await screen.findByRole("heading", { name: "Padrões" });
-  return { ...fake, user };
+  return { fake, user };
 }
 
 test("os padrões abrem com até 6 reels, prévia ligada e o botão conta os vídeos", async () => {
@@ -78,4 +91,57 @@ test("Voltar leva a Vídeos sem perder a lista nem as escolhas", async () => {
   await user.click(screen.getByRole("button", { name: "Continuar" }));
 
   expect(await screen.findByLabelText("Até quantos reels")).toHaveValue("4");
+});
+
+test("a estimativa mostra o custo no plano por vídeo e do lote, as sessões e o tempo", async () => {
+  await abrirPadroes(["/v/aula.mp4", "/v/live.mkv"]);
+
+  const estimativa = await screen.findByRole("region", { name: "Estimativa" });
+  expect(estimativa).toHaveTextContent("Estimativa inicial");
+  // Max 5x mensal: o custo efetivo é 1/3 do preço de API (US$ 0,70 a US$ 1,80).
+  expect(estimativa).toHaveTextContent(
+    /Custo por vídeo: US\$\s0,23 a US\$\s0,60/,
+  );
+  expect(estimativa).toHaveTextContent(
+    /Custo do lote: US\$\s0,23 a US\$\s0,60/,
+  );
+  expect(estimativa).toHaveTextContent("2 sessões do Claude");
+  expect(estimativa).toHaveTextContent(
+    "Tempo neste computador: 10 min a 25 min",
+  );
+});
+
+test("a estimativa pede ao núcleo os padrões e as durações, e refaz ao mudar uma opção", async () => {
+  const { user, calls } = await abrirPadroes(["/v/aula.mp4", "/v/live.mkv"]);
+  await screen.findByRole("region", { name: "Estimativa" });
+
+  await user.selectOptions(screen.getByLabelText("Até quantos reels"), "3");
+
+  await waitFor(() => {
+    expect(calls.estimativas.at(-1)?.padroes.quantidadeDeReels).toBe(3);
+  });
+  // O aula.mp4 tem 125 s; a duração do live.mkv não se conhece.
+  expect(calls.estimativas.at(-1)?.duracoes).toEqual([125, null]);
+});
+
+test("a estimativa calibrada diz de quantas execuções vem", async () => {
+  const { fake, user } = await abrirPadroesComFake();
+  fake.definirEstimativa({
+    porVideo: { deUsd: 1.5, ateUsd: 2.4 },
+    lote: { deUsd: 1.5, ateUsd: 2.4 },
+    sessoes: 2,
+    tempo: { deS: 4800, ateS: 5400 },
+    inicial: false,
+    execucoes: 4,
+    semPreco: false,
+  });
+
+  await user.selectOptions(screen.getByLabelText("Até quantos reels"), "2");
+
+  const estimativa = await screen.findByText(/Calculada com as suas 4 últimas/);
+  expect(estimativa).toBeInTheDocument();
+  expect(screen.getByRole("region", { name: "Estimativa" })).toHaveTextContent(
+    "1 h 20 min a 1 h 30 min",
+  );
+  expect(screen.queryByText(/Estimativa inicial/)).toBeNull();
 });

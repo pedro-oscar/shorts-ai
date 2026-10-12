@@ -6,10 +6,10 @@
 
 use nucleo::{
     Aceite, AlvoParaAbrir, ArquivoDeVideo, ArquivoDoLote, Config, Cotacao, DadosDoProjeto,
-    Diagnostico, Erro, EstadoDaConta, EstadoDaPreparacao, EstadoInicial, Evento, Excecoes,
-    IdiomaDaInterface, InfoDoLink, LinkDoLote, LoteResumo, ModoDeLogin, MotivoDeNotificacao,
-    Movimento, NivelDoPlano, Nucleo, Padroes, PeriodoDeCobranca, PlanoConfirmado, ProjetoResumo,
-    Regra,
+    Diagnostico, Erro, EstadoDaConta, EstadoDaPreparacao, EstadoInicial, Estimativa, Evento,
+    Excecoes, IdiomaDaInterface, InfoDoLink, LinkDoLote, LoteResumo, ModoDeLogin,
+    MotivoDeNotificacao, Movimento, NivelDoPlano, Nucleo, Padroes, PeriodoDeCobranca,
+    PlanoConfirmado, ProjetoResumo, Regra,
 };
 use serde::Serialize;
 use specta::Type;
@@ -267,6 +267,17 @@ async fn inspecionar_arquivos(
     })?
 }
 
+/// Estima o custo, as sessões do Claude e o tempo do lote antes de gerar.
+#[tauri::command]
+#[specta::specta]
+async fn estimar_lote(
+    nucleo: State<'_, Nucleo>,
+    padroes: Padroes,
+    duracoes_em_segundos: Vec<Option<f64>>,
+) -> Result<Estimativa, Erro> {
+    nucleo.estimar(&padroes, &duracoes_em_segundos)
+}
+
 #[tauri::command]
 #[specta::specta]
 async fn criar_lote(
@@ -464,6 +475,7 @@ fn bindings() -> Builder<tauri::Wry> {
             apagar_regra_aprendida,
             diagnosticar,
             inspecionar_arquivos,
+            estimar_lote,
             consultar_link,
             criar_lote,
             adicionar_ao_lote,

@@ -2,6 +2,7 @@ import { useTranslation } from "react-i18next";
 import type { IdiomaDoVideo, ModeloDoClaude } from "../bindings";
 import { useAppStore } from "../context";
 import { ErrorMessage, Screen, Topo } from "./common";
+import { EstimativaDoLote } from "./Estimativa";
 
 const MODELOS: ModeloDoClaude[] = ["padrao", "opus", "sonnet"];
 const IDIOMAS: IdiomaDoVideo[] = ["automatico", "pt", "en"];
@@ -122,6 +123,7 @@ export function Padroes({
             </select>
           </label>
         </details>
+        <EstimativaDoLote />
         {erro && <ErrorMessage erro={erro} />}
         <button type="button" onClick={onVoltar}>
           {t("padroes.voltar")}

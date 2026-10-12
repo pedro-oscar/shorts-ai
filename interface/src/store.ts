@@ -9,6 +9,7 @@ import type {
   EstadoDaConta,
   EstadoDaEtapa,
   EstadoDaPreparacao,
+  Estimativa,
   Evento,
   Excecoes,
   IdiomaDaInterface,
@@ -262,6 +263,10 @@ export interface AppStore extends AppState {
   gerarVersaoFinal: (ids: string[]) => Promise<void>;
   /** O endereço pelo qual o player toca o reel. */
   urlDoArquivo: (caminho: string) => string;
+  /** A estimativa do lote para os Padrões e a lista de vídeos; `null` até a primeira. */
+  estimativa: Estimativa | null;
+  /** Pede ao núcleo a estimativa do lote que está sendo montado. */
+  estimar: () => Promise<void>;
   /** Cria o lote com os vídeos da lista, ou os põe no fim do lote atual; devolve se criou. */
   gerar: () => Promise<boolean>;
   /** Relê os lotes da Biblioteca. */
@@ -925,6 +930,29 @@ export function createAppStore(nucleo: Nucleo) {
       },
 
       urlDoArquivo: nucleo.urlDoArquivo,
+
+      estimativa: null,
+
+      estimar: async () => {
+        const { arquivos, links, faixas, padroes } = get();
+        const duracao = (chave: string, total: number | null) => {
+          const campos = faixas[chave];
+          const faixa = campos ? lerFaixa(campos.inicio, campos.fim) : null;
+          if (faixa === null || faixa === "invalida") return total;
+          const fim = faixa.fim ?? total;
+          return fim === null ? null : Math.max(fim - faixa.inicio, 0);
+        };
+        const duracoes = [
+          ...arquivos.map((a) => duracao(a.caminho, a.duracaoEmSegundos)),
+          ...links.flatMap((link) =>
+            link.estado === "pronto"
+              ? [duracao(link.url, link.info.duracaoEmSegundos)]
+              : [],
+          ),
+        ];
+        const result = await nucleo.estimarLote(padroes, duracoes);
+        set({ estimativa: result.status === "ok" ? result.data : null });
+      },
 
       gerar: async () => {
         const faixaDe = (chave: string) => {
