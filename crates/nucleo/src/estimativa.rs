@@ -267,8 +267,7 @@ pub(crate) fn estimar(
 ) -> Estimativa {
     let calibragem = calibrar(historico, tabela);
     let modelo = match padroes.modelo {
-        ModeloDoClaude::Padrao => MODELO_PADRAO,
-        ModeloDoClaude::Opus => "claude-opus-5-5",
+        ModeloDoClaude::Padrao | ModeloDoClaude::Opus => MODELO_PADRAO,
         ModeloDoClaude::Sonnet => "claude-sonnet-5-5",
     };
     let precos = tabela.precos(modelo);
