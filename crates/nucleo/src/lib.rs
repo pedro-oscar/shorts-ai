@@ -27,6 +27,7 @@ mod youtube;
 
 use std::env::consts::EXE_SUFFIX;
 use std::ffi::{OsStr, OsString};
+use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -40,6 +41,7 @@ pub use crate::claude_code::ClaudeCode;
 use crate::conta::Conta;
 pub use crate::conta::{Cobranca, EstadoDaConta, ModoDeLogin, VERSAO_MINIMA_DO_CLAUDE_CODE};
 use crate::corte::Ffmpeg;
+pub use crate::fila::Movimento;
 use crate::fila::{Fila, Parou};
 pub use crate::galeria::{AlvoParaAbrir, DadosDoProjeto, ReelDoProjeto, Reserva};
 use crate::lote::LoteJson;
@@ -272,6 +274,8 @@ pub struct ProjetoResumo {
     pub falha: Option<String>,
     /// Pausado ou cancelado; `None` na fila, rodando, pronto ou falho.
     pub parada: Option<Parada>,
+    /// O vídeo original, de que o projeto ainda precisa, não está mais no caminho de origem.
+    pub video_ausente: bool,
 }
 
 /// Um arquivo de vídeo escolhido, para a lista do passo Vídeos.
@@ -329,6 +333,15 @@ pub enum Evento {
     ParadaMudou {
         projeto: String,
         parada: Option<Parada>,
+    },
+    /// A ordem do lote mudou: os ids dos projetos, na ordem nova da fila.
+    FilaReordenada {
+        lote: String,
+        projetos: Vec<String>,
+    },
+    /// O projeto saiu do app: foi removido da lista ou excluído.
+    ProjetoRemovido {
+        projeto: String,
     },
     /// O progresso de uma etapa que o mede, de 0 a 100.
     ProgressoDaEtapa {
@@ -400,6 +413,10 @@ pub enum Erro {
     /// A ação não existe para o estado em que o projeto está.
     #[error("o projeto {id} não pode {acao} agora")]
     AcaoIndisponivel { id: String, acao: String },
+    #[error("projeto {id} não excluído: {detalhe}")]
+    ProjetoNaoExcluido { id: String, detalhe: String },
+    #[error("{caminho} não é um vídeo que possa substituir o original")]
+    VideoNaoLocalizado { caminho: String },
     #[error("lote {id} não encontrado")]
     LoteNaoEncontrado { id: String },
     #[error("padrão {opcao} inválido: {motivo}")]
@@ -1059,6 +1076,142 @@ impl Nucleo {
             id: nome_do_arquivo(pasta),
             detalhe: error.to_string(),
         })
+    }
+
+    /// Anda com o projeto que espera a vez e reflete a ordem nova no lote.
+    pub fn mover_na_fila(&self, id: &str, movimento: Movimento) -> Result<(), Erro> {
+        let (_, projeto) = self.projeto_em_curso(id, "mover")?;
+        let ordem = self
+            .fila
+            .mover(id, movimento)
+            .ok_or_else(|| acao_indisponivel(id, "mover"))?;
+        let mut lote = self.ler_lote(&projeto.lote)?;
+        let lugares: Vec<usize> = lote
+            .projetos
+            .iter()
+            .enumerate()
+            .filter(|(_, projeto)| ordem.contains(projeto))
+            .map(|(lugar, _)| lugar)
+            .collect();
+        let nova: Vec<String> = ordem
+            .into_iter()
+            .filter(|projeto| lote.projetos.contains(projeto))
+            .collect();
+        for (lugar, projeto) in lugares.into_iter().zip(nova) {
+            lote.projetos[lugar] = projeto;
+        }
+        self.gravar_lote(&lote)?;
+        (self.emit)(Evento::FilaReordenada {
+            lote: lote.id,
+            projetos: lote.projetos,
+        });
+        Ok(())
+    }
+
+    /// Tira da lista o projeto que nunca começou e apaga a pasta dele.
+    pub fn remover_projeto(&self, id: &str) -> Result<(), Erro> {
+        let (pasta, projeto) = self.projeto_em_curso(id, "remover")?;
+        let nunca_comecou = projeto
+            .etapas
+            .iter()
+            .all(|item| item.estado == EstadoDaEtapa::Pendente);
+        // `tirar` primeiro: o projeto que já saiu da fila para rodar não pode ser removido.
+        if !nunca_comecou || !(self.fila.tirar(id) || projeto.parada.is_some()) {
+            return Err(acao_indisponivel(id, "remover"));
+        }
+        self.apagar_projeto(id, &pasta, &projeto)?;
+        Ok(())
+    }
+
+    /// Exclui o projeto que falhou, foi cancelado ou pausado, ou terminou, e devolve os bytes
+    /// liberados.
+    pub fn excluir_projeto(&self, id: &str) -> Result<u64, Erro> {
+        let pasta = self.pasta_do_projeto(id)?;
+        let projeto = ProjetoJson::ler(&pasta).map_err(|error| Erro::ProjetoNaoLido {
+            id: id.to_owned(),
+            detalhe: error.to_string(),
+        })?;
+        let falhou = projeto
+            .etapas
+            .iter()
+            .any(|item| item.estado == EstadoDaEtapa::Falhou);
+        let pronto = projeto
+            .etapas
+            .iter()
+            .all(|item| item.estado == EstadoDaEtapa::Concluida);
+        if !(falhou || pronto || projeto.parada.is_some()) {
+            return Err(acao_indisponivel(id, "excluir"));
+        }
+        self.apagar_projeto(id, &pasta, &projeto)
+    }
+
+    fn apagar_projeto(&self, id: &str, pasta: &Path, projeto: &ProjetoJson) -> Result<u64, Erro> {
+        // O vídeo original ligado por hardlink continua onde estava: apagar o link não libera
+        // espaço.
+        let ligado = matches!(
+            projeto.origem,
+            Origem::Arquivo {
+                modo: Some(ModoDeImportacao::Hardlink),
+                ..
+            }
+        );
+        let liberado = files::tamanho_da_pasta(pasta, ligado.then_some("bruto"));
+        fs::remove_dir_all(pasta).map_err(|error| Erro::ProjetoNaoExcluido {
+            id: id.to_owned(),
+            detalhe: error.to_string(),
+        })?;
+        self.tirar_do_lote(&projeto.lote, id)?;
+        (self.emit)(Evento::ProjetoRemovido {
+            projeto: id.to_owned(),
+        });
+        Ok(liberado)
+    }
+
+    fn tirar_do_lote(&self, lote: &str, projeto: &str) -> Result<(), Erro> {
+        let mut lote = self.ler_lote(lote)?;
+        lote.projetos.retain(|item| item != projeto);
+        self.gravar_lote(&lote)
+    }
+
+    /// Tira do histórico o projeto cuja pasta sumiu da Biblioteca.
+    pub fn tirar_do_historico(&self, id: &str) -> Result<(), Erro> {
+        let simples = !id.is_empty() && !id.starts_with('.') && !id.contains(['/', '\\']);
+        if !simples || self.biblioteca.join(id).exists() {
+            return Err(acao_indisponivel(id, "tirar do histórico"));
+        }
+        for lote in LoteJson::listar(&self.biblioteca) {
+            if lote.projetos.iter().any(|projeto| projeto == id) {
+                self.tirar_do_lote(&lote.id, id)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Aponta o projeto para o arquivo que a pessoa localizou, no lugar do vídeo original que
+    /// sumiu.
+    pub fn localizar_video(&self, id: &str, caminho: &str) -> Result<(), Erro> {
+        let (pasta, mut projeto) = self.projeto_em_curso(id, "localizar o vídeo")?;
+        let metadados = fs::metadata(caminho)
+            .ok()
+            .filter(|metadados| metadados.is_file())
+            .ok_or_else(|| Erro::VideoNaoLocalizado {
+                caminho: caminho.to_owned(),
+            })?;
+        let Origem::Arquivo {
+            caminho: antigo,
+            tamanho,
+            modificado_em,
+            modo,
+            ..
+        } = &mut projeto.origem
+        else {
+            return Err(acao_indisponivel(id, "localizar o vídeo"));
+        };
+        caminho.clone_into(antigo);
+        *tamanho = metadados.len();
+        *modificado_em = metadados.modified().ok().map(Into::into);
+        *modo = Some(ModoDeImportacao::Referencia);
+        self.gravar_projeto(&pasta, &projeto)
     }
 
     /// Os reels e as reservas do projeto, para a Galeria.

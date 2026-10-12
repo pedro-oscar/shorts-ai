@@ -9,8 +9,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use nucleo::{
-    ArquivoDoLote, Config, Erro, EstadoDaEtapa, Etapa, Evento, LigarArquivo, Nucleo, Padroes,
-    Parada, ProjetoResumo,
+    ArquivoDoLote, Config, Erro, EstadoDaEtapa, Etapa, Evento, LigarArquivo, Movimento, Nucleo,
+    Padroes, Parada, ProjetoResumo,
 };
 
 struct Cenario {
@@ -357,4 +357,221 @@ fn reabrir_nao_mexe_em_projeto_pronto_nem_que_falhou() {
     let falho = &reaberto.lotes()[0].projetos[1];
     assert_eq!(falho.parada, None);
     assert!(falho.falha.is_some());
+}
+
+/// Os ids dos projetos do lote mais novo, na ordem em que o núcleo os lista.
+fn ordem_do_lote(cenario: &Cenario) -> Vec<String> {
+    cenario.nucleo.lotes()[0]
+        .projetos
+        .iter()
+        .map(|projeto| projeto.id.clone())
+        .collect()
+}
+
+/// Os projetos, na ordem em que suas Importações terminam.
+fn ordem_das_importacoes(cenario: &Cenario, quantos: usize) -> Vec<String> {
+    let mut ordem = Vec::new();
+    while ordem.len() < quantos {
+        ordem.push(cenario.esperar(|evento| match evento {
+            Evento::EtapaMudou {
+                projeto,
+                etapa: Etapa::Importacao,
+                estado: EstadoDaEtapa::Concluida,
+                ..
+            } => Some(projeto),
+            _ => None,
+        }));
+    }
+    ordem
+}
+
+#[test]
+fn passar_na_frente_muda_quem_pega_a_proxima_vaga_e_a_ordem_do_lote() {
+    let cenario = Cenario::novo();
+    let p = cenario.lote(&["um.mp4", "dois.mp4", "tres.mp4"]);
+    cenario.esperar_importacao_do_primeiro();
+
+    cenario
+        .nucleo
+        .mover_na_fila(&p[2].id, Movimento::PassarNaFrente)
+        .unwrap();
+
+    let esperado = vec![p[0].id.clone(), p[2].id.clone(), p[1].id.clone()];
+    assert_eq!(ordem_do_lote(&cenario), esperado);
+    let reordenada = cenario.esperar(|evento| match evento {
+        Evento::FilaReordenada { projetos, .. } => Some(projetos),
+        _ => None,
+    });
+    assert_eq!(reordenada, esperado);
+    cenario.liberar.send(()).unwrap();
+    assert_eq!(ordem_das_importacoes(&cenario, 3), esperado);
+}
+
+#[test]
+fn subir_e_descer_trocam_com_o_vizinho_e_param_nas_pontas() {
+    let cenario = Cenario::novo();
+    let p = cenario.lote(&["um.mp4", "dois.mp4", "tres.mp4"]);
+    cenario.esperar_importacao_do_primeiro();
+
+    cenario
+        .nucleo
+        .mover_na_fila(&p[2].id, Movimento::Subir)
+        .unwrap();
+    assert_eq!(
+        ordem_do_lote(&cenario),
+        [&p[0].id, &p[2].id, &p[1].id].map(Clone::clone)
+    );
+    cenario
+        .nucleo
+        .mover_na_fila(&p[2].id, Movimento::Subir)
+        .unwrap();
+    assert_eq!(
+        ordem_do_lote(&cenario),
+        [&p[0].id, &p[2].id, &p[1].id].map(Clone::clone),
+        "já é o primeiro da fila"
+    );
+    cenario
+        .nucleo
+        .mover_na_fila(&p[2].id, Movimento::Descer)
+        .unwrap();
+    assert_eq!(
+        ordem_do_lote(&cenario),
+        [&p[0].id, &p[1].id, &p[2].id].map(Clone::clone)
+    );
+    // O que roda não anda na fila.
+    assert!(matches!(
+        cenario.nucleo.mover_na_fila(&p[0].id, Movimento::Descer),
+        Err(Erro::AcaoIndisponivel { .. })
+    ));
+}
+
+#[test]
+fn remover_vale_so_para_o_que_nunca_comecou_e_apaga_a_pasta() {
+    let cenario = Cenario::novo();
+    let p = cenario.lote(&["um.mp4", "dois.mp4", "tres.mp4"]);
+    cenario.esperar_importacao_do_primeiro();
+
+    assert!(matches!(
+        cenario.nucleo.remover_projeto(&p[0].id),
+        Err(Erro::AcaoIndisponivel { .. })
+    ));
+    cenario.nucleo.remover_projeto(&p[1].id).unwrap();
+
+    assert!(!PathBuf::from(&p[1].pasta).exists());
+    assert_eq!(
+        ordem_do_lote(&cenario),
+        [&p[0].id, &p[2].id].map(Clone::clone)
+    );
+    cenario.esperar(|evento| match evento {
+        Evento::ProjetoRemovido { projeto } if projeto == p[1].id => Some(()),
+        _ => None,
+    });
+    cenario.liberar.send(()).unwrap();
+    // O removido não roda: depois do primeiro vem o terceiro.
+    assert_eq!(
+        ordem_das_importacoes(&cenario, 2),
+        [&p[0].id, &p[2].id].map(Clone::clone)
+    );
+}
+
+#[test]
+fn remover_o_pausado_que_nunca_comecou_vale() {
+    let cenario = Cenario::novo();
+    let p = cenario.lote(&["um.mp4", "dois.mp4"]);
+    cenario.esperar_importacao_do_primeiro();
+    cenario.nucleo.pausar(&p[1].id).unwrap();
+
+    cenario.nucleo.remover_projeto(&p[1].id).unwrap();
+
+    assert!(!PathBuf::from(&p[1].pasta).exists());
+}
+
+#[test]
+fn excluir_apaga_o_projeto_e_diz_o_espaco_liberado() {
+    let cenario = Cenario::novo();
+    let p = cenario.lote(&["um.mp4", "dois.mp4"]);
+    cenario.esperar_importacao_do_primeiro();
+    let pasta = PathBuf::from(&p[1].pasta);
+    fs::write(pasta.join("edit.bin"), vec![0_u8; 5000]).unwrap();
+    // O que está na fila ou rodando não se exclui: se cancela ou se remove.
+    assert!(matches!(
+        cenario.nucleo.excluir_projeto(&p[0].id),
+        Err(Erro::AcaoIndisponivel { .. })
+    ));
+    assert!(matches!(
+        cenario.nucleo.excluir_projeto(&p[1].id),
+        Err(Erro::AcaoIndisponivel { .. })
+    ));
+    cenario.nucleo.cancelar(&p[1].id).unwrap();
+
+    let liberado = cenario.nucleo.excluir_projeto(&p[1].id).unwrap();
+
+    assert!(liberado >= 5000, "{liberado}");
+    assert!(!pasta.exists());
+    assert_eq!(ordem_do_lote(&cenario), [p[0].id.clone()]);
+}
+
+#[test]
+fn projeto_cuja_pasta_sumiu_vai_para_ausentes_e_sai_do_historico() {
+    let cenario = Cenario::novo();
+    let p = cenario.lote(&["um.mp4", "dois.mp4"]);
+    cenario.esperar_importacao_do_primeiro();
+    fs::remove_dir_all(&p[1].pasta).unwrap();
+
+    let lote = &cenario.nucleo.lotes()[0];
+    assert_eq!(lote.ausentes, [p[1].id.clone()]);
+    assert_eq!(lote.projetos.len(), 1);
+    assert!(matches!(
+        cenario.nucleo.tirar_do_historico(&p[0].id),
+        Err(Erro::AcaoIndisponivel { .. })
+    ));
+
+    cenario.nucleo.tirar_do_historico(&p[1].id).unwrap();
+
+    assert!(cenario.nucleo.lotes()[0].ausentes.is_empty());
+}
+
+#[test]
+fn video_original_que_sumiu_e_localizado_de_novo() {
+    let tmp = tempfile::tempdir().unwrap();
+    let entrada = tmp.path().join("entrada");
+    fs::create_dir_all(&entrada).unwrap();
+    // Sem hardlink (outro volume): o projeto só guarda a referência ao arquivo.
+    let ligar: LigarArquivo = Arc::new(|_, _| Err(std::io::Error::other("outro volume")));
+    let (nucleo, eventos) = Cenario::abrir(tmp.path(), Some(ligar));
+    let original = entrada.join("aula.mp4");
+    fs::write(&original, b"video").unwrap();
+    let projetos = nucleo
+        .criar_lote(&[original.display().to_string()], &Padroes::default())
+        .unwrap();
+    let id = &projetos[0].id;
+    loop {
+        let evento = eventos.recv_timeout(Duration::from_secs(10)).unwrap();
+        if matches!(
+            evento,
+            Evento::EtapaMudou {
+                etapa: Etapa::Importacao,
+                estado: EstadoDaEtapa::Concluida,
+                ..
+            }
+        ) {
+            break;
+        }
+    }
+    assert!(!nucleo.lotes()[0].projetos[0].video_ausente);
+
+    fs::remove_file(&original).unwrap();
+    assert!(nucleo.lotes()[0].projetos[0].video_ausente);
+
+    let outro = entrada.join("outro-lugar.mp4");
+    assert!(matches!(
+        nucleo.localizar_video(id, &outro.display().to_string()),
+        Err(Erro::VideoNaoLocalizado { .. })
+    ));
+    fs::write(&outro, b"video").unwrap();
+    nucleo
+        .localizar_video(id, &outro.display().to_string())
+        .unwrap();
+
+    assert!(!nucleo.lotes()[0].projetos[0].video_ausente);
 }

@@ -1,12 +1,14 @@
 //! A fila serial: um trabalhador roda, em ordem, as etapas que existem de cada projeto.
 
-use std::collections::HashMap;
+use std::collections::VecDeque;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{self, Sender};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::thread;
+
+use serde::{Deserialize, Serialize};
+use specta::Type;
 
 use crate::producao::{self, Producao, Qualidade};
 use crate::projeto::{ModoDeImportacao, Origem, Parada, ProjetoJson};
@@ -19,11 +21,20 @@ pub(crate) type Emitir = Arc<dyn Fn(Evento) + Send + Sync>;
 
 /// O que o trabalhador faz com um projeto.
 enum Trabalho {
-    /// As etapas do projeto, da primeira não concluída em diante. O número identifica a vez
-    /// dele na fila: pausar ou cancelar o projeto ainda na fila invalida a vez.
-    Etapas(PathBuf, u64),
+    /// As etapas do projeto, da primeira não concluída em diante.
+    Etapas(PathBuf),
     /// Só o render da versão final, sem sessão do Claude.
     VersaoFinal(PathBuf),
+}
+
+impl Trabalho {
+    /// O id do projeto, se o trabalho é de etapas.
+    fn projeto(&self) -> Option<String> {
+        match self {
+            Self::Etapas(pasta) => Some(nome_do_arquivo(pasta)),
+            Self::VersaoFinal(_) => None,
+        }
+    }
 }
 
 /// Os pedidos de parada do projeto que está rodando.
@@ -36,10 +47,15 @@ struct Controle {
 /// Quem está na fila e quem está rodando.
 #[derive(Default)]
 struct Estado {
-    proxima_vez: u64,
-    /// O projeto na fila e a vez dele.
-    esperando: HashMap<String, u64>,
+    /// O trabalho que espera a vez, na ordem em que o trabalhador o pega.
+    pendentes: VecDeque<Trabalho>,
     atual: Option<(String, Controle)>,
+    encerrar: bool,
+}
+
+struct Compartilhado {
+    estado: Mutex<Estado>,
+    acordar: Condvar,
 }
 
 /// O que a fila fez com o pedido de parar um projeto.
@@ -53,13 +69,34 @@ pub(crate) enum Parou {
     NaoEstava,
 }
 
-pub(crate) struct Fila {
-    envio: Sender<Trabalho>,
-    estado: Arc<Mutex<Estado>>,
+/// Para onde um projeto que espera a vez anda na fila.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum Movimento {
+    /// Uma posição mais perto da vez.
+    Subir,
+    /// Uma posição mais longe da vez.
+    Descer,
+    /// A próxima vaga que abrir é dele.
+    PassarNaFrente,
 }
 
-fn travar(estado: &Mutex<Estado>) -> std::sync::MutexGuard<'_, Estado> {
-    estado.lock().unwrap_or_else(PoisonError::into_inner)
+pub(crate) struct Fila {
+    compartilhado: Arc<Compartilhado>,
+}
+
+fn travar(compartilhado: &Compartilhado) -> MutexGuard<'_, Estado> {
+    compartilhado
+        .estado
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+}
+
+impl Drop for Fila {
+    fn drop(&mut self) {
+        travar(&self.compartilhado).encerrar = true;
+        self.compartilhado.acordar.notify_all();
+    }
 }
 
 impl Fila {
@@ -71,23 +108,15 @@ impl Fila {
         producao: Option<Producao>,
         ytdlp: Option<Ytdlp>,
     ) -> Self {
-        let (envio, recebimento) = mpsc::channel::<Trabalho>();
-        let estado = Arc::new(Mutex::new(Estado::default()));
-        let do_trabalhador = Arc::clone(&estado);
+        let compartilhado = Arc::new(Compartilhado {
+            estado: Mutex::new(Estado::default()),
+            acordar: Condvar::new(),
+        });
+        let do_trabalhador = Arc::clone(&compartilhado);
         thread::spawn(move || {
-            for trabalho in recebimento {
+            while let Some((trabalho, controle)) = proximo(&do_trabalhador) {
                 match trabalho {
-                    Trabalho::Etapas(pasta, vez) => {
-                        let id = nome_do_arquivo(&pasta);
-                        let controle = Controle::default();
-                        {
-                            let mut estado = travar(&do_trabalhador);
-                            if estado.esperando.get(&id) != Some(&vez) {
-                                continue;
-                            }
-                            estado.esperando.remove(&id);
-                            estado.atual = Some((id, controle.clone()));
-                        }
+                    Trabalho::Etapas(pasta) => {
                         rodar(
                             &pasta,
                             &emit,
@@ -108,20 +137,18 @@ impl Fila {
                 }
             }
         });
-        Self { envio, estado }
+        Self { compartilhado }
     }
 
-    /// Põe o projeto no fim da fila.
+    /// Põe o projeto no fim da fila; se já esperava, perde a vaga antiga.
     pub fn enfileirar(&self, pasta: PathBuf) {
-        let vez = {
-            let mut estado = travar(&self.estado);
-            estado.proxima_vez += 1;
-            let vez = estado.proxima_vez;
-            estado.esperando.insert(nome_do_arquivo(&pasta), vez);
-            vez
-        };
-        // O trabalhador só sai quando a fila é largada.
-        let _ = self.envio.send(Trabalho::Etapas(pasta, vez));
+        let id = nome_do_arquivo(&pasta);
+        let mut estado = travar(&self.compartilhado);
+        estado
+            .pendentes
+            .retain(|trabalho| trabalho.projeto().as_deref() != Some(&id));
+        estado.pendentes.push_back(Trabalho::Etapas(pasta));
+        self.compartilhado.acordar.notify_one();
     }
 
     /// Tira da fila o projeto que espera a vez, ou pede ao que está rodando que pare ao fim da
@@ -138,11 +165,10 @@ impl Fila {
     }
 
     fn parar(&self, id: &str, pedir: impl FnOnce(&Controle)) -> Parou {
-        let mut estado = travar(&self.estado);
-        if estado.esperando.remove(id).is_some() {
+        if self.tirar(id) {
             return Parou::NaFila;
         }
-        match &estado.atual {
+        match &travar(&self.compartilhado).atual {
             Some((atual, controle)) if atual == id => {
                 pedir(controle);
                 Parou::EmAndamento
@@ -151,9 +177,85 @@ impl Fila {
         }
     }
 
+    /// Tira da fila o projeto que espera a vez; `false` se ele não estava lá.
+    pub fn tirar(&self, id: &str) -> bool {
+        let mut estado = travar(&self.compartilhado);
+        let antes = estado.pendentes.len();
+        estado
+            .pendentes
+            .retain(|trabalho| trabalho.projeto().as_deref() != Some(id));
+        estado.pendentes.len() != antes
+    }
+
+    /// Anda com o projeto que espera a vez e devolve a nova ordem dos que esperam; `None` se
+    /// ele não está esperando.
+    pub fn mover(&self, id: &str, movimento: Movimento) -> Option<Vec<String>> {
+        let mut estado = travar(&self.compartilhado);
+        let lugares: Vec<usize> = estado
+            .pendentes
+            .iter()
+            .enumerate()
+            .filter(|(_, trabalho)| trabalho.projeto().is_some())
+            .map(|(lugar, _)| lugar)
+            .collect();
+        let posicao = lugares
+            .iter()
+            .position(|&lugar| estado.pendentes[lugar].projeto().as_deref() == Some(id))?;
+        match movimento {
+            Movimento::Subir if posicao > 0 => {
+                estado
+                    .pendentes
+                    .swap(lugares[posicao], lugares[posicao - 1]);
+            }
+            Movimento::Descer if posicao + 1 < lugares.len() => {
+                estado
+                    .pendentes
+                    .swap(lugares[posicao], lugares[posicao + 1]);
+            }
+            Movimento::PassarNaFrente if posicao > 0 => {
+                if let Some(trabalho) = estado.pendentes.remove(lugares[posicao]) {
+                    estado.pendentes.insert(lugares[0], trabalho);
+                }
+            }
+            _ => {}
+        }
+        Some(
+            estado
+                .pendentes
+                .iter()
+                .filter_map(Trabalho::projeto)
+                .collect(),
+        )
+    }
+
     /// Põe no fim da fila o render da versão final dos reels do projeto.
     pub fn enfileirar_versao_final(&self, pasta: PathBuf) {
-        let _ = self.envio.send(Trabalho::VersaoFinal(pasta));
+        travar(&self.compartilhado)
+            .pendentes
+            .push_back(Trabalho::VersaoFinal(pasta));
+        self.compartilhado.acordar.notify_one();
+    }
+}
+
+/// Espera o próximo trabalho da fila; `None` quando a fila foi largada. O projeto que começa
+/// vira o que está rodando.
+fn proximo(compartilhado: &Compartilhado) -> Option<(Trabalho, Controle)> {
+    let mut estado = travar(compartilhado);
+    loop {
+        if estado.encerrar {
+            return None;
+        }
+        if let Some(trabalho) = estado.pendentes.pop_front() {
+            let controle = Controle::default();
+            if let Some(id) = trabalho.projeto() {
+                estado.atual = Some((id, controle.clone()));
+            }
+            return Some((trabalho, controle));
+        }
+        estado = compartilhado
+            .acordar
+            .wait(estado)
+            .unwrap_or_else(PoisonError::into_inner);
     }
 }
 

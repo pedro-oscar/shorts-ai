@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useAppStore } from "../context";
 import { Screen, Topo } from "./common";
+import { VideoAusente } from "./Gerando";
 import { resumir } from "./formatos";
 
 /** O histórico: os lotes da Biblioteca e os vídeos de cada um. */
@@ -17,6 +18,7 @@ export function Lotes({
   const { t, i18n } = useTranslation();
   const lotes = useAppStore((store) => store.lotes);
   const projetos = useAppStore((store) => store.projetos);
+  const tirarDoHistorico = useAppStore((store) => store.tirarDoHistorico);
   const carregarLotes = useAppStore((store) => store.carregarLotes);
   useEffect(() => {
     void carregarLotes();
@@ -48,6 +50,24 @@ export function Lotes({
                     <li key={projeto.id}>
                       {projeto.titulo}
                       {` · ${t(`gerando.estados.${resumir(projeto).estado}`)}`}
+                      {projeto.videoAusente && (
+                        <VideoAusente projeto={projeto} />
+                      )}
+                    </li>
+                  ))}
+                  {lote.ausentes.map((id) => (
+                    <li key={id}>
+                      {id}
+                      {` · ${t("lotes.naoEncontrado")} · `}
+                      <button
+                        type="button"
+                        aria-label={t("lotes.tirarDe", { nome: id })}
+                        onClick={() => {
+                          void tirarDoHistorico(id);
+                        }}
+                      >
+                        {t("lotes.tirarDoHistorico")}
+                      </button>
                     </li>
                   ))}
                 </ul>

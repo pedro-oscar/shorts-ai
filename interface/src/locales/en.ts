@@ -210,6 +210,25 @@ export const en: typeof ptBR = {
     retomarProjeto: "Resume {{nome}}",
     tentarDeNovo: "Try again from {{etapa}}",
     tentarDeNovoProjeto: "Try {{nome}} again",
+    subir: "Move up",
+    descer: "Move down",
+    passarNaFrente: "Move to front",
+    subirProjeto: "Move {{nome}} up",
+    descerProjeto: "Move {{nome}} down",
+    passarNaFrenteProjeto: "Move {{nome}} to front",
+    remover: "Remove",
+    removerProjeto: "Remove {{nome}}",
+    excluir: "Delete project",
+    excluirProjeto: "Delete {{nome}}",
+    confirmarExclusao:
+      "Deleting {{nome}} erases the project folder, including the generated reels. This cannot be undone.",
+    confirmarExcluir: "Delete",
+    confirmarExcluirProjeto: "Confirm deleting {{nome}}",
+    manter: "Keep",
+    excluido: "{{nome}} deleted: {{espaco}} freed.",
+    videoAusente: "original video not found",
+    localizar: "Locate",
+    localizarProjeto: "Locate the video of {{nome}}",
     retomarLote: "Resume batch",
     loteInterrompido: "This batch stopped: some projects are paused.",
     etapas: {
@@ -236,6 +255,9 @@ export const en: typeof ptBR = {
     aberto: "Open",
     abrir: "Open",
     abrirDe: "Open {{nome}}",
+    naoEncontrado: "not found",
+    tirarDoHistorico: "Remove from history",
+    tirarDe: "Remove {{nome}} from history",
     projetosDe: "Videos of {{nome}}",
   },
   reels: {
@@ -293,6 +315,10 @@ export const en: typeof ptBR = {
       "Could not install the Remotion dependencies. Check your internet connection and try again.",
     projetoNaoLido:
       "Could not read project {{id}}. Check that its folder is still in the Library and try again.",
+    projetoNaoExcluido:
+      "Could not delete project {{id}}. Close whatever is using its folder and try again.",
+    videoNaoLocalizado:
+      "{{caminho}} is not an existing file. Choose the original video again.",
     acaoIndisponivel:
       "Project {{id}} cannot do that right now: its state has changed.",
     loteNaoEncontrado: "Batch {{id}} was not found in the Library.",

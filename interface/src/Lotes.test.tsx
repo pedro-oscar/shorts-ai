@@ -36,6 +36,7 @@ function projeto(
     })),
     falha: null,
     parada: null,
+    videoAusente: false,
   };
 }
 
@@ -51,6 +52,7 @@ function lote(
     criadoEm: "2026-10-08T14:32:00Z",
     padroes: PADROES_INICIAIS,
     projetos,
+    ausentes: [],
     aberto,
   };
 }

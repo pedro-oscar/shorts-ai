@@ -39,6 +39,16 @@ export const commands = {
 	retomarLote: (lote: string) => typedError<null, Erro>(__TAURI_INVOKE("retomar_lote", { lote })),
 	/**  Põe o projeto que falhou no fim da fila, para recomeçar da etapa que falhou. */
 	tentarDeNovo: (id: string) => typedError<null, Erro>(__TAURI_INVOKE("tentar_de_novo", { id })),
+	/**  Anda com o projeto que espera a vez na fila. */
+	moverNaFila: (id: string, movimento: Movimento) => typedError<null, Erro>(__TAURI_INVOKE("mover_na_fila", { id, movimento })),
+	/**  Tira da lista o projeto que nunca começou e apaga a pasta dele. */
+	removerProjeto: (id: string) => typedError<null, Erro>(__TAURI_INVOKE("remover_projeto", { id })),
+	/**  Exclui o projeto e devolve os bytes que a exclusão liberou. */
+	excluirProjeto: (id: string) => typedError<number | null, Erro>(__TAURI_INVOKE("excluir_projeto", { id })),
+	/**  Tira do histórico o projeto cuja pasta sumiu da Biblioteca. */
+	tirarDoHistorico: (id: string) => typedError<null, Erro>(__TAURI_INVOKE("tirar_do_historico", { id })),
+	/**  Aponta o projeto para o arquivo que a pessoa localizou no lugar do vídeo original. */
+	localizarVideo: (id: string, caminho: string) => typedError<null, Erro>(__TAURI_INVOKE("localizar_video", { id, caminho })),
 	dadosDoProjeto: (id: string) => typedError<DadosDoProjeto, Erro>(__TAURI_INVOKE("dados_do_projeto", { id })),
 	abrirNoSistema: (id: string, alvo: AlvoParaAbrir) => typedError<null, Erro>(__TAURI_INVOKE("abrir_no_sistema", { id, alvo })),
 	gerarVersaoFinal: (ids: string[]) => typedError<null, Erro>(__TAURI_INVOKE("gerar_versao_final", { ids })),
@@ -110,7 +120,7 @@ export type Erro = { codigo: "preferenciasIlegiveis"; caminho: string; detalhe: 
 /**  A pasta do projeto foi apagada ou movida. */
 { codigo: "projetoNaoEncontrado"; id: string } | 
 /**  A ação não existe para o estado em que o projeto está. */
-{ codigo: "acaoIndisponivel"; id: string; acao: string } | { codigo: "loteNaoEncontrado"; id: string } | { codigo: "padroesInvalidos"; opcao: string; motivo: string } | { codigo: "preparacaoInterrompida"; detalhe: string } | { codigo: "naoAbriu"; caminho: string; detalhe: string } | { codigo: "linkInvalido"; url: string } | { codigo: "linkNaoConsultado"; url: string; detalhe: string } | { codigo: "direitoDeUsoNaoConfirmado"; url: string };
+{ codigo: "acaoIndisponivel"; id: string; acao: string } | { codigo: "projetoNaoExcluido"; id: string; detalhe: string } | { codigo: "videoNaoLocalizado"; caminho: string } | { codigo: "loteNaoEncontrado"; id: string } | { codigo: "padroesInvalidos"; opcao: string; motivo: string } | { codigo: "preparacaoInterrompida"; detalhe: string } | { codigo: "naoAbriu"; caminho: string; detalhe: string } | { codigo: "linkInvalido"; url: string } | { codigo: "linkNaoConsultado"; url: string; detalhe: string } | { codigo: "direitoDeUsoNaoConfirmado"; url: string };
 
 /**  Em que pé está a conta Claude do app. */
 export type EstadoDaConta = { tipo: "naoInstalado" } | { tipo: "versaoAntiga"; versao: string; minima: string } | { tipo: "semLogin"; versao: string } | { tipo: "logado"; versao: string; 
@@ -172,6 +182,10 @@ export type Evento = { tipo: "avisoAceito"; aceite: Aceite } | { tipo: "planoCon
 { tipo: "etapaMudou"; projeto: string; etapa: Etapa; estado: EstadoDaEtapa; falha: string | null } | 
 /**  O projeto parou (`pausado`, `cancelado`) ou voltou para a fila (`None`). */
 { tipo: "paradaMudou"; projeto: string; parada: Parada | null } | 
+/**  A ordem do lote mudou: os ids dos projetos, na ordem nova da fila. */
+{ tipo: "filaReordenada"; lote: string; projetos: string[] } | 
+/**  O projeto saiu do app: foi removido da lista ou excluído. */
+{ tipo: "projetoRemovido"; projeto: string } | 
 /**  O progresso de uma etapa que o mede, de 0 a 100. */
 { tipo: "progressoDaEtapa"; projeto: string; etapa: Etapa; percentual: number } | 
 /**
@@ -240,6 +254,8 @@ export type LoteResumo = {
 	padroes: Padroes,
 	/**  Os projetos na ordem da fila. */
 	projetos: ProjetoResumo[],
+	/**  Os projetos do lote cuja pasta sumiu da Biblioteca. */
+	ausentes: string[],
 	/**  Tem projeto que ainda não terminou nem falhou. Só o lote mais novo fica aberto. */
 	aberto: boolean,
 };
@@ -251,6 +267,15 @@ export type ModeloDoClaude =
 
 /**  Como a pessoa entra: pela assinatura Claude ou pela conta do Console (cobrança por uso). */
 export type ModoDeLogin = "assinatura" | "console";
+
+/**  Para onde um projeto que espera a vez anda na fila. */
+export type Movimento = 
+/**  Uma posição mais perto da vez. */
+"subir" | 
+/**  Uma posição mais longe da vez. */
+"descer" | 
+/**  A próxima vaga que abrir é dele. */
+"passarNaFrente";
 
 /**
  *  O nível do plano que a pessoa confirma, porque o Claude Code só informa o tipo
@@ -318,6 +343,8 @@ export type ProjetoResumo = {
 	falha: string | null,
 	/**  Pausado ou cancelado; `None` na fila, rodando, pronto ou falho. */
 	parada: Parada | null,
+	/**  O vídeo original, de que o projeto ainda precisa, não está mais no caminho de origem. */
+	videoAusente: boolean,
 };
 
 /**  Um corte a produzir, com o arquivo publicado dele se já existe. */

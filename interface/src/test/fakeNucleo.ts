@@ -155,6 +155,7 @@ export function createFakeNucleo(
         ).map((etapa) => ({ etapa, estado: "pendente" as const })),
         falha: null,
         parada: null,
+        videoAusente: false,
       };
       lote.projetos.push(projeto);
       return projeto;
@@ -288,6 +289,7 @@ export function createFakeNucleo(
         criadoEm: "2026-10-09T10:00:00Z",
         padroes,
         projetos: [],
+        ausentes: [],
         aberto: true,
       };
       lotes.unshift(lote);
@@ -354,6 +356,14 @@ export function createFakeNucleo(
     retomarProjeto: (id) => cicloOk("retomar", id),
     retomarLote: (id) => cicloOk("retomarLote", id),
     tentarDeNovo: (id) => cicloOk("tentarDeNovo", id),
+    moverNaFila: (id, movimento) => cicloOk(`mover:${movimento}`, id),
+    removerProjeto: (id) => cicloOk("remover", id),
+    excluirProjeto: (id) => {
+      calls.ciclo.push(`excluir:${id}`);
+      return Promise.resolve({ status: "ok" as const, data: 2_500_000 });
+    },
+    tirarDoHistorico: (id) => cicloOk("tirarDoHistorico", id),
+    localizarVideo: (id, caminho) => cicloOk(`localizar:${caminho}`, id),
     urlDoArquivo: (caminho) => `asset://${caminho}`,
     sair: () => {
       calls.sair++;

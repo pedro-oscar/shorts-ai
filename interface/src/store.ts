@@ -12,6 +12,7 @@ import type {
   InfoDoLink,
   LoteResumo,
   ModoDeLogin,
+  Movimento,
   NivelDoPlano,
   Pacote,
   Padroes,
@@ -163,6 +164,8 @@ export interface AppState {
   erroDoLote: Erro | null;
   /** O erro da última ação de Pausar, Cancelar, Retomar ou Tentar de novo. */
   erroDoCiclo: Erro | null;
+  /** O último projeto excluído e o espaço que a exclusão liberou, em bytes. */
+  excluido: { titulo: string; bytes: number } | null;
 }
 
 export interface AppStore extends AppState {
@@ -208,6 +211,16 @@ export interface AppStore extends AppState {
   retomarLote: (id: string) => Promise<void>;
   /** Recomeça o projeto que falhou, da etapa que falhou. */
   tentarDeNovo: (id: string) => Promise<void>;
+  /** Anda com o projeto que espera a vez na fila. */
+  moverNaFila: (id: string, movimento: Movimento) => Promise<void>;
+  /** Tira da lista o projeto que nunca começou. */
+  removerProjeto: (id: string) => Promise<void>;
+  /** Exclui o projeto, já confirmado pela pessoa, e guarda o espaço liberado. */
+  excluirProjeto: (id: string) => Promise<void>;
+  /** Tira do histórico o projeto cuja pasta sumiu. */
+  tirarDoHistorico: (id: string) => Promise<void>;
+  /** Pede à pessoa o arquivo que substitui o vídeo original que sumiu. */
+  localizarVideo: (id: string) => Promise<void>;
   /** Pede a versão final dos reels dos projetos `ids`: é só render, sem custo de tokens. */
   gerarVersaoFinal: (ids: string[]) => Promise<void>;
   /** O endereço pelo qual o player toca o reel. */
@@ -324,6 +337,33 @@ export function createAppStore(nucleo: Nucleo) {
             parada: evento.parada,
             percentual: null,
             acoes: evento.parada ? [] : projeto.acoes,
+          }));
+          break;
+        case "filaReordenada":
+          set((current) => {
+            const ordem = new Map(
+              evento.projetos.map((id, posicao) => [id, posicao]),
+            );
+            const doLote = current.projetos
+              .filter((projeto) => projeto.lote === evento.lote)
+              .sort((a, b) => (ordem.get(a.id) ?? 0) - (ordem.get(b.id) ?? 0));
+            // Os projetos do lote ocupam os mesmos lugares da lista, na ordem nova.
+            return {
+              projetos: current.projetos.map((projeto) =>
+                projeto.lote === evento.lote
+                  ? (doLote.shift() ?? projeto)
+                  : projeto,
+              ),
+            };
+          });
+          break;
+        case "projetoRemovido":
+          set((current) => ({
+            projetos: current.projetos.filter((p) => p.id !== evento.projeto),
+            lotes: current.lotes.map((lote) => ({
+              ...lote,
+              projetos: lote.projetos.filter((p) => p.id !== evento.projeto),
+            })),
           }));
           break;
         case "progressoDaEtapa":
@@ -443,6 +483,7 @@ export function createAppStore(nucleo: Nucleo) {
       erroDaVersaoFinal: null,
       erroDoLote: null,
       erroDoCiclo: null,
+      excluido: null,
 
       connect: () => {
         let connected = true;
@@ -684,6 +725,33 @@ export function createAppStore(nucleo: Nucleo) {
       retomarProjeto: (id) => executarCiclo(nucleo.retomarProjeto(id)),
       retomarLote: (id) => executarCiclo(nucleo.retomarLote(id)),
       tentarDeNovo: (id) => executarCiclo(nucleo.tentarDeNovo(id)),
+
+      moverNaFila: (id, movimento) =>
+        executarCiclo(nucleo.moverNaFila(id, movimento)),
+      removerProjeto: (id) => executarCiclo(nucleo.removerProjeto(id)),
+      excluirProjeto: async (id) => {
+        const titulo = get().projetos.find((p) => p.id === id)?.titulo ?? id;
+        const result = await nucleo.excluirProjeto(id);
+        if (result.status === "error") {
+          set({ erroDoCiclo: result.error });
+          return;
+        }
+        set({
+          erroDoCiclo: null,
+          excluido: { titulo, bytes: result.data ?? 0 },
+        });
+      },
+      tirarDoHistorico: async (id) => {
+        await executarCiclo(nucleo.tirarDoHistorico(id));
+        await get().carregarLotes();
+      },
+      localizarVideo: async (id) => {
+        const [caminho] = await nucleo.escolherArquivos();
+        if (caminho === undefined) return;
+        await executarCiclo(nucleo.localizarVideo(id, caminho));
+        if (get().erroDoCiclo === null)
+          mudarProjeto(id, (projeto) => ({ ...projeto, videoAusente: false }));
+      },
 
       gerarVersaoFinal: async (ids) => {
         const result = await nucleo.gerarVersaoFinal(ids);

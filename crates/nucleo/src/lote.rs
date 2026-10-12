@@ -90,6 +90,8 @@ pub struct LoteResumo {
     pub padroes: Padroes,
     /// Os projetos na ordem da fila.
     pub projetos: Vec<ProjetoResumo>,
+    /// Os projetos do lote cuja pasta sumiu da Biblioteca.
+    pub ausentes: Vec<String>,
     /// Tem projeto que ainda não terminou nem falhou. Só o lote mais novo fica aberto.
     pub aberto: bool,
 }
@@ -104,11 +106,12 @@ pub(crate) fn resumir(pasta: &Path, json: ProjetoJson) -> ProjetoResumo {
         etapas: json.etapas,
         falha: json.falha,
         parada: json.parada,
+        video_ausente: json.origem.ausente(pasta),
     }
 }
 
-/// Os lotes da Biblioteca com os projetos lidos do disco; o projeto cuja pasta sumiu fica de
-/// fora.
+/// Os lotes da Biblioteca com os projetos lidos do disco; o projeto cuja pasta sumiu vai em
+/// `ausentes`.
 pub(crate) fn resumos(biblioteca: &Path) -> Vec<LoteResumo> {
     LoteJson::listar(biblioteca)
         .into_iter()
@@ -124,6 +127,12 @@ pub(crate) fn resumos(biblioteca: &Path) -> Vec<LoteResumo> {
                         .map(|json| resumir(&pasta, json))
                 })
                 .collect();
+            let ausentes = lote
+                .projetos
+                .iter()
+                .filter(|id| !biblioteca.join(id).is_dir())
+                .cloned()
+                .collect();
             let aberto = posicao == 0 && projetos.iter().any(nao_terminou);
             LoteResumo {
                 id: lote.id,
@@ -134,6 +143,7 @@ pub(crate) fn resumos(biblioteca: &Path) -> Vec<LoteResumo> {
                     .unwrap_or_default(),
                 padroes: lote.padroes,
                 projetos,
+                ausentes,
                 aberto,
             }
         })

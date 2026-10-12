@@ -7,7 +7,8 @@
 use nucleo::{
     Aceite, AlvoParaAbrir, ArquivoDeVideo, ArquivoDoLote, Config, DadosDoProjeto, Erro,
     EstadoDaConta, EstadoDaPreparacao, EstadoInicial, Evento, InfoDoLink, LinkDoLote, LoteResumo,
-    ModoDeLogin, NivelDoPlano, Nucleo, Padroes, PeriodoDeCobranca, PlanoConfirmado, ProjetoResumo,
+    ModoDeLogin, Movimento, NivelDoPlano, Nucleo, Padroes, PeriodoDeCobranca, PlanoConfirmado,
+    ProjetoResumo,
 };
 use serde::Serialize;
 use specta::Type;
@@ -225,6 +226,50 @@ async fn tentar_de_novo(nucleo: State<'_, Nucleo>, id: String) -> Result<(), Err
     nucleo.tentar_de_novo(&id)
 }
 
+/// Anda com o projeto que espera a vez na fila.
+#[tauri::command]
+#[specta::specta]
+async fn mover_na_fila(
+    nucleo: State<'_, Nucleo>,
+    id: String,
+    movimento: Movimento,
+) -> Result<(), Erro> {
+    nucleo.mover_na_fila(&id, movimento)
+}
+
+/// Tira da lista o projeto que nunca começou e apaga a pasta dele.
+#[tauri::command]
+#[specta::specta]
+async fn remover_projeto(nucleo: State<'_, Nucleo>, id: String) -> Result<(), Erro> {
+    nucleo.remover_projeto(&id)
+}
+
+/// Exclui o projeto e devolve os bytes que a exclusão liberou.
+#[tauri::command]
+#[specta::specta]
+async fn excluir_projeto(nucleo: State<'_, Nucleo>, id: String) -> Result<f64, Erro> {
+    #[allow(clippy::cast_precision_loss)]
+    nucleo.excluir_projeto(&id).map(|bytes| bytes as f64)
+}
+
+/// Tira do histórico o projeto cuja pasta sumiu da Biblioteca.
+#[tauri::command]
+#[specta::specta]
+async fn tirar_do_historico(nucleo: State<'_, Nucleo>, id: String) -> Result<(), Erro> {
+    nucleo.tirar_do_historico(&id)
+}
+
+/// Aponta o projeto para o arquivo que a pessoa localizou no lugar do vídeo original.
+#[tauri::command]
+#[specta::specta]
+async fn localizar_video(
+    nucleo: State<'_, Nucleo>,
+    id: String,
+    caminho: String,
+) -> Result<(), Erro> {
+    nucleo.localizar_video(&id, &caminho)
+}
+
 /// Título, canal e duração de um vídeo do YouTube, antes de baixar.
 #[tauri::command]
 #[specta::specta]
@@ -297,6 +342,11 @@ fn bindings() -> Builder<tauri::Wry> {
             retomar_projeto,
             retomar_lote,
             tentar_de_novo,
+            mover_na_fila,
+            remover_projeto,
+            excluir_projeto,
+            tirar_do_historico,
+            localizar_video,
             dados_do_projeto,
             abrir_no_sistema,
             gerar_versao_final,

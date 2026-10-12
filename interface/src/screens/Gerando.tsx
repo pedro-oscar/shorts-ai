@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { LoteResumo } from "../bindings";
+import type { LoteResumo, Movimento } from "../bindings";
 import { useAppStore } from "../context";
 import type { AcaoDoClaude, ProjetoNaFila } from "../store";
 import { ErrorMessage, Screen, Topo } from "./common";
 import {
   emAberto,
   formatarDuracao,
+  formatarTamanho,
   producaoConcluida,
   resumir,
 } from "./formatos";
@@ -75,15 +76,22 @@ function Acao({ acao }: { acao: AcaoDoClaude }) {
 function Controles({
   projeto,
   estado,
+  fila,
 }: {
   projeto: ProjetoNaFila;
   estado: ReturnType<typeof resumir>["estado"];
+  /** Os ids dos projetos que esperam a vez, na ordem da fila. */
+  fila: string[];
 }) {
   const { t } = useTranslation();
   const pausar = useAppStore((store) => store.pausarProjeto);
   const cancelar = useAppStore((store) => store.cancelarProjeto);
   const retomar = useAppStore((store) => store.retomarProjeto);
   const tentarDeNovo = useAppStore((store) => store.tentarDeNovo);
+  const mover = useAppStore((store) => store.moverNaFila);
+  const remover = useAppStore((store) => store.removerProjeto);
+  const excluir = useAppStore((store) => store.excluirProjeto);
+  const [confirmando, setConfirmando] = useState(false);
   const nome = projeto.titulo;
   const botao = (
     rotulo: string,
@@ -101,8 +109,60 @@ function Controles({
     </button>
   );
   const falhou = projeto.etapas.find((item) => item.estado === "falhou");
+  const posicao = fila.indexOf(projeto.id);
+  const nuncaComecou = projeto.etapas.every(
+    (item) => item.estado === "pendente",
+  );
+  const movimento = (
+    rotulo: string,
+    aria: string,
+    movimento: Movimento,
+    habilitado: boolean,
+  ) => (
+    <button
+      type="button"
+      aria-label={aria}
+      disabled={!habilitado}
+      onClick={() => {
+        void mover(projeto.id, movimento);
+      }}
+    >
+      {rotulo}
+    </button>
+  );
   return (
     <div className="actions">
+      {estado === "naFila" && (
+        <>
+          {movimento(
+            t("gerando.subir"),
+            t("gerando.subirProjeto", { nome }),
+            "subir",
+            posicao > 0,
+          )}
+          {movimento(
+            t("gerando.descer"),
+            t("gerando.descerProjeto", { nome }),
+            "descer",
+            posicao < fila.length - 1,
+          )}
+          {movimento(
+            t("gerando.passarNaFrente"),
+            t("gerando.passarNaFrenteProjeto", { nome }),
+            "passarNaFrente",
+            posicao > 0,
+          )}
+        </>
+      )}
+      {(estado === "naFila" ||
+        estado === "pausado" ||
+        estado === "cancelado") &&
+        nuncaComecou &&
+        botao(
+          t("gerando.remover"),
+          t("gerando.removerProjeto", { nome }),
+          remover,
+        )}
       {(estado === "naFila" || estado === "emAndamento") &&
         botao(
           t("gerando.pausar"),
@@ -136,12 +196,77 @@ function Controles({
           })}
         </button>
       )}
+      {(estado === "falhou" ||
+        estado === "pronto" ||
+        estado === "cancelado" ||
+        estado === "pausado") &&
+        !confirmando && (
+          <button
+            type="button"
+            aria-label={t("gerando.excluirProjeto", { nome })}
+            onClick={() => {
+              setConfirmando(true);
+            }}
+          >
+            {t("gerando.excluir")}
+          </button>
+        )}
+      {confirmando && (
+        <div
+          role="alertdialog"
+          aria-label={t("gerando.excluirProjeto", { nome })}
+        >
+          <p>{t("gerando.confirmarExclusao", { nome })}</p>
+          {botao(
+            t("gerando.confirmarExcluir"),
+            t("gerando.confirmarExcluirProjeto", { nome }),
+            excluir,
+          )}
+          <button
+            type="button"
+            onClick={() => {
+              setConfirmando(false);
+            }}
+          >
+            {t("gerando.manter")}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
 
+/** A faixa de um vídeo original que sumiu, com a ação de localizá-lo. */
+export function VideoAusente({ projeto }: { projeto: ProjetoNaFila }) {
+  const { t } = useTranslation();
+  const localizar = useAppStore((store) => store.localizarVideo);
+  return (
+    <p role="status" className="detail">
+      {t("gerando.videoAusente")}
+      {" · "}
+      <button
+        type="button"
+        aria-label={t("gerando.localizarProjeto", { nome: projeto.titulo })}
+        onClick={() => {
+          void localizar(projeto.id);
+        }}
+      >
+        {t("gerando.localizar")}
+      </button>
+    </p>
+  );
+}
+
 /** Uma linha do lote: o estado, a etapa N/5, o progresso e o tempo, com o detalhe ao lado. */
-function Linha({ projeto, agora }: { projeto: ProjetoNaFila; agora: number }) {
+function Linha({
+  projeto,
+  agora,
+  fila,
+}: {
+  projeto: ProjetoNaFila;
+  agora: number;
+  fila: string[];
+}) {
   const { t } = useTranslation();
   const abrirNoSistema = useAppStore((store) => store.abrirNoSistema);
   const resumo = resumir(projeto);
@@ -173,7 +298,8 @@ function Linha({ projeto, agora }: { projeto: ProjetoNaFila; agora: number }) {
         max={projeto.etapas.length}
         aria-label={t("gerando.progresso", { nome: projeto.titulo })}
       />
-      <Controles projeto={projeto} estado={resumo.estado} />
+      <Controles projeto={projeto} estado={resumo.estado} fila={fila} />
+      {projeto.videoAusente && <VideoAusente projeto={projeto} />}
       {projeto.falha && (
         <p role="alert" className="error detail">
           {t("erros.detalhe", { detalhe: projeto.falha })}
@@ -235,7 +361,7 @@ export function Gerando({
   onAdicionar: () => void;
   onNovoLote: () => void;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const loteAtual = useAppStore((store) => store.loteAtual);
   const lote = useAppStore((store) =>
     store.lotes.find((item) => item.id === store.loteAtual),
@@ -246,6 +372,10 @@ export function Gerando({
   const agora = useAgora(rodando);
   const retomarLote = useAppStore((store) => store.retomarLote);
   const erroDoCiclo = useAppStore((store) => store.erroDoCiclo);
+  const excluido = useAppStore((store) => store.excluido);
+  const fila = projetos
+    .filter((projeto) => resumir(projeto).estado === "naFila")
+    .map((projeto) => projeto.id);
   const pausados = projetos.some((projeto) => projeto.parada === "pausado");
   return (
     <>
@@ -266,6 +396,17 @@ export function Gerando({
             </button>
           </div>
         )}
+        {excluido && (
+          <p role="status">
+            {t("gerando.excluido", {
+              nome: excluido.titulo,
+              espaco: formatarTamanho(
+                excluido.bytes / 1_000_000,
+                i18n.language,
+              ),
+            })}
+          </p>
+        )}
         {erroDoCiclo && <ErrorMessage erro={erroDoCiclo} />}
         <div className="actions">
           {rodando && (
@@ -284,7 +425,12 @@ export function Gerando({
         </div>
         <ul className="project-list">
           {projetos.map((projeto) => (
-            <Linha key={projeto.id} projeto={projeto} agora={agora} />
+            <Linha
+              key={projeto.id}
+              projeto={projeto}
+              agora={agora}
+              fila={fila}
+            />
           ))}
         </ul>
       </Screen>

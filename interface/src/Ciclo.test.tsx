@@ -43,6 +43,7 @@ function projeto(
     })),
     falha: falhouEm ? "boom" : null,
     parada: null,
+    videoAusente: false,
     ...extra,
   };
 }
@@ -54,6 +55,7 @@ function renderApp(projetos: ProjetoResumo[]) {
     criadoEm: "2026-10-08T14:32:00Z",
     padroes: PADROES_INICIAIS,
     projetos,
+    ausentes: [],
     aberto: true,
   };
   const fake = createFakeNucleo(INICIAL, LOGADO, [lote]);

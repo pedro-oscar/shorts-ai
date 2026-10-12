@@ -213,6 +213,25 @@ export const ptBR = {
     retomarProjeto: "Retomar {{nome}}",
     tentarDeNovo: "Tentar de novo a partir de {{etapa}}",
     tentarDeNovoProjeto: "Tentar de novo {{nome}}",
+    subir: "Subir",
+    descer: "Descer",
+    passarNaFrente: "Passar na frente",
+    subirProjeto: "Subir {{nome}}",
+    descerProjeto: "Descer {{nome}}",
+    passarNaFrenteProjeto: "Passar {{nome}} na frente",
+    remover: "Remover",
+    removerProjeto: "Remover {{nome}}",
+    excluir: "Excluir projeto",
+    excluirProjeto: "Excluir {{nome}}",
+    confirmarExclusao:
+      "Excluir {{nome}} apaga a pasta do projeto, com os reels gerados. Isso não pode ser desfeito.",
+    confirmarExcluir: "Excluir",
+    confirmarExcluirProjeto: "Confirmar a exclusão de {{nome}}",
+    manter: "Manter",
+    excluido: "{{nome}} excluído: {{espaco}} liberados.",
+    videoAusente: "vídeo original não encontrado",
+    localizar: "Localizar",
+    localizarProjeto: "Localizar o vídeo de {{nome}}",
     retomarLote: "Retomar lote",
     loteInterrompido: "Este lote parou: há projetos pausados.",
     etapas: {
@@ -239,6 +258,9 @@ export const ptBR = {
     aberto: "Aberto",
     abrir: "Abrir",
     abrirDe: "Abrir {{nome}}",
+    naoEncontrado: "não encontrado",
+    tirarDoHistorico: "Tirar do histórico",
+    tirarDe: "Tirar {{nome}} do histórico",
     projetosDe: "Vídeos de {{nome}}",
   },
   reels: {
@@ -296,6 +318,10 @@ export const ptBR = {
       "Não foi possível instalar as dependências do Remotion. Confira a conexão com a internet e tente de novo.",
     projetoNaoLido:
       "Não foi possível ler o projeto {{id}}. Confira se a pasta dele ainda está na Biblioteca e tente de novo.",
+    projetoNaoExcluido:
+      "Não foi possível excluir o projeto {{id}}. Feche o que estiver usando a pasta dele e tente de novo.",
+    videoNaoLocalizado:
+      "{{caminho}} não é um arquivo que exista. Escolha o vídeo original de novo.",
     acaoIndisponivel:
       "O projeto {{id}} não pode {{acao}} agora: o estado dele mudou.",
     loteNaoEncontrado: "O lote {{id}} não foi encontrado na Biblioteca.",

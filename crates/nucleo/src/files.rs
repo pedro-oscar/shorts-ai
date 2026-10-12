@@ -31,3 +31,25 @@ pub(crate) fn copy_dir(source: &Path, destination: &Path) -> io::Result<()> {
     }
     Ok(())
 }
+
+/// O tamanho, em bytes, dos arquivos da pasta, sem seguir links simbólicos nem junctions; a
+/// subpasta `sem` do primeiro nível não entra.
+pub(crate) fn tamanho_da_pasta(pasta: &Path, sem: Option<&str>) -> u64 {
+    let Ok(entradas) = fs::read_dir(pasta) else {
+        return 0;
+    };
+    entradas
+        .filter_map(Result::ok)
+        .filter(|entrada| sem.is_none_or(|sem| entrada.file_name() != sem))
+        .filter_map(|entrada| {
+            let tipo = entrada.file_type().ok()?;
+            if tipo.is_symlink() {
+                None
+            } else if tipo.is_dir() {
+                Some(tamanho_da_pasta(&entrada.path(), None))
+            } else {
+                entrada.metadata().ok().map(|metadados| metadados.len())
+            }
+        })
+        .sum()
+}

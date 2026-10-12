@@ -95,6 +95,12 @@ impl Origem {
             Self::Arquivo { caminho, .. } => PathBuf::from(caminho),
         }
     }
+
+    /// O arquivo local de que o projeto ainda precisa não está mais lá. O vídeo baixado de um
+    /// link não se localiza.
+    pub fn ausente(&self, pasta: &Path) -> bool {
+        matches!(self, Self::Arquivo { .. }) && !self.video(pasta).is_file()
+    }
 }
 
 /// A parte do vídeo original, em segundos inteiros, a que a análise se limita.
