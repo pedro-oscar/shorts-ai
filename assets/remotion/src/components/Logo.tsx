@@ -1,7 +1,6 @@
 import React from 'react';
 import {AbsoluteFill, Img, interpolate, staticFile, useCurrentFrame, useVideoConfig} from 'remotion';
-import type {Trecho} from '../logo';
-import {tamanhoDaLogo} from '../logo';
+import {tamanhoDaLogo, type Trecho} from '../logo';
 import type {Marca} from '../types';
 
 /** A logo do kit no canto escolhido para cada trecho, com uma entrada e uma saída suaves. */

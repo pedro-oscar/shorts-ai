@@ -4,7 +4,7 @@
 use std::collections::BTreeSet;
 use std::fs;
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
@@ -271,7 +271,7 @@ impl Kit {
         let Some(logo) = &self.logo else {
             return Ok(());
         };
-        let destino: PathBuf = pasta.join(PUBLICO);
+        let destino = pasta.join(PUBLICO);
         fs::create_dir_all(&destino)?;
         fs::copy(&logo.arquivo, destino.join(logo.nome_da_copia()))?;
         Ok(())
