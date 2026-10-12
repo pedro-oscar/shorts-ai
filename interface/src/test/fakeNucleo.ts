@@ -38,7 +38,6 @@ export const SEM_CUSTO: ResumoDeCusto = {
   porReelUsd: null,
 };
 
-/** A data que o núcleo falso grava no aceite: 7 de outubro de 2026, 18:30 em UTC. */
 /** O kit que o núcleo sempre tem, como o núcleo o devolve. */
 export const KIT_PADRAO: Kit = {
   nome: "Padrão",
@@ -59,6 +58,7 @@ const FONTES_EMBUTIDAS = [
   "Inter",
 ];
 
+/** A data que o núcleo falso grava no aceite: 7 de outubro de 2026, 18:30 em UTC. */
 export const ACCEPTED_AT = "2026-10-07T18:30:00Z";
 
 /** A conta que o núcleo falso tem por padrão: assinatura Max, com o Claude Code em dia. */
