@@ -5,7 +5,12 @@ import { expect, test } from "vitest";
 import type { LoteResumo, ProjetoResumo } from "./bindings";
 import { App } from "./App";
 import { PADROES_INICIAIS } from "./store";
-import { ACCEPTED_AT, LOGADO, createFakeNucleo } from "./test/fakeNucleo";
+import {
+  ACCEPTED_AT,
+  LOGADO,
+  SEM_CUSTO,
+  createFakeNucleo,
+} from "./test/fakeNucleo";
 
 const INICIAL = {
   aceite: { data: ACCEPTED_AT },
@@ -39,6 +44,7 @@ function projeto(
     parada: null,
     videoAusente: false,
     excecoes: {},
+    custo: SEM_CUSTO,
     ...extra,
   };
 }
@@ -52,6 +58,7 @@ function renderApp(projetos: ProjetoResumo[], ausentes: string[] = []) {
     projetos,
     ausentes,
     aberto: true,
+    custo: SEM_CUSTO,
   };
   const fake = createFakeNucleo(INICIAL, LOGADO, [lote]);
   render(<App nucleo={fake.nucleo} />);

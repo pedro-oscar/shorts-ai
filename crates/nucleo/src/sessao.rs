@@ -17,6 +17,7 @@ use time::OffsetDateTime;
 
 use crate::Etapa;
 use crate::claude_code::ClaudeCode;
+use crate::custo::{TabelaDePrecos, preco_a_conferir};
 use crate::files::{copy_dir, write_json};
 use crate::process::{self, Interrupted, Stream};
 use crate::roteiro::{ROTEIRO, validar_na_pasta};
@@ -92,6 +93,9 @@ pub struct UsoDoModelo {
     pub cache_leitura: u64,
     pub cache_criacao: u64,
     pub custo_usd: f64,
+    /// O `costBasis` do Claude Code (`list`, `unknown`...), se ele informou.
+    #[serde(default)]
+    pub custo_base: Option<String>,
 }
 
 /// O custo de uma sessão, como o último `result` o informa: uma linha do `custos.json`.
@@ -103,6 +107,16 @@ pub struct Custo {
     #[serde(with = "time::serde::rfc3339")]
     pub inicio: OffsetDateTime,
     pub custo_usd: f64,
+    /// O preço de API que o app calcula com os tokens e a tabela de preços; `None` se algum
+    /// modelo não está na tabela.
+    #[serde(default)]
+    pub custo_calculado_usd: Option<f64>,
+    /// A data da tabela de preços usada no cálculo.
+    #[serde(default)]
+    pub tabela_data: Option<String>,
+    /// O cálculo do app diverge do `total_cost_usd` em mais de 5% ou o `costBasis` é `unknown`.
+    #[serde(default)]
+    pub preco_a_conferir: bool,
     pub turnos: u32,
     pub duracao_ms: u64,
     /// O `result` final foi um `error_during_execution` com os custos zerados: o valor é o do
@@ -287,7 +301,8 @@ impl Roteirista {
                     stream.line(line, evento);
                 }
             })?;
-        if let Some(custo) = stream.custo(etapa, inicio) {
+        let tabela = TabelaDePrecos::atual(&self.app_data_dir);
+        if let Some(custo) = stream.custo(etapa, inicio, &tabela) {
             registrar_custo(pedido.pasta, &custo)?;
         }
         let sem_resposta = stream
@@ -565,7 +580,12 @@ impl StreamState {
     /// O custo vem do **último** `result` (inclui os sub-agentes) e nunca se soma. Um último
     /// `error_during_execution` com tudo zerado cede o lugar ao `result` anterior, e só então
     /// o valor sai marcado como parcial.
-    fn custo(&self, etapa: Etapa, inicio: OffsetDateTime) -> Option<Custo> {
+    fn custo(
+        &self,
+        etapa: Etapa,
+        inicio: OffsetDateTime,
+        tabela: &TabelaDePrecos,
+    ) -> Option<Custo> {
         let last = self.results.last()?;
         let parcial = last["subtype"] == "error_during_execution" && is_zeroed(last);
         let chosen = match self.results.len() {
@@ -586,15 +606,21 @@ impl StreamState {
                         cache_leitura: number("cacheReadInputTokens"),
                         cache_criacao: number("cacheCreationInputTokens"),
                         custo_usd: usage["costUSD"].as_f64().unwrap_or(0.0),
+                        custo_base: usage["costBasis"].as_str().map(str::to_owned),
                     },
                 )
             })
             .collect();
+        let custo_usd = chosen["total_cost_usd"].as_f64().unwrap_or(0.0);
+        let custo_calculado_usd = tabela.preco_de_api(&modelos);
         Some(Custo {
             etapa,
             session_id: self.session_id.clone(),
             inicio,
-            custo_usd: chosen["total_cost_usd"].as_f64().unwrap_or(0.0),
+            custo_usd,
+            custo_calculado_usd,
+            tabela_data: Some(tabela.data.clone()),
+            preco_a_conferir: preco_a_conferir(custo_calculado_usd, custo_usd, &modelos),
             turnos: u32::try_from(chosen["num_turns"].as_u64().unwrap_or(0)).unwrap_or(u32::MAX),
             duracao_ms: chosen["duration_ms"].as_u64().unwrap_or(0),
             parcial,

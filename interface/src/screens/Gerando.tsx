@@ -4,6 +4,7 @@ import type { LoteResumo, Movimento } from "../bindings";
 import { useAppStore } from "../context";
 import type { AcaoDoClaude, ProjetoNaFila } from "../store";
 import { ErrorMessage, Screen, Topo } from "./common";
+import { DetalheDoCusto, ResumoDoCusto } from "./Custo";
 import { ExcecoesDoProjeto, ResumoDasExcecoes } from "./Excecoes";
 import {
   emAberto,
@@ -310,6 +311,7 @@ function Linha({
       ) : (
         <ResumoDasExcecoes excecoes={projeto.excecoes} />
       )}
+      <ResumoDoCusto custo={projeto.custo} rotulo={t("custo.projeto")} />
       <Controles projeto={projeto} estado={resumo.estado} fila={fila} />
       {projeto.videoAusente && <VideoAusente projeto={projeto} />}
       {projeto.falha && (
@@ -347,6 +349,7 @@ function Linha({
             })}
           </p>
         )}
+        <DetalheDoCusto custo={projeto.custo} />
         <button
           type="button"
           aria-label={t("gerando.abrirLogsDe", { nome: projeto.titulo })}
@@ -395,6 +398,7 @@ export function Gerando({
       <Screen title={t("gerando.titulo")}>
         {lote && <NomeDoLote key={lote.id} lote={lote} />}
         {projetos.length === 0 && <p>{t("gerando.semLote")}</p>}
+        {lote && <ResumoDoCusto custo={lote.custo} rotulo={t("custo.lote")} />}
         {pausados && loteAtual && (
           <div role="status">
             <p>{t("gerando.loteInterrompido")}</p>

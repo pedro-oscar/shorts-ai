@@ -3,7 +3,24 @@ import type {
   Faixa,
   IdiomaDoVideo,
   ProjetoResumo,
+  ResumoDeCusto,
 } from "../bindings";
+
+/** Um valor em dólar, com a vírgula ou o ponto do idioma; centavos até US$ 10, depois inteiros. */
+export function formatarDolar(valor: number, idioma: string): string {
+  const casas = valor < 10 ? 2 : 0;
+  return valor.toLocaleString(idioma, {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: casas,
+    maximumFractionDigits: casas,
+  });
+}
+
+/** Há sessão do Claude para mostrar o custo. */
+export function temCusto(custo: ResumoDeCusto): boolean {
+  return custo.sessoes.length > 0 || (custo.custoUsd ?? 0) > 0;
+}
 
 /** `m:ss`, ou `h:mm:ss` a partir de uma hora; `—` quando a duração não é conhecida. */
 export function formatarDuracao(segundos: number | null): string {

@@ -20,10 +20,23 @@ import type {
   PlanoConfirmado,
   ProjetoResumo,
   Regra,
+  ResumoDeCusto,
 } from "../bindings";
 import type { Nucleo } from "../nucleo";
 
 /** A data que o núcleo falso grava no aceite: 7 de outubro de 2026, 18:30 em UTC. */
+/** O custo de quem ainda não rodou nenhuma sessão do Claude. */
+export const SEM_CUSTO: ResumoDeCusto = {
+  sessoes: [],
+  tokens: { entrada: 0, saida: 0, cacheLeitura: 0, cacheCriacao: 0 },
+  custoUsd: 0,
+  duracaoS: 0,
+  parcial: false,
+  precoAConferir: false,
+  reels: 0,
+  porReelUsd: null,
+};
+
 export const ACCEPTED_AT = "2026-10-07T18:30:00Z";
 
 /** A conta que o núcleo falso tem por padrão: assinatura Max, com o Claude Code em dia. */
@@ -198,6 +211,7 @@ export function createFakeNucleo(
         parada: null,
         videoAusente: false,
         excecoes: excecoes[indice] ?? {},
+        custo: SEM_CUSTO,
       };
       lote.projetos.push(projeto);
       return projeto;
@@ -374,6 +388,7 @@ export function createFakeNucleo(
         projetos: [],
         ausentes: [],
         aberto: true,
+        custo: SEM_CUSTO,
       };
       lotes.unshift(lote);
       return Promise.resolve({
@@ -414,7 +429,7 @@ export function createFakeNucleo(
         return Promise.resolve({ status: "error", error: readError });
       return Promise.resolve({
         status: "ok",
-        data: dados.get(id) ?? { reels: [], reservas: [] },
+        data: dados.get(id) ?? { reels: [], reservas: [], custo: SEM_CUSTO },
       });
     },
     abrirNoSistema: (id, alvo) => {

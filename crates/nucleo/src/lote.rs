@@ -9,11 +9,11 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 use time::OffsetDateTime;
 
-use crate::ProjetoResumo;
 use crate::files::write_json;
 use crate::padroes::Padroes;
 use crate::projeto::{Parada, ProjetoJson};
 use crate::{EstadoDaEtapa, nome_do_arquivo};
+use crate::{ProjetoResumo, ResumoDeCusto};
 
 const PASTA: &str = ".lotes";
 
@@ -80,7 +80,7 @@ fn arquivo(biblioteca: &Path, id: &str) -> PathBuf {
 }
 
 /// Um lote como a interface o mostra no histórico.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+#[derive(Debug, Clone, PartialEq, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct LoteResumo {
     pub id: String,
@@ -94,6 +94,8 @@ pub struct LoteResumo {
     pub ausentes: Vec<String>,
     /// Tem projeto que ainda não terminou nem falhou. Só o lote mais novo fica aberto.
     pub aberto: bool,
+    /// A soma do custo dos projetos, com as versões finais e os ajustes depois da geração.
+    pub custo: ResumoDeCusto,
 }
 
 /// O projeto do disco, como a interface o mostra na fila.
@@ -108,6 +110,7 @@ pub(crate) fn resumir(pasta: &Path, json: ProjetoJson) -> ProjetoResumo {
         parada: json.parada,
         video_ausente: json.origem.ausente(pasta),
         excecoes: json.excecoes,
+        custo: Box::new(ResumoDeCusto::do_projeto(pasta)),
     }
 }
 
@@ -134,6 +137,7 @@ pub(crate) fn resumos(biblioteca: &Path) -> Vec<LoteResumo> {
                 .filter(|id| !biblioteca.join(id).is_dir())
                 .cloned()
                 .collect();
+            let custo = ResumoDeCusto::do_lote(projetos.iter().map(|projeto| &*projeto.custo));
             let aberto = posicao == 0 && projetos.iter().any(nao_terminou);
             LoteResumo {
                 id: lote.id,
@@ -146,6 +150,7 @@ pub(crate) fn resumos(biblioteca: &Path) -> Vec<LoteResumo> {
                 projetos,
                 ausentes,
                 aberto,
+                custo,
             }
         })
         .collect()

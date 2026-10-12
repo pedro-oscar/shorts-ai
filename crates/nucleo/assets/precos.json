@@ -1,0 +1,9 @@
+{
+  "data": "2026-10-07",
+  "modelos": {
+    "claude-opus-5-5": { "entrada": 4, "escrita5min": 5, "escrita1h": 8, "leitura": 0.2, "saida": 20 },
+    "claude-sonnet-5-5": { "entrada": 2, "escrita5min": 2.5, "escrita1h": 4, "leitura": 0.2, "saida": 10 },
+    "claude-fable-5-1": { "entrada": 10, "escrita5min": 12.5, "escrita1h": 20, "leitura": 0.25, "saida": 50 },
+    "claude-haiku-4-5": { "entrada": 1, "escrita5min": 1.25, "escrita1h": 2, "leitura": 0.1, "saida": 5 }
+  }
+}

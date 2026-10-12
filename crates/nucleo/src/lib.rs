@@ -8,6 +8,7 @@ mod aprendizados;
 mod claude_code;
 mod conta;
 pub mod corte;
+pub mod custo;
 mod diagnostico;
 mod fila;
 mod files;
@@ -45,6 +46,7 @@ pub use crate::claude_code::ClaudeCode;
 use crate::conta::Conta;
 pub use crate::conta::{Cobranca, EstadoDaConta, ModoDeLogin, VERSAO_MINIMA_DO_CLAUDE_CODE};
 use crate::corte::Ffmpeg;
+pub use crate::custo::{CustoDaSessao, ResumoDeCusto, TabelaDePrecos, Tokens};
 pub use crate::diagnostico::{
     Dependencia, Diagnostico, Gpu, NomeDaDependencia, Situacao as SituacaoDaDependencia,
 };
@@ -111,6 +113,8 @@ pub struct Config {
     pub downloads: Option<Downloads>,
     /// Onde o Diagnóstico procura o carregador do Vulkan; `None` usa os locais do sistema.
     pub carregadores_do_vulkan: Option<Vec<PathBuf>>,
+    /// Onde a tabela de preços publicada é baixada; `None` mantém a embutida.
+    pub precos_url: Option<String>,
 }
 
 /// Onde ficam, nos dados do app, os modelos da Transcrição (o do Whisper e o do VAD).
@@ -127,6 +131,7 @@ pub struct Nucleo {
     node_portatil: NodePortatil,
     node: Option<PathBuf>,
     app_data_dir: PathBuf,
+    precos_url: Option<String>,
     aprendizados: Aprendizados,
     downloads: Downloads,
     /// O idioma que o sistema indicou; vale enquanto a pessoa não escolhe outro.
@@ -272,7 +277,7 @@ pub enum EstadoDaEtapa {
 }
 
 /// Um projeto como a interface o mostra na fila.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+#[derive(Debug, Clone, PartialEq, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjetoResumo {
     /// O nome da pasta do projeto na Biblioteca.
@@ -290,6 +295,8 @@ pub struct ProjetoResumo {
     pub video_ausente: bool,
     /// O que o projeto define no lugar dos padrões do lote.
     pub excecoes: Excecoes,
+    /// Quanto o Claude custou até agora, estimado.
+    pub custo: Box<ResumoDeCusto>,
 }
 
 /// Um arquivo de vídeo escolhido, para a lista do passo Vídeos.
@@ -315,7 +322,7 @@ pub enum MotivoDeNotificacao {
 }
 
 /// O que muda no núcleo e a interface acompanha.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+#[derive(Debug, Clone, PartialEq, Serialize, Type)]
 #[serde(
     tag = "tipo",
     rename_all = "camelCase",
@@ -430,6 +437,8 @@ pub enum Erro {
     AtualizacaoFalhou { detalhe: String },
     #[error("regras aprendidas não gravadas: {detalhe}")]
     AprendizadosNaoGravados { detalhe: String },
+    #[error("tabela de preços não atualizada: {detalhe}")]
+    PrecosNaoAtualizados { detalhe: String },
     #[error("a Biblioteca não pode mudar com projetos na fila")]
     BibliotecaOcupada,
     #[error("Biblioteca não trocada para {caminho}: {detalhe}")]
@@ -561,6 +570,7 @@ impl Nucleo {
             node: config.node,
             downloads: config.downloads.unwrap_or_default(),
             app_data_dir: config.app_data_dir.clone(),
+            precos_url: config.precos_url,
             path_env: config.path_env,
             sidecar_dir: config.sidecar_dir,
             abrir_com: config.abrir_com.unwrap_or_else(galeria::programa_de_abrir),
@@ -1393,10 +1403,28 @@ impl Nucleo {
     /// Os reels e as reservas do projeto, para a Galeria.
     pub fn dados_do_projeto(&self, id: &str) -> Result<DadosDoProjeto, Erro> {
         let pasta = self.pasta_do_projeto(id)?;
-        galeria::ler(&pasta).map_err(|detalhe| Erro::ProjetoNaoLido {
+        let mut dados = galeria::ler(&pasta).map_err(|detalhe| Erro::ProjetoNaoLido {
             id: id.to_owned(),
             detalhe,
-        })
+        })?;
+        dados.custo = ResumoDeCusto::do_projeto(&pasta);
+        Ok(dados)
+    }
+
+    /// Baixa a tabela de preços publicada, a guarda nos dados do app e devolve a data dela. Sem
+    /// endereço configurado ou com a rede fora, a tabela em uso continua a mesma.
+    pub fn atualizar_precos(&self) -> Result<String, Erro> {
+        let url = self
+            .precos_url
+            .as_deref()
+            .ok_or(Erro::PrecosNaoAtualizados {
+                detalhe: "sem endereço configurado".to_owned(),
+            })?;
+        TabelaDePrecos::baixar(url, &self.app_data_dir)
+            .map(|tabela| tabela.data)
+            .map_err(|error| Erro::PrecosNaoAtualizados {
+                detalhe: error.to_string(),
+            })
     }
 
     /// Abre a pasta, o roteiro, os logs ou um reel do projeto no programa padrão do sistema.

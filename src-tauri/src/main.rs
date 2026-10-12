@@ -505,6 +505,8 @@ fn main() {
                     abrir_com: None,
                     downloads: None,
                     carregadores_do_vulkan: None,
+                    // A publicação da tabela de preços vem com o build distribuível.
+                    precos_url: None,
                 },
                 move |evento| {
                     if let Evento::Notificacao {

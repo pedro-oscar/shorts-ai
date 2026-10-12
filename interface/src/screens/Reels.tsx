@@ -8,6 +8,7 @@ import type {
   VersaoFinalDoProjeto,
 } from "../store";
 import { ErrorMessage, Screen, Topo } from "./common";
+import { ResumoDoCusto } from "./Custo";
 import { formatarDuracao, producaoConcluida } from "./formatos";
 
 /**
@@ -208,6 +209,9 @@ function Projeto({ projeto }: { projeto: ProjetoNaFila }) {
             </button>
           ))}
         </div>
+      )}
+      {dados && (
+        <ResumoDoCusto custo={dados.custo} rotulo={t("custo.projeto")} />
       )}
       {temPrevia(leitura) && (
         <VersaoFinal projeto={projeto.id} titulo={projeto.titulo} />

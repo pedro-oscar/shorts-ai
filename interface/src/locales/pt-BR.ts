@@ -353,6 +353,18 @@ export const ptBR = {
     tirarDe: "Tirar {{nome}} do histórico",
     projetosDe: "Vídeos de {{nome}}",
   },
+  custo: {
+    estimado: "Custo estimado: {{valor}}",
+    porReel: "{{valor}} por reel",
+    parcial: "parcial",
+    aConferir: "preço a conferir",
+    detalhe: "Custo por etapa",
+    revisao: "Revisão {{n}}",
+    sessao:
+      "{{valor}} estimado · entrada {{entrada, number}} · saída {{saida, number}} · cache lido {{cacheLeitura, number}} · cache escrito {{cacheCriacao, number}} ({{cache}}% de cache) · {{tempo}} · {{modelo}}",
+    lote: "Custo estimado do lote",
+    projeto: "Custo estimado do projeto",
+  },
   reels: {
     titulo: "Reels",
     doLote: "Lote: {{nome}}",
@@ -388,6 +400,8 @@ export const ptBR = {
       "O arquivo de preferências estava corrompido e foi guardado em {{backup}}. As preferências voltaram ao padrão, por isso o Aviso de uso aparece de novo.",
   },
   erros: {
+    precosNaoAtualizados:
+      "Não foi possível atualizar a tabela de preços: {{detalhe}}",
     aprendizadosNaoGravados:
       "Não foi possível ler ou gravar as regras aprendidas: {{detalhe}}",
     bibliotecaOcupada:

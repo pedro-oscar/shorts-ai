@@ -120,10 +120,26 @@ export type Cobranca = "assinatura" |
 /**  Conta do Console e plano Enterprise contam como preço de API. */
 "porUso";
 
+/**  Uma sessão do Claude, como a interface mostra o detalhe da etapa. */
+export type CustoDaSessao = {
+	etapa: Etapa,
+	/**  A posição entre as sessões da mesma etapa: a Revisão 1, a Revisão 2. */
+	ordem: number,
+	tokens: Tokens,
+	/**  O preço de API estimado: o do app e, sem ele, o do Claude Code. */
+	custoUsd: number | null,
+	duracaoS: number | null,
+	modelos: string[],
+	parcial: boolean,
+	precoAConferir: boolean,
+};
+
 /**  Os reels e as reservas de um projeto, na ordem do roteiro. */
 export type DadosDoProjeto = {
 	reels: ReelDoProjeto[],
 	reservas: Reserva[],
+	/**  O custo do projeto e o rateio por reel; só `Nucleo::dados_do_projeto` o preenche. */
+	custo: ResumoDeCusto,
 };
 
 export type Dependencia = {
@@ -144,7 +160,7 @@ export type Diagnostico = {
  *  Os erros do núcleo, como código e parâmetros. `detalhe` é a mensagem do sistema, para
  *  diagnóstico.
  */
-export type Erro = { codigo: "preferenciasIlegiveis"; caminho: string; detalhe: string } | { codigo: "preferenciasNaoGravadas"; caminho: string; detalhe: string } | { codigo: "loginNaoConcluido"; detalhe: string } | { codigo: "instalacaoFalhou"; detalhe: string } | { codigo: "atualizacaoFalhou"; detalhe: string } | { codigo: "aprendizadosNaoGravados"; detalhe: string } | { codigo: "bibliotecaOcupada" } | { codigo: "bibliotecaNaoTrocada"; caminho: string; detalhe: string } | { codigo: "claudeNaoRespondeu"; detalhe: string } | { codigo: "arquivoInvalido"; caminho: string } | { codigo: "projetoNaoCriado"; caminho: string; detalhe: string } | { codigo: "dependenciasDoRemotionNaoInstaladas"; detalhe: string } | { codigo: "projetoNaoLido"; id: string; detalhe: string } | 
+export type Erro = { codigo: "preferenciasIlegiveis"; caminho: string; detalhe: string } | { codigo: "preferenciasNaoGravadas"; caminho: string; detalhe: string } | { codigo: "loginNaoConcluido"; detalhe: string } | { codigo: "instalacaoFalhou"; detalhe: string } | { codigo: "atualizacaoFalhou"; detalhe: string } | { codigo: "aprendizadosNaoGravados"; detalhe: string } | { codigo: "precosNaoAtualizados"; detalhe: string } | { codigo: "bibliotecaOcupada" } | { codigo: "bibliotecaNaoTrocada"; caminho: string; detalhe: string } | { codigo: "claudeNaoRespondeu"; detalhe: string } | { codigo: "arquivoInvalido"; caminho: string } | { codigo: "projetoNaoCriado"; caminho: string; detalhe: string } | { codigo: "dependenciasDoRemotionNaoInstaladas"; detalhe: string } | { codigo: "projetoNaoLido"; id: string; detalhe: string } | 
 /**  A pasta do projeto foi apagada ou movida. */
 { codigo: "projetoNaoEncontrado"; id: string } | 
 /**  A ação não existe para o estado em que o projeto está. */
@@ -308,6 +324,8 @@ export type LoteResumo = {
 	ausentes: string[],
 	/**  Tem projeto que ainda não terminou nem falhou. Só o lote mais novo fica aberto. */
 	aberto: boolean,
+	/**  A soma do custo dos projetos, com as versões finais e os ajustes depois da geração. */
+	custo: ResumoDeCusto,
 };
 
 /**  O modelo das sessões do Claude. */
@@ -405,6 +423,8 @@ export type ProjetoResumo = {
 	videoAusente: boolean,
 	/**  O que o projeto define no lugar dos padrões do lote. */
 	excecoes: Excecoes,
+	/**  Quanto o Claude custou até agora, estimado. */
+	custo: ResumoDeCusto,
 };
 
 /**  Um corte a produzir, com o arquivo publicado dele se já existe. */
@@ -442,10 +462,32 @@ export type Reserva = {
 	porque: string | null,
 };
 
+/**  O custo de um projeto (com o detalhe das sessões) ou de um lote (sem ele). */
+export type ResumoDeCusto = {
+	sessoes: CustoDaSessao[],
+	tokens: Tokens,
+	custoUsd: number | null,
+	duracaoS: number | null,
+	parcial: boolean,
+	precoAConferir: boolean,
+	/**  Os reels produzidos, sem as reservas. */
+	reels: number,
+	/**  O custo dividido pelos reels produzidos; `None` enquanto não há reel. */
+	porReelUsd: number | null,
+};
+
 /**  O que o Diagnóstico achou de uma dependência. */
 export type Situacao = { tipo: "presente"; versao: string | null } | { tipo: "ausente" } | 
 /**  Achado, mas sem alguns encoders ou filtros de que o app precisa. */
 { tipo: "incompleta"; faltam: string[] };
+
+/**  Os tokens de uma sessão, de um projeto ou de um lote. */
+export type Tokens = {
+	entrada: number,
+	saida: number,
+	cacheLeitura: number,
+	cacheCriacao: number,
+};
 
 /* Tauri Specta runtime */
 async function typedError<T, E>(result: Promise<T>): Promise<{ status: "ok"; data: T } | { status: "error"; error: E }> {

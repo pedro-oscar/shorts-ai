@@ -305,7 +305,8 @@ fn o_custo_vem_do_result_da_sessao() {
                 "saida": 54_169,
                 "cacheLeitura": 2_283_532,
                 "cacheCriacao": 115_691,
-                "custoUsd": CUSTO_GRAVADO
+                "custoUsd": CUSTO_GRAVADO,
+                "custoBase": "list"
             }
         })
     );
@@ -334,7 +335,8 @@ fn com_varios_results_o_custo_vem_do_ultimo_sem_somar() {
             "saida": 348_469,
             "cacheLeitura": 13_117_193,
             "cacheCriacao": 651_999,
-            "custoUsd": 13.655_747_6
+            "custoUsd": 13.655_747_6,
+            "custoBase": "list"
         })
     );
     // Os tokens ao vivo somam as mensagens das quatro voltas.
@@ -414,6 +416,34 @@ fn cada_sessao_acrescenta_uma_linha_ao_custos_json_sem_apagar_as_anteriores() {
         assert_eq!(custo["etapa"], "roteiro");
         assert_eq!(custo["custoUsd"], CUSTO_GRAVADO);
     }
+}
+
+#[test]
+fn a_linha_do_custos_json_traz_o_preco_calculado_pelo_app_e_a_data_da_tabela() {
+    let cenario = Cenario::novo();
+
+    cenario.rodar(None).0.unwrap();
+
+    let custo = cenario.ultimo_custo();
+    let calculado = custo["custoCalculadoUsd"].as_f64().unwrap();
+    assert!((calculado - CUSTO_GRAVADO).abs() < 1e-6, "{calculado}");
+    assert_eq!(custo["tabelaData"], "2026-10-07");
+    assert_eq!(custo["precoAConferir"], false);
+    assert_eq!(custo["modelos"]["claude-opus-5-5"]["custoBase"], "list");
+}
+
+#[test]
+fn preco_calculado_que_diverge_do_claude_code_em_mais_de_5_por_cento_fica_a_conferir() {
+    let cenario = Cenario::novo();
+    // Nesta gravação os sub-agentes em segundo plano pesam no `modelUsage`: o app calcula
+    // US$ 14,81 contra os US$ 13,66 do Claude Code.
+    cenario.usar_gravacao("sessao-roteiro-varios-results.jsonl");
+
+    cenario.rodar(None).0.unwrap();
+
+    let custo = cenario.ultimo_custo();
+    assert_eq!(custo["precoAConferir"], true);
+    assert!(custo["custoCalculadoUsd"].as_f64().unwrap() > 14.0);
 }
 
 #[test]

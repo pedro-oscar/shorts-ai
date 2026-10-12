@@ -7,6 +7,7 @@ import { PADROES_INICIAIS } from "./store";
 import {
   ACCEPTED_AT,
   DIAGNOSTICO_PADRAO,
+  SEM_CUSTO,
   createFakeNucleo,
 } from "./test/fakeNucleo";
 
@@ -41,10 +42,12 @@ const LOTE_COPIADO: LoteResumo = {
       parada: null,
       videoAusente: false,
       excecoes: {},
+      custo: SEM_CUSTO,
     },
   ],
   ausentes: [],
   aberto: false,
+  custo: SEM_CUSTO,
 };
 
 test("a engrenagem não aparece antes do aceite do Aviso de uso", async () => {

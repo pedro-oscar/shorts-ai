@@ -3,7 +3,7 @@ import { userEvent } from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
 import type { DadosDoProjeto, ReelDoProjeto } from "./bindings";
 import { App } from "./App";
-import { ACCEPTED_AT, createFakeNucleo } from "./test/fakeNucleo";
+import { ACCEPTED_AT, SEM_CUSTO, createFakeNucleo } from "./test/fakeNucleo";
 
 const AULA = "aula (2026-10-09)";
 
@@ -13,6 +13,7 @@ const COM_PLANO = {
 } as const;
 
 const DADOS: DadosDoProjeto = {
+  custo: SEM_CUSTO,
   reels: [
     {
       id: "c01",

@@ -349,6 +349,18 @@ export const en: typeof ptBR = {
     tirarDe: "Remove {{nome}} from history",
     projetosDe: "Videos of {{nome}}",
   },
+  custo: {
+    estimado: "Estimated cost: {{valor}}",
+    porReel: "{{valor}} per reel",
+    parcial: "partial",
+    aConferir: "price to check",
+    detalhe: "Cost by stage",
+    revisao: "Review {{n}}",
+    sessao:
+      "{{valor}} estimated · input {{entrada, number}} · output {{saida, number}} · cache read {{cacheLeitura, number}} · cache written {{cacheCriacao, number}} ({{cache}}% cache) · {{tempo}} · {{modelo}}",
+    lote: "Estimated batch cost",
+    projeto: "Estimated project cost",
+  },
   reels: {
     titulo: "Reels",
     doLote: "Batch: {{nome}}",
@@ -384,6 +396,7 @@ export const en: typeof ptBR = {
       "The preferences file was corrupted and was saved to {{backup}}. The preferences went back to the defaults, so the terms of use are shown again.",
   },
   erros: {
+    precosNaoAtualizados: "Could not update the price table: {{detalhe}}",
     aprendizadosNaoGravados:
       "Could not read or save the learned rules: {{detalhe}}",
     bibliotecaOcupada:

@@ -8,6 +8,7 @@ use std::process::Command;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
+use crate::custo::ResumoDeCusto;
 use crate::process::hide_console;
 use crate::producao::{PREVIAS, PUBLICAR, nome_do_reel};
 use crate::roteiro::{ROTEIRO, Roteiro, StatusDoCorte};
@@ -65,6 +66,8 @@ pub struct Reserva {
 pub struct DadosDoProjeto {
     pub reels: Vec<ReelDoProjeto>,
     pub reservas: Vec<Reserva>,
+    /// O custo do projeto e o rateio por reel; só `Nucleo::dados_do_projeto` o preenche.
+    pub custo: ResumoDeCusto,
 }
 
 /// Lê o roteiro da pasta do projeto; sem roteiro ainda, a Galeria dele está vazia.

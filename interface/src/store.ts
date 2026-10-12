@@ -283,6 +283,21 @@ export function createAppStore(nucleo: Nucleo) {
       }));
     }
 
+    /** Relê o custo do disco: a sessão que terminou fechou o valor dela. */
+    async function atualizarCustos() {
+      const lotes = await nucleo.lotes();
+      const custos = new Map(
+        lotes.flatMap((lote) => lote.projetos).map((p) => [p.id, p.custo]),
+      );
+      set((current) => ({
+        lotes,
+        projetos: current.projetos.map((projeto) => ({
+          ...projeto,
+          custo: custos.get(projeto.id) ?? projeto.custo,
+        })),
+      }));
+    }
+
     function apply(evento: Evento) {
       switch (evento.tipo) {
         case "avisoAceito":
@@ -362,6 +377,7 @@ export function createAppStore(nucleo: Nucleo) {
               }),
             };
           });
+          if (evento.estado !== "emAndamento") void atualizarCustos();
           break;
         case "paradaMudou":
           mudarProjeto(evento.projeto, (projeto) => ({
