@@ -39,15 +39,15 @@ export function ResumoDoCusto({
       {custo.precoAConferir && ` · ${t("custo.aConferir")}`}
     </>
   );
-  const porReel = (usd: number) =>
+  const porReel = (fatorDoReel: number) =>
     custo.porReelUsd !== null &&
-    ` · ${t("custo.porReel", { valor: dinheiro(usd) })}`;
+    ` · ${t("custo.porReel", { valor: dinheiro(custo.porReelUsd * fatorDoReel) })}`;
   if (fator === null) {
     const chave = plano?.precoDeApi ? "custo.cobranca" : "custo.estimado";
     return (
       <p className="detail" aria-label={rotulo}>
         {t(chave, { valor: dinheiro(api) })}
-        {custo.porReelUsd !== null && porReel(custo.porReelUsd)}
+        {porReel(1)}
         {marcas}
       </p>
     );
@@ -62,8 +62,7 @@ export function ResumoDoCusto({
         <strong title={faixa}>
           {t("custo.noPlano", { valor: dinheiro(api * fator) })}
         </strong>{" "}
-        ({t("custo.estimadoMarca")})
-        {custo.porReelUsd !== null && porReel(custo.porReelUsd * fator)}
+        ({t("custo.estimadoMarca")}){porReel(fator)}
         {marcas}
       </p>
       <p className="muted">

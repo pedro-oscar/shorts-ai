@@ -3,6 +3,7 @@ import type {
   Aceite,
   AlvoParaAbrir,
   ArquivoDeVideo,
+  Cotacao,
   Diagnostico,
   Erro,
   EstadoDaConta,
@@ -20,7 +21,6 @@ import type {
   Padroes,
   PeriodoDeCobranca,
   PlanoConfirmado,
-  Cotacao,
   ProjetoResumo,
   Regra,
 } from "./bindings";
