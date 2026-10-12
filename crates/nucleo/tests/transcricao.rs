@@ -139,6 +139,7 @@ case "$*" in
 *sleep-forever*) exec sleep 30 ;;
 esac
 for ultimo; do :; done
+case "$ultimo" in *amostra*) [ -f "$dir/vazio" ] && { head -c 44 /dev/zero > "$ultimo"; exit 0; } ;; esac
 head -c 3200000 /dev/zero > "$ultimo"
 "#;
 
@@ -364,6 +365,33 @@ echo "whisper_print_progress_callback: progress = 100%" >&2
             "{}",
             chamadas[1]
         );
+    }
+
+    #[test]
+    fn o_trecho_de_deteccao_e_cortado_na_saida_e_recodificado() {
+        let cenario = Cenario::novo();
+
+        cenario.transcrever(None, &mut Vec::new()).unwrap();
+
+        let log = fs::read_to_string(cenario.bin().join("ffmpeg.log")).unwrap();
+        let corte = log.lines().nth(1).unwrap();
+        assert!(corte.contains("-i "), "{corte}");
+        assert!(corte.contains("-t 30 -c:a pcm_s16le"), "{corte}");
+        assert!(!corte.contains("copy"), "{corte}");
+        let (antes, depois) = corte.split_once("-ss").unwrap();
+        assert!(antes.contains("-i ") && !depois.contains("-i "), "{corte}");
+    }
+
+    #[test]
+    fn um_trecho_de_deteccao_sem_audio_e_um_erro_que_fala_dele() {
+        let cenario = Cenario::novo();
+        cenario.marcar("vazio");
+
+        let erro = cenario.transcrever(None, &mut Vec::new()).unwrap_err();
+
+        let mensagem = erro.to_string();
+        assert!(mensagem.contains("trecho de detecção"), "{mensagem}");
+        assert!(cenario.chamadas_do_whisper().is_empty());
     }
 
     #[test]
@@ -766,4 +794,64 @@ fn com_o_motor_real_a_fala_de_20_segundos_vira_palavras_no_lugar() {
 
     assert!(!transcricao.palavras.is_empty());
     assert!(transcricao.palavras.iter().all(|p| p.fim <= 20.5));
+}
+
+/// Com o ffmpeg real, num áudio de 3 s: o corte da amostra da detecção do idioma tem de sair com
+/// áudio, inclusive no ffmpeg 4.4. Precisa dos mesmos programas e variáveis do teste acima.
+#[test]
+#[ignore = "usa o whisper-cli e os modelos reais"]
+fn com_o_ffmpeg_real_o_idioma_de_um_audio_curto_e_detectado() {
+    use std::process::Command;
+    use std::sync::atomic::AtomicBool;
+
+    use nucleo::transcricao::{Pedido, Transcritor};
+
+    let variavel = |nome: &str| PathBuf::from(std::env::var(nome).unwrap());
+    let tmp = tempfile::tempdir().unwrap();
+    let video = tmp.path().join("curto.mp4");
+    let fala = std::env::var("SHORTS_WHISPER_AUDIO_DE_TESTE").unwrap();
+    let gerado = Command::new("ffmpeg")
+        .args([
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=black:s=320x180:d=3",
+        ])
+        .args([
+            "-i",
+            &fala,
+            "-t",
+            "3",
+            "-shortest",
+            "-c:v",
+            "libx264",
+            "-c:a",
+            "aac",
+        ])
+        .arg(&video)
+        .status()
+        .unwrap();
+    assert!(gerado.success());
+
+    let transcricao = Transcritor::new(
+        "ffmpeg".into(),
+        variavel("SHORTS_WHISPER_CLI"),
+        variavel("SHORTS_WHISPER_MODELO"),
+        variavel("SHORTS_WHISPER_VAD"),
+    )
+    .transcrever(
+        &Pedido {
+            video: &video,
+            pasta_de_saida: &tmp.path().join("edit"),
+            idioma: None,
+            nomes_proprios: &[],
+        },
+        &AtomicBool::new(false),
+        &mut |_| {},
+    )
+    .unwrap();
+
+    assert!(!transcricao.idioma.is_empty());
 }

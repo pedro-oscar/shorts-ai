@@ -40,6 +40,8 @@ const PAUSA_ENTRE_FRASES: f64 = 0.5;
 const LANGUAGE_DETECTION_SECONDS: u32 = 30;
 /// O áudio de 16 kHz, mono, 16 bits: bytes por segundo.
 const WAV_BYTES_PER_SECOND: u64 = 32_000;
+/// Um WAV sem amostras tem só o cabeçalho, de 44 bytes.
+const WAV_HEADER_BYTES: u64 = 44;
 /// De onde, no máximo, a detecção de idioma escuta.
 const LANGUAGE_DETECTION_MAX_START: u64 = 120;
 
@@ -260,18 +262,24 @@ impl Transcritor {
         self.ffmpeg(
             vec![
                 "-y".into(),
+                "-i".into(),
+                audio.into(),
                 "-ss".into(),
                 start.to_string().into(),
                 "-t".into(),
                 LANGUAGE_DETECTION_SECONDS.to_string().into(),
-                "-i".into(),
-                audio.into(),
-                "-c".into(),
-                "copy".into(),
+                "-c:a".into(),
+                "pcm_s16le".into(),
                 sample.clone().into(),
             ],
             cancelar,
         )?;
+        if fs::metadata(&sample)?.len() <= WAV_HEADER_BYTES {
+            return Err(ErroDaTranscricao::Falhou {
+                programa: "ffmpeg",
+                detalhe: "o trecho de detecção do idioma saiu sem áudio".to_owned(),
+            });
+        }
         let base = work_dir.join("deteccao");
         let args = [
             "-m".to_owned(),
