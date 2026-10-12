@@ -5,10 +5,11 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use nucleo::{
-    Aceite, AlvoParaAbrir, ArquivoDeVideo, ArquivoDoLote, Config, DadosDoProjeto, Diagnostico,
-    Erro, EstadoDaConta, EstadoDaPreparacao, EstadoInicial, Evento, Excecoes, IdiomaDaInterface,
-    InfoDoLink, LinkDoLote, LoteResumo, ModoDeLogin, MotivoDeNotificacao, Movimento, NivelDoPlano,
-    Nucleo, Padroes, PeriodoDeCobranca, PlanoConfirmado, ProjetoResumo, Regra,
+    Aceite, AlvoParaAbrir, ArquivoDeVideo, ArquivoDoLote, Config, Cotacao, DadosDoProjeto,
+    Diagnostico, Erro, EstadoDaConta, EstadoDaPreparacao, EstadoInicial, Evento, Excecoes,
+    IdiomaDaInterface, InfoDoLink, LinkDoLote, LoteResumo, ModoDeLogin, MotivoDeNotificacao,
+    Movimento, NivelDoPlano, Nucleo, Padroes, PeriodoDeCobranca, PlanoConfirmado, ProjetoResumo,
+    Regra,
 };
 use serde::Serialize;
 use specta::Type;
@@ -129,6 +130,24 @@ async fn confirmar_plano(
     periodo: PeriodoDeCobranca,
 ) -> Result<PlanoConfirmado, Erro> {
     nucleo.confirmar_plano(nivel, periodo)
+}
+
+#[tauri::command]
+#[specta::specta]
+async fn definir_multiplicador(
+    nucleo: State<'_, Nucleo>,
+    multiplicador: Option<f64>,
+) -> Result<PlanoConfirmado, Erro> {
+    nucleo.definir_multiplicador(multiplicador)
+}
+
+#[tauri::command]
+#[specta::specta]
+async fn definir_cotacao(
+    nucleo: State<'_, Nucleo>,
+    valor: Option<f64>,
+) -> Result<Option<Cotacao>, Erro> {
+    nucleo.definir_cotacao(valor)
 }
 
 #[tauri::command]
@@ -433,6 +452,8 @@ fn bindings() -> Builder<tauri::Wry> {
             instalar_claude_code,
             atualizar_claude_code,
             confirmar_plano,
+            definir_multiplicador,
+            definir_cotacao,
             testar_claude,
             escolher_arquivos,
             escolher_pasta,

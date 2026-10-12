@@ -1,8 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { IdiomaDaInterface } from "../bindings";
 import { useAppStore } from "../context";
 import { Diagnostico } from "./Diagnostico";
+import { Moeda } from "./Moeda";
+import { MultiplicadorDoPlano } from "./MultiplicadorDoPlano";
+import { PlanoDaConta } from "./PlanoDaConta";
 import { RegrasAprendidas } from "./RegrasAprendidas";
 import { ErrorMessage, Screen, Topo } from "./common";
 
@@ -22,7 +25,13 @@ export function Configuracoes({
   const erro = useAppStore((store) => store.erroDasConfiguracoes);
   const trocarBiblioteca = useAppStore((store) => store.trocarBiblioteca);
   const definirIdioma = useAppStore((store) => store.definirIdioma);
+  const conta = useAppStore((store) => store.conta);
+  const verificarConta = useAppStore((store) => store.verificarConta);
   const [diagnostico, setDiagnostico] = useState(false);
+
+  useEffect(() => {
+    if (conta === null) void verificarConta();
+  }, [conta, verificarConta]);
 
   if (diagnostico)
     return (
@@ -62,6 +71,18 @@ export function Configuracoes({
             ))}
           </select>
         </label>
+
+        <h2>{t("configuracoes.contaTitulo")}</h2>
+        {conta?.tipo === "logado" ? (
+          <>
+            <PlanoDaConta plano={conta.plano} />
+            <MultiplicadorDoPlano />
+          </>
+        ) : (
+          <p className="muted">{t("configuracoes.semConta")}</p>
+        )}
+
+        <Moeda />
 
         <RegrasAprendidas />
 

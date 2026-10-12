@@ -20,6 +20,7 @@ import type {
   Padroes,
   PeriodoDeCobranca,
   PlanoConfirmado,
+  Cotacao,
   ProjetoResumo,
   Regra,
 } from "./bindings";
@@ -135,6 +136,8 @@ export interface AppState {
   loginPorTerminal: boolean;
   /** O plano que a pessoa confirmou; `null` até ela confirmar. */
   plano: PlanoConfirmado | null;
+  /** A cotação do R$ digitada; `null` mostra os valores em US$. */
+  cotacao: Cotacao | null;
   chaveDeApiNoAmbiente: boolean;
   /** A Biblioteca, onde ficam os projetos. */
   biblioteca: string;
@@ -207,6 +210,8 @@ export interface AppStore extends AppState {
     nivel: NivelDoPlano,
     periodo: PeriodoDeCobranca,
   ) => Promise<void>;
+  definirMultiplicador: (multiplicador: number | null) => Promise<void>;
+  definirCotacao: (cotacao: number | null) => Promise<void>;
   setLoginPorTerminal: (porTerminal: boolean) => void;
   testarClaude: () => Promise<void>;
   sair: () => Promise<void>;
@@ -511,6 +516,7 @@ export function createAppStore(nucleo: Nucleo) {
       saidaDoComando: [],
       loginPorTerminal: false,
       plano: null,
+      cotacao: null,
       chaveDeApiNoAmbiente: false,
       biblioteca: "",
       erroDasConfiguracoes: null,
@@ -562,6 +568,7 @@ export function createAppStore(nucleo: Nucleo) {
               // Um aceite que chegou por evento vale mais que o do estado inicial.
               aceite: current.aceite ?? inicial.aceite,
               plano: current.plano ?? inicial.plano,
+              cotacao: inicial.cotacao,
               chaveDeApiNoAmbiente: inicial.chaveDeApiNoAmbiente,
               biblioteca: inicial.biblioteca,
               preparacao: current.preparacao ?? preparacao,
@@ -694,6 +701,23 @@ export function createAppStore(nucleo: Nucleo) {
         // O plano em si chega pelo evento planoConfirmado.
         const result = await nucleo.confirmarPlano(nivel, periodo);
         if (result.status === "error") set({ erroDaConta: result.error });
+      },
+
+      definirMultiplicador: async (multiplicador) => {
+        // O plano com o multiplicador novo chega pelo evento planoConfirmado.
+        const result = await nucleo.definirMultiplicador(multiplicador);
+        set({
+          erroDasConfiguracoes: result.status === "error" ? result.error : null,
+        });
+      },
+
+      definirCotacao: async (valor) => {
+        const result = await nucleo.definirCotacao(valor);
+        if (result.status === "error") {
+          set({ erroDasConfiguracoes: result.error });
+          return;
+        }
+        set({ erroDasConfiguracoes: null, cotacao: result.data });
       },
 
       setLoginPorTerminal: (loginPorTerminal) => {

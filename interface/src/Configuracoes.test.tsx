@@ -1,6 +1,6 @@
 import { render, screen, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import type { LoteResumo } from "./bindings";
 import { App } from "./App";
 import { PADROES_INICIAIS } from "./store";
@@ -9,6 +9,7 @@ import {
   DIAGNOSTICO_PADRAO,
   SEM_CUSTO,
   createFakeNucleo,
+  planoCompleto,
 } from "./test/fakeNucleo";
 
 const INICIAL = {
@@ -229,4 +230,70 @@ test("sem regras, as Configurações dizem que não há nenhuma", async () => {
   await abrirConfiguracoes();
 
   await screen.findByText("Nenhuma regra ainda.");
+});
+
+async function abrirComPlano(plano: Parameters<typeof planoCompleto>[0]) {
+  const fake = createFakeNucleo({
+    aceite: { data: ACCEPTED_AT },
+    plano: planoCompleto(plano),
+  });
+  render(<App nucleo={fake.nucleo} />);
+  const user = userEvent.setup();
+  await user.click(
+    await screen.findByRole("button", { name: "Configurações" }),
+  );
+  return { ...fake, user };
+}
+
+test("o multiplicador do plano é editável e volta ao padrão", async () => {
+  const { user, calls } = await abrirComPlano({
+    nivel: "max5x",
+    periodo: "mensal",
+    precoDeApi: false,
+  });
+  const campo = await screen.findByLabelText("Valor do multiplicador");
+  expect(campo).toHaveValue("3");
+  screen.getByText(/O padrão de Max 5x é 3×/);
+
+  await user.clear(campo);
+  await user.type(campo, "4,5");
+  await user.click(
+    screen.getByRole("button", { name: "Salvar multiplicador" }),
+  );
+
+  await vi.waitFor(() => {
+    expect(calls.multiplicadores).toEqual([4.5]);
+    expect(screen.getByLabelText("Valor do multiplicador")).toHaveValue("4.5");
+  });
+  await user.click(screen.getByRole("button", { name: "Voltar ao padrão" }));
+  await vi.waitFor(() => {
+    expect(calls.multiplicadores).toEqual([4.5, null]);
+    expect(screen.getByLabelText("Valor do multiplicador")).toHaveValue("3");
+  });
+});
+
+test("no Console não há multiplicador a editar", async () => {
+  await abrirComPlano({ nivel: "console", periodo: null, precoDeApi: true });
+
+  await screen.findByRole("heading", { name: "Conta e plano" });
+  expect(screen.queryByLabelText("Valor do multiplicador")).toBeNull();
+});
+
+test("a cotação digitada liga o R$ e dá para voltar ao US$", async () => {
+  const { user, calls } = await abrirConfiguracoes();
+  const usarReais = screen.getByRole("button", { name: "Mostrar em R$" });
+  const usarDolares = screen.getByRole("button", { name: "Voltar para US$" });
+  expect(usarReais).toBeDisabled();
+  expect(usarDolares).toBeDisabled();
+
+  await user.type(screen.getByLabelText("Cotação (R$ por US$ 1)"), "5,42");
+  await user.click(usarReais);
+
+  await screen.findByText(/Cotação digitada em/);
+  expect(calls.cotacoes).toEqual([5.42]);
+  await user.click(usarDolares);
+  await vi.waitFor(() => {
+    expect(calls.cotacoes).toEqual([5.42, null]);
+    expect(screen.queryByText(/Cotação digitada em/)).toBeNull();
+  });
 });

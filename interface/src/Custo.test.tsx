@@ -1,6 +1,11 @@
 import { act, render, screen, within } from "@testing-library/react";
 import { expect, test } from "vitest";
-import type { LoteResumo, ProjetoResumo, ResumoDeCusto } from "./bindings";
+import type {
+  EstadoInicial,
+  LoteResumo,
+  ProjetoResumo,
+  ResumoDeCusto,
+} from "./bindings";
 import { App } from "./App";
 import { PADROES_INICIAIS } from "./store";
 import {
@@ -8,6 +13,7 @@ import {
   LOGADO,
   SEM_CUSTO,
   createFakeNucleo,
+  planoCompleto,
 } from "./test/fakeNucleo";
 
 const INICIAL = {
@@ -81,7 +87,10 @@ function projeto(custo: ResumoDeCusto): ProjetoResumo {
   };
 }
 
-function renderApp(custo: ResumoDeCusto) {
+function renderApp(
+  custo: ResumoDeCusto,
+  inicial: Partial<EstadoInicial> = INICIAL,
+) {
   const item = projeto(custo);
   const lote: LoteResumo = {
     id: LOTE_ID,
@@ -93,7 +102,7 @@ function renderApp(custo: ResumoDeCusto) {
     aberto: true,
     custo,
   };
-  const fake = createFakeNucleo(INICIAL, LOGADO, [lote]);
+  const fake = createFakeNucleo(inicial, LOGADO, [lote]);
   render(<App nucleo={fake.nucleo} />);
   return { ...fake, lote };
 }
@@ -156,4 +165,70 @@ test("o custo fecha quando a etapa do Claude termina", async () => {
   expect(
     await screen.findByLabelText("Custo estimado do lote"),
   ).toHaveTextContent("US$ 2,85");
+});
+
+const API = { ...CUSTO, custoUsd: 3.6, porReelUsd: 1.2 };
+
+test("quem tem assinatura vê o custo efetivo em destaque, com a faixa e o preço de API embaixo", async () => {
+  renderApp(API, {
+    ...INICIAL,
+    plano: planoCompleto({
+      nivel: "max5x",
+      periodo: "mensal",
+      precoDeApi: false,
+    }),
+  });
+  await screen.findByRole("listitem", { name: "aula" });
+
+  const lote = screen.getByRole("group", { name: "Custo estimado do lote" });
+  const destaque = within(lote).getByText("≈ US$ 1,20 no seu plano");
+  expect(destaque.getAttribute("title")?.replace(/\s/g, " ")).toBe(
+    "Entre US$ 0,84 e US$ 1,56",
+  );
+  expect(lote).toHaveTextContent("(estimado)");
+  expect(lote).toHaveTextContent("US$ 0,40 por reel");
+  expect(lote).toHaveTextContent(
+    "US$ 3,60 em preço de API · não é cobrado à parte, usa a cota do plano",
+  );
+});
+
+test("a cobrança anual abate a mensalidade do custo efetivo", async () => {
+  renderApp(API, {
+    ...INICIAL,
+    plano: planoCompleto({ nivel: "pro", periodo: "anual", precoDeApi: false }),
+  });
+
+  const lote = await screen.findByRole("group", {
+    name: "Custo estimado do lote",
+  });
+  expect(lote).toHaveTextContent("≈ US$ 1,22 no seu plano");
+});
+
+test("no Console o preço de API aparece como cobrança", async () => {
+  renderApp(API, {
+    ...INICIAL,
+    plano: planoCompleto({ nivel: "console", periodo: null, precoDeApi: true }),
+  });
+
+  const lote = await screen.findByLabelText("Custo estimado do lote");
+  expect(lote).toHaveTextContent("Cobrança estimada: US$ 3,60");
+  expect(lote).not.toHaveTextContent("no seu plano");
+});
+
+test("com a cotação digitada os valores saem em reais", async () => {
+  renderApp(API, {
+    ...INICIAL,
+    plano: planoCompleto({
+      nivel: "max5x",
+      periodo: "mensal",
+      precoDeApi: false,
+    }),
+    cotacao: { valor: 5, data: "2026-10-12" },
+  });
+
+  const lote = await screen.findByRole("group", {
+    name: "Custo estimado do lote",
+  });
+  expect(lote).toHaveTextContent("≈ R$ 6,00 no seu plano");
+  expect(lote).toHaveTextContent("R$ 18 em preço de API");
 });

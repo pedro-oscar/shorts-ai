@@ -17,6 +17,13 @@ export const commands = {
 	instalarClaudeCode: () => typedError<EstadoDaConta, Erro>(__TAURI_INVOKE("instalar_claude_code")),
 	atualizarClaudeCode: () => typedError<EstadoDaConta, Erro>(__TAURI_INVOKE("atualizar_claude_code")),
 	confirmarPlano: (nivel: NivelDoPlano, periodo: PeriodoDeCobranca) => typedError<PlanoConfirmado, Erro>(__TAURI_INVOKE("confirmar_plano", { nivel, periodo })),
+	definirMultiplicador: (multiplicador: number | null) => typedError<PlanoConfirmado, Erro>(__TAURI_INVOKE("definir_multiplicador", { multiplicador })),
+	definirCotacao: (valor: number | null) => typedError<{
+	/**  Quantos reais valem um dólar. */
+	valor: number | null,
+	/**  O dia em que a cotação foi digitada, `AAAA-MM-DD`. */
+	data: string,
+} | null, Erro>(__TAURI_INVOKE("definir_cotacao", { valor })),
 	testarClaude: () => typedError<null, Erro>(__TAURI_INVOKE("testar_claude")),
 	/**  O seletor de arquivos do sistema, só com os vídeos que o app aceita. */
 	escolherArquivos: () => __TAURI_INVOKE<string[]>("escolher_arquivos"),
@@ -120,6 +127,17 @@ export type Cobranca = "assinatura" |
 /**  Conta do Console e plano Enterprise contam como preço de API. */
 "porUso";
 
+/**
+ *  A cotação do R$ que a pessoa digitou, com o dia em que o fez. Os valores seguem em US$ nos
+ *  arquivos; a cotação só muda como a interface os mostra.
+ */
+export type Cotacao = {
+	/**  Quantos reais valem um dólar. */
+	valor: number | null,
+	/**  O dia em que a cotação foi digitada, `AAAA-MM-DD`. */
+	data: string,
+};
+
 /**  Uma sessão do Claude, como a interface mostra o detalhe da etapa. */
 export type CustoDaSessao = {
 	etapa: Etapa,
@@ -160,7 +178,7 @@ export type Diagnostico = {
  *  Os erros do núcleo, como código e parâmetros. `detalhe` é a mensagem do sistema, para
  *  diagnóstico.
  */
-export type Erro = { codigo: "preferenciasIlegiveis"; caminho: string; detalhe: string } | { codigo: "preferenciasNaoGravadas"; caminho: string; detalhe: string } | { codigo: "loginNaoConcluido"; detalhe: string } | { codigo: "instalacaoFalhou"; detalhe: string } | { codigo: "atualizacaoFalhou"; detalhe: string } | { codigo: "aprendizadosNaoGravados"; detalhe: string } | { codigo: "precosNaoAtualizados"; detalhe: string } | { codigo: "bibliotecaOcupada" } | { codigo: "bibliotecaNaoTrocada"; caminho: string; detalhe: string } | { codigo: "claudeNaoRespondeu"; detalhe: string } | { codigo: "arquivoInvalido"; caminho: string } | { codigo: "projetoNaoCriado"; caminho: string; detalhe: string } | { codigo: "dependenciasDoRemotionNaoInstaladas"; detalhe: string } | { codigo: "projetoNaoLido"; id: string; detalhe: string } | 
+export type Erro = { codigo: "preferenciasIlegiveis"; caminho: string; detalhe: string } | { codigo: "preferenciasNaoGravadas"; caminho: string; detalhe: string } | { codigo: "loginNaoConcluido"; detalhe: string } | { codigo: "instalacaoFalhou"; detalhe: string } | { codigo: "atualizacaoFalhou"; detalhe: string } | { codigo: "aprendizadosNaoGravados"; detalhe: string } | { codigo: "precosNaoAtualizados"; detalhe: string } | { codigo: "multiplicadorInvalido"; motivo: string } | { codigo: "cotacaoInvalida" } | { codigo: "bibliotecaOcupada" } | { codigo: "bibliotecaNaoTrocada"; caminho: string; detalhe: string } | { codigo: "claudeNaoRespondeu"; detalhe: string } | { codigo: "arquivoInvalido"; caminho: string } | { codigo: "projetoNaoCriado"; caminho: string; detalhe: string } | { codigo: "dependenciasDoRemotionNaoInstaladas"; detalhe: string } | { codigo: "projetoNaoLido"; id: string; detalhe: string } | 
 /**  A pasta do projeto foi apagada ou movida. */
 { codigo: "projetoNaoEncontrado"; id: string } | 
 /**  A ação não existe para o estado em que o projeto está. */
@@ -192,6 +210,8 @@ export type EstadoInicial = {
 	aceite: Aceite | null,
 	/**  O plano que a pessoa confirmou na Conta; `None` até ela confirmar. */
 	plano: PlanoConfirmado | null,
+	/**  A cotação do R$ que a pessoa digitou; `None` mostra os valores em US$. */
+	cotacao: Cotacao | null,
 	/**  Há um `ANTHROPIC_API_KEY` no ambiente: a Conta mostra "chave de API no ambiente". */
 	chaveDeApiNoAmbiente: boolean,
 	/**  A pasta da Biblioteca, onde ficam os projetos. */
@@ -404,6 +424,16 @@ export type PlanoConfirmado = {
 	periodo: PeriodoDeCobranca | null,
 	/**  O uso é cobrado pelo preço de API, não pela cota de uma assinatura. */
 	precoDeApi: boolean,
+	/**  O multiplicador que a pessoa editou; `None` vale o padrão do nível. */
+	multiplicadorProprio?: number | null,
+	/**  O multiplicador em uso: o editado ou, sem ele, o padrão do nível. */
+	multiplicador?: number | null,
+	multiplicadorPadrao?: number | null,
+	/**
+	 *  O custo efetivo é o preço de API vezes este fator: 1 nos planos de preço de API e, na
+	 *  assinatura, o desconto da cobrança anual dividido pelo multiplicador.
+	 */
+	fatorDeCusto?: number | null,
 };
 
 /**  Um projeto como a interface o mostra na fila. */

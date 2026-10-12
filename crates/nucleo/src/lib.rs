@@ -144,7 +144,7 @@ pub struct Nucleo {
 }
 
 /// O que a interface precisa para abrir.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+#[derive(Debug, Clone, PartialEq, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct EstadoInicial {
     pub versao: String,
@@ -153,6 +153,8 @@ pub struct EstadoInicial {
     pub aceite: Option<Aceite>,
     /// O plano que a pessoa confirmou na Conta; `None` até ela confirmar.
     pub plano: Option<PlanoConfirmado>,
+    /// A cotação do R$ que a pessoa digitou; `None` mostra os valores em US$.
+    pub cotacao: Option<Cotacao>,
     /// Há um `ANTHROPIC_API_KEY` no ambiente: a Conta mostra "chave de API no ambiente".
     pub chave_de_api_no_ambiente: bool,
     /// A pasta da Biblioteca, onde ficam os projetos.
@@ -225,6 +227,26 @@ impl NivelDoPlano {
     fn preco_de_api(self) -> bool {
         matches!(self, Self::Console | Self::Enterprise)
     }
+
+    /// Quantas vezes o plano rende o preço de API, segundo as medições da spec.
+    fn multiplicador_padrao(self) -> f64 {
+        match self {
+            Self::Pro | Self::TeamPadrao | Self::TeamPremium => 2.5,
+            Self::Max5x => 3.0,
+            Self::Max20x => 5.0,
+            Self::Enterprise | Self::Console => 1.0,
+        }
+    }
+
+    /// Quanto da mensalidade a cobrança anual deixa: Pro US$ 17 de 20, Team US$ 20 de 25 e
+    /// US$ 100 de 125. O Max não tem desconto anual.
+    fn parte_da_mensalidade_anual(self) -> f64 {
+        match self {
+            Self::Pro => 0.85,
+            Self::TeamPadrao | Self::TeamPremium => 0.8,
+            _ => 1.0,
+        }
+    }
 }
 
 /// Como a assinatura é paga.
@@ -236,7 +258,7 @@ pub enum PeriodoDeCobranca {
 }
 
 /// O plano e a cobrança que a pessoa confirmou.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct PlanoConfirmado {
     pub nivel: NivelDoPlano,
@@ -244,6 +266,68 @@ pub struct PlanoConfirmado {
     pub periodo: Option<PeriodoDeCobranca>,
     /// O uso é cobrado pelo preço de API, não pela cota de uma assinatura.
     pub preco_de_api: bool,
+    /// O multiplicador que a pessoa editou; `None` vale o padrão do nível.
+    #[serde(default)]
+    pub multiplicador_proprio: Option<f64>,
+    /// O multiplicador em uso: o editado ou, sem ele, o padrão do nível.
+    #[serde(default)]
+    pub multiplicador: f64,
+    #[serde(default)]
+    pub multiplicador_padrao: f64,
+    /// O custo efetivo é o preço de API vezes este fator: 1 nos planos de preço de API e, na
+    /// assinatura, o desconto da cobrança anual dividido pelo multiplicador.
+    #[serde(default)]
+    pub fator_de_custo: f64,
+}
+
+impl PlanoConfirmado {
+    fn novo(
+        nivel: NivelDoPlano,
+        periodo: PeriodoDeCobranca,
+        multiplicador_proprio: Option<f64>,
+    ) -> Self {
+        Self {
+            nivel,
+            periodo: (!nivel.preco_de_api()).then_some(periodo),
+            preco_de_api: nivel.preco_de_api(),
+            multiplicador_proprio,
+            multiplicador: 0.0,
+            multiplicador_padrao: 0.0,
+            fator_de_custo: 0.0,
+        }
+        .completo()
+    }
+
+    /// Calcula os campos derivados, que as preferências gravadas antes deste cálculo não têm.
+    fn completo(mut self) -> Self {
+        self.multiplicador_padrao = self.nivel.multiplicador_padrao();
+        self.multiplicador = self
+            .multiplicador_proprio
+            .unwrap_or(self.multiplicador_padrao);
+        self.fator_de_custo = if self.preco_de_api {
+            1.0
+        } else {
+            let anual = self.periodo == Some(PeriodoDeCobranca::Anual);
+            let parte = if anual {
+                self.nivel.parte_da_mensalidade_anual()
+            } else {
+                1.0
+            };
+            parte / self.multiplicador
+        };
+        self
+    }
+}
+
+/// A cotação do R$ que a pessoa digitou, com o dia em que o fez. Os valores seguem em US$ nos
+/// arquivos; a cotação só muda como a interface os mostra.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct Cotacao {
+    /// Quantos reais valem um dólar.
+    pub valor: f64,
+    /// O dia em que a cotação foi digitada, `AAAA-MM-DD`.
+    pub data: String,
 }
 
 /// As etapas por que passa cada projeto, nesta ordem.
@@ -439,6 +523,10 @@ pub enum Erro {
     AprendizadosNaoGravados { detalhe: String },
     #[error("tabela de preços não atualizada: {detalhe}")]
     PrecosNaoAtualizados { detalhe: String },
+    #[error("multiplicador do plano inválido: {motivo}")]
+    MultiplicadorInvalido { motivo: String },
+    #[error("a cotação do real precisa ser maior que zero")]
+    CotacaoInvalida,
     #[error("a Biblioteca não pode mudar com projetos na fila")]
     BibliotecaOcupada,
     #[error("Biblioteca não trocada para {caminho}: {detalhe}")]
@@ -597,7 +685,8 @@ impl Nucleo {
             aceite: preferencias
                 .aceite
                 .filter(|aceite| aceite.versao >= VERSAO_DO_AVISO),
-            plano: preferencias.plano,
+            plano: preferencias.plano.map(PlanoConfirmado::completo),
+            cotacao: preferencias.cotacao,
             chave_de_api_no_ambiente: self.chave_de_api_no_ambiente,
             biblioteca: self.biblioteca().display().to_string(),
             erro,
@@ -658,17 +747,70 @@ impl Nucleo {
     ) -> Result<PlanoConfirmado, Erro> {
         let mut file = self.preferences_file();
         let mut preferencias = file.read()?;
-        let plano = PlanoConfirmado {
-            nivel,
-            periodo: (!nivel.preco_de_api()).then_some(periodo),
-            preco_de_api: nivel.preco_de_api(),
-        };
+        let plano = PlanoConfirmado::novo(nivel, periodo, None);
         preferencias.plano = Some(plano.clone());
         file.write(&preferencias)?;
         (self.emit)(Evento::PlanoConfirmado {
             plano: plano.clone(),
         });
         Ok(plano)
+    }
+
+    /// Grava o multiplicador do plano que a pessoa editou, ou volta ao padrão com `None`. Só a
+    /// assinatura tem multiplicador a editar.
+    pub fn definir_multiplicador(
+        &self,
+        multiplicador: Option<f64>,
+    ) -> Result<PlanoConfirmado, Erro> {
+        let invalido = |motivo: &str| Erro::MultiplicadorInvalido {
+            motivo: motivo.to_owned(),
+        };
+        let mut file = self.preferences_file();
+        let mut preferencias = file.read()?;
+        let atual = preferencias
+            .plano
+            .take()
+            .ok_or_else(|| invalido("o plano ainda não foi confirmado"))?;
+        if atual.preco_de_api {
+            return Err(invalido("o plano é de preço de API"));
+        }
+        if multiplicador.is_some_and(|valor| !valor.is_finite() || valor <= 0.0) {
+            return Err(invalido("o multiplicador precisa ser maior que zero"));
+        }
+        let plano = PlanoConfirmado::novo(
+            atual.nivel,
+            atual.periodo.unwrap_or(PeriodoDeCobranca::Mensal),
+            multiplicador,
+        );
+        preferencias.plano = Some(plano.clone());
+        file.write(&preferencias)?;
+        (self.emit)(Evento::PlanoConfirmado {
+            plano: plano.clone(),
+        });
+        Ok(plano)
+    }
+
+    /// Grava a cotação do R$ digitada, com a data de hoje, ou volta aos valores em US$ com
+    /// `None`.
+    pub fn definir_cotacao(&self, valor: Option<f64>) -> Result<Option<Cotacao>, Erro> {
+        if valor.is_some_and(|valor| !valor.is_finite() || valor <= 0.0) {
+            return Err(Erro::CotacaoInvalida);
+        }
+        let hoje = OffsetDateTime::now_utc();
+        let cotacao = valor.map(|valor| Cotacao {
+            valor,
+            data: format!(
+                "{:04}-{:02}-{:02}",
+                hoje.year(),
+                u8::from(hoje.month()),
+                hoje.day()
+            ),
+        });
+        let mut file = self.preferences_file();
+        let mut preferencias = file.read()?;
+        preferencias.cotacao.clone_from(&cotacao);
+        file.write(&preferencias)?;
+        Ok(cotacao)
     }
 
     /// Muda a pasta da Biblioteca e a grava nas preferências. Não há índice a copiar: a

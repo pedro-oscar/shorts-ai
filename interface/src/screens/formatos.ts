@@ -1,4 +1,5 @@
 import type {
+  Cotacao,
   Excecoes,
   Faixa,
   IdiomaDoVideo,
@@ -6,12 +7,20 @@ import type {
   ResumoDeCusto,
 } from "../bindings";
 
-/** Um valor em dólar, com a vírgula ou o ponto do idioma; centavos até US$ 10, depois inteiros. */
-export function formatarDolar(valor: number, idioma: string): string {
-  const casas = valor < 10 ? 2 : 0;
-  return valor.toLocaleString(idioma, {
+/**
+ * Um valor em dólar, com a vírgula ou o ponto do idioma; centavos até 10, depois inteiros.
+ * Com a cotação digitada, o valor sai em reais.
+ */
+export function formatarDolar(
+  valor: number,
+  idioma: string,
+  cotacao: Cotacao | null = null,
+): string {
+  const convertido = cotacao ? valor * (cotacao.valor ?? 1) : valor;
+  const casas = convertido < 10 ? 2 : 0;
+  return convertido.toLocaleString(idioma, {
     style: "currency",
-    currency: "USD",
+    currency: cotacao ? "BRL" : "USD",
     minimumFractionDigits: casas,
     maximumFractionDigits: casas,
   });
@@ -151,3 +160,6 @@ export function camposDas(excecoes: Excecoes): CamposDasExcecoes {
     idioma: excecoes.idiomaDoVideo ?? "",
   };
 }
+
+/** A faixa em torno do custo efetivo: o multiplicador do plano é uma estimativa. */
+export const INCERTEZA_DO_MULTIPLICADOR = 0.3;

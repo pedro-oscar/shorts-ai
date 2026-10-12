@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
-use crate::{Aceite, Erro, IdiomaDaInterface, PlanoConfirmado};
+use crate::{Aceite, Cotacao, Erro, IdiomaDaInterface, PlanoConfirmado};
 
 const FILE_NAME: &str = "preferencias.json";
 
@@ -17,6 +17,9 @@ pub(crate) struct Preferencias {
     pub aceite: Option<Aceite>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plano: Option<PlanoConfirmado>,
+    /// A cotação do R$; sem ela os valores aparecem em US$.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cotacao: Option<Cotacao>,
     /// A Biblioteca que a pessoa escolheu em Configurações; sem ela vale a padrão.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub biblioteca: Option<String>,

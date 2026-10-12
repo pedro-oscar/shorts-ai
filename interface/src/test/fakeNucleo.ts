@@ -49,6 +49,40 @@ export const LOGADO: Extract<EstadoDaConta, { tipo: "logado" }> = {
   cobranca: "assinatura",
 };
 
+const MULTIPLICADORES = {
+  pro: 2.5,
+  max5x: 3,
+  max20x: 5,
+  teamPadrao: 2.5,
+  teamPremium: 2.5,
+  enterprise: 1,
+  console: 1,
+} as const;
+
+/** O plano com os campos de custo que o núcleo calcula: multiplicador e fator do custo efetivo. */
+export function planoCompleto(
+  plano: Pick<PlanoConfirmado, "nivel" | "periodo" | "precoDeApi"> &
+    Partial<PlanoConfirmado>,
+): PlanoConfirmado {
+  const padrao = MULTIPLICADORES[plano.nivel];
+  const multiplicador = plano.multiplicadorProprio ?? padrao;
+  const desconto =
+    plano.periodo === "anual"
+      ? plano.nivel === "pro"
+        ? 0.85
+        : plano.nivel.startsWith("team")
+          ? 0.8
+          : 1
+      : 1;
+  return {
+    ...plano,
+    multiplicadorProprio: plano.multiplicadorProprio ?? null,
+    multiplicador,
+    multiplicadorPadrao: padrao,
+    fatorDeCusto: plano.precoDeApi ? 1 : desconto / multiplicador,
+  };
+}
+
 /** O que o Diagnóstico do núcleo falso acha por padrão: tudo no lugar. */
 export const DIAGNOSTICO_PADRAO: Diagnostico = {
   gpu: "vulkan",
@@ -93,6 +127,7 @@ export function createFakeNucleo(
     erro: null,
     backupDasPreferencias: null,
     plano: null,
+    cotacao: null,
     chaveDeApiNoAmbiente: false,
     biblioteca: "/home/ana/Vídeos/Shorts AI",
     ...initial,
@@ -157,6 +192,8 @@ export function createFakeNucleo(
     excecoesDosArquivos: [] as Excecoes[][],
     /** O idioma de cada `definirIdioma`. */
     idiomas: [] as string[],
+    multiplicadores: [] as (number | null)[],
+    cotacoes: [] as (number | null)[],
     /** Quantas vezes o Diagnóstico conferiu o computador. */
     diagnosticos: 0,
     /** O que cada `abrirNoSistema` pediu. */
@@ -282,14 +319,45 @@ export function createFakeNucleo(
     },
     confirmarPlano: (nivel, periodo) => {
       const preco = nivel === "console" || nivel === "enterprise";
-      const plano: PlanoConfirmado = {
+      const plano = planoCompleto({
         nivel,
         periodo: preco ? null : periodo,
         precoDeApi: preco,
-      };
+      });
       state = { ...state, plano };
       emit({ tipo: "planoConfirmado", plano });
       return Promise.resolve({ status: "ok", data: plano });
+    },
+    definirMultiplicador: (multiplicador) => {
+      calls.multiplicadores.push(multiplicador);
+      if (!state.plano || state.plano.precoDeApi)
+        return Promise.resolve({
+          status: "error",
+          error: { codigo: "multiplicadorInvalido", motivo: "sem assinatura" },
+        });
+      if (multiplicador !== null && !(multiplicador > 0))
+        return Promise.resolve({
+          status: "error",
+          error: { codigo: "multiplicadorInvalido", motivo: "inválido" },
+        });
+      const plano = planoCompleto({
+        ...state.plano,
+        multiplicadorProprio: multiplicador,
+      });
+      state = { ...state, plano };
+      emit({ tipo: "planoConfirmado", plano });
+      return Promise.resolve({ status: "ok", data: plano });
+    },
+    definirCotacao: (valor) => {
+      calls.cotacoes.push(valor);
+      if (valor !== null && !(valor > 0))
+        return Promise.resolve({
+          status: "error",
+          error: { codigo: "cotacaoInvalida" },
+        });
+      const cotacao = valor === null ? null : { valor, data: "2026-10-12" };
+      state = { ...state, cotacao };
+      return Promise.resolve({ status: "ok", data: cotacao });
     },
     entrarNoClaudeCode: (modo, porTerminal) => {
       calls.entrar++;

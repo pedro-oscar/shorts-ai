@@ -516,6 +516,10 @@ fn confirmar_plano_grava_nas_preferencias_e_avisa() {
         nivel: NivelDoPlano::Max20x,
         periodo: Some(PeriodoDeCobranca::Anual),
         preco_de_api: false,
+        multiplicador_proprio: None,
+        multiplicador: 5.0,
+        multiplicador_padrao: 5.0,
+        fator_de_custo: 0.2,
     };
     assert_eq!(plano, esperado);
     assert_eq!(

@@ -55,6 +55,21 @@ export const ptBR = {
     idiomas: { "pt-BR": "Português (Brasil)", en: "English" },
     diagnosticoTitulo: "Diagnóstico",
     abrirDiagnostico: "Abrir o Diagnóstico",
+    contaTitulo: "Conta e plano",
+    semConta: "Entre no Claude Code na tela Conta para confirmar o plano.",
+    multiplicador: "Multiplicador do plano",
+    multiplicadorCampo: "Valor do multiplicador",
+    multiplicadorDica:
+      "Quantas vezes o plano rende o preço de API. O padrão de {{nivel}} é {{padrao}}×; ajuste se a sua medição for outra.",
+    salvarMultiplicador: "Salvar multiplicador",
+    multiplicadorPadrao: "Voltar ao padrão",
+    moedaTitulo: "Moeda",
+    moedaDica:
+      "Os valores aparecem em US$. Para ver em R$, digite a cotação do dia; os arquivos do projeto continuam em US$.",
+    cotacao: "Cotação (R$ por US$ 1)",
+    usarReais: "Mostrar em R$",
+    usarDolares: "Voltar para US$",
+    cotacaoDe: "Cotação digitada em {{data}}.",
     abrirSobre: "Sobre o Shorts AI",
   },
   regras: {
@@ -355,6 +370,12 @@ export const ptBR = {
   },
   custo: {
     estimado: "Custo estimado: {{valor}}",
+    cobranca: "Cobrança estimada: {{valor}}",
+    noPlano: "≈ {{valor}} no seu plano",
+    estimadoMarca: "estimado",
+    faixa: "Entre {{de}} e {{ate}}",
+    emPrecoDeApi:
+      "{{valor}} em preço de API · não é cobrado à parte, usa a cota do plano",
     porReel: "{{valor}} por reel",
     parcial: "parcial",
     aConferir: "preço a conferir",
@@ -400,6 +421,9 @@ export const ptBR = {
       "O arquivo de preferências estava corrompido e foi guardado em {{backup}}. As preferências voltaram ao padrão, por isso o Aviso de uso aparece de novo.",
   },
   erros: {
+    multiplicadorInvalido:
+      "O multiplicador precisa ser um número maior que zero, e só a assinatura tem multiplicador.",
+    cotacaoInvalida: "A cotação precisa ser um número maior que zero.",
     precosNaoAtualizados:
       "Não foi possível atualizar a tabela de preços: {{detalhe}}",
     aprendizadosNaoGravados:

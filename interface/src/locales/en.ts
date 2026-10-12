@@ -54,6 +54,22 @@ export const en: typeof ptBR = {
     idiomas: { "pt-BR": "Português (Brasil)", en: "English" },
     diagnosticoTitulo: "Diagnostics",
     abrirDiagnostico: "Open Diagnostics",
+    contaTitulo: "Account and plan",
+    semConta:
+      "Sign in to Claude Code on the Account screen to confirm your plan.",
+    multiplicador: "Plan multiplier",
+    multiplicadorCampo: "Multiplier value",
+    multiplicadorDica:
+      "How many times the plan stretches the API price. The default for {{nivel}} is {{padrao}}×; adjust it if your own measurement differs.",
+    salvarMultiplicador: "Save multiplier",
+    multiplicadorPadrao: "Back to default",
+    moedaTitulo: "Currency",
+    moedaDica:
+      "Values show in US$. To see them in R$, type today's exchange rate; the project files stay in US$.",
+    cotacao: "Exchange rate (R$ per US$ 1)",
+    usarReais: "Show in R$",
+    usarDolares: "Back to US$",
+    cotacaoDe: "Rate typed on {{data}}.",
     abrirSobre: "About Shorts AI",
   },
   regras: {
@@ -354,6 +370,12 @@ export const en: typeof ptBR = {
     porReel: "{{valor}} per reel",
     parcial: "partial",
     aConferir: "price to check",
+    cobranca: "Estimated charge: {{valor}}",
+    noPlano: "≈ {{valor}} on your plan",
+    estimadoMarca: "estimated",
+    faixa: "Between {{de}} and {{ate}}",
+    emPrecoDeApi:
+      "{{valor}} at API price · not billed separately, uses your plan quota",
     detalhe: "Cost by stage",
     revisao: "Review {{n}}",
     sessao:
@@ -396,6 +418,9 @@ export const en: typeof ptBR = {
       "The preferences file was corrupted and was saved to {{backup}}. The preferences went back to the defaults, so the terms of use are shown again.",
   },
   erros: {
+    multiplicadorInvalido:
+      "The multiplier must be a number greater than zero, and only subscriptions have one.",
+    cotacaoInvalida: "The exchange rate must be a number greater than zero.",
     precosNaoAtualizados: "Could not update the price table: {{detalhe}}",
     aprendizadosNaoGravados:
       "Could not read or save the learned rules: {{detalhe}}",
