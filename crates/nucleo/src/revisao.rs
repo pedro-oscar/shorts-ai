@@ -12,6 +12,8 @@ pub(crate) const COLUNAS: usize = 6;
 const INICIO: f64 = 0.6;
 /// O último quadro fica antes do escurecimento final.
 const FOLGA_DO_FIM: f64 = 1.0;
+/// Num reel curtíssimo o último quadro não recua além deste instante.
+const FIM_MINIMO: f64 = 0.1;
 /// A entrada de uma motion leva este tempo; o quadro é tirado depois dela.
 const DEPOIS_DA_ENTRADA: f64 = 0.5;
 /// O flash está no auge logo depois do `at`.
@@ -23,7 +25,7 @@ const DEPOIS_DA_JUNCAO: f64 = 0.3;
 /// cair depois da entrada de cada animação: início, fim, motions, flashes e junções de trechos,
 /// ralos por igual quando passam do que cabe. Todos ficam dentro do reel.
 pub(crate) fn instantes(plano: &Plano) -> Vec<f64> {
-    let mut candidatos = vec![INICIO, (plano.duracao - FOLGA_DO_FIM).max(0.1)];
+    let mut candidatos = vec![INICIO, (plano.duracao - FOLGA_DO_FIM).max(FIM_MINIMO)];
     for motion in &plano.motion.motions {
         if let Some(inicio) = motion["start"].as_f64() {
             candidatos.push(inicio + DEPOIS_DA_ENTRADA);
