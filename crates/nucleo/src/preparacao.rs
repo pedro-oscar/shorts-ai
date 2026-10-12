@@ -30,7 +30,7 @@ impl Pacote {
         Self::ModeloDeTranscricao,
     ];
 
-    /// Quanto o pacote ocupa em disco depois de pronto, em bytes: uma estimativa, para a
+    /// Quanto o pacote ocupa em disco depois de pronto, em MB: uma estimativa, para a
     /// pessoa liberar espaço antes de baixar.
     fn tamanho_estimado_em_mb(self) -> u32 {
         match self {
@@ -201,7 +201,7 @@ fn extrair(arquivo: &Path, destino: &Path) -> Result<(), String> {
         .arg(arquivo)
         .arg("-C")
         .arg(destino)
-        .args(["--strip-components=1"]);
+        .arg("--strip-components=1");
     hide_console(&mut comando);
     let saida = comando.output().map_err(|erro| format!("tar: {erro}"))?;
     if saida.status.success() {

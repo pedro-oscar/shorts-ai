@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { useAppStore } from "../context";
 import { Screen, Topo } from "./common";
+import type { AndamentoDoPacote } from "../store";
 import { formatarTamanho } from "./formatos";
 
 /**
@@ -19,6 +20,20 @@ export function Preparacao({ onOpenSobre }: { onOpenSobre: () => void }) {
   const total = faltam.reduce((soma, pacote) => soma + pacote.tamanhoEmMb, 0);
   const tamanho = (mb: number) => formatarTamanho(mb, i18n.language);
   const falhou = Object.values(andamento).some((a) => a.estado === "falhou");
+  const situacao = (
+    presente: boolean,
+    atual: AndamentoDoPacote | undefined,
+  ) => {
+    if (presente) return t("preparacao.presente");
+    switch (atual?.estado) {
+      case "emAndamento":
+        return t("preparacao.baixando");
+      case "falhou":
+        return t("preparacao.falhou", { detalhe: atual.falha ?? "" });
+      default:
+        return t("preparacao.falta");
+    }
+  };
   return (
     <>
       <Topo onOpenSobre={onOpenSobre} />
@@ -36,15 +51,7 @@ export function Preparacao({ onOpenSobre }: { onOpenSobre: () => void }) {
                     tamanho: tamanho(tamanhoEmMb),
                   })}
                 </span>
-                <span>
-                  {presente
-                    ? t("preparacao.presente")
-                    : atual?.estado === "emAndamento"
-                      ? t("preparacao.baixando")
-                      : atual?.estado === "falhou"
-                        ? t("preparacao.falhou", { detalhe: atual.falha ?? "" })
-                        : t("preparacao.falta")}
-                </span>
+                <span>{situacao(presente, atual)}</span>
                 {atual?.estado === "emAndamento" && (
                   <progress
                     aria-label={t("preparacao.progresso", { pacote: nome })}
