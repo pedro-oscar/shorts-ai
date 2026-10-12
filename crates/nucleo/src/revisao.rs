@@ -8,22 +8,32 @@ use crate::roteiro::Plano;
 pub(crate) const MAX_QUADROS: usize = 12;
 /// Colunas da grade.
 pub(crate) const COLUNAS: usize = 6;
-/// Dois instantes mais próximos que isto são o mesmo quadro.
-const DISTANCIA_MINIMA: f64 = 0.4;
-/// O último quadro fica um pouco antes do fim, onde ainda há imagem.
-const FOLGA_DO_FIM: f64 = 0.1;
+/// O primeiro quadro fica depois do título entrar.
+const INICIO: f64 = 0.6;
+/// O último quadro fica antes do escurecimento final.
+const FOLGA_DO_FIM: f64 = 1.0;
+/// A entrada de uma motion leva este tempo; o quadro é tirado depois dela.
+const DEPOIS_DA_ENTRADA: f64 = 0.5;
+/// O flash está no auge logo depois do `at`.
+const DEPOIS_DO_FLASH: f64 = 0.08;
+/// A troca de cena já terminou este tempo depois da junção.
+const DEPOIS_DA_JUNCAO: f64 = 0.3;
 
-/// Os instantes (em segundos do reel, em ordem) dos quadros da folha. O início e o fim sempre
-/// entram; o resto são os começos de motion, os flashes e as trocas de cena, ralos por igual
-/// quando passam do que cabe.
+/// Os instantes (em segundos do reel, em ordem) dos quadros da folha, deslocados como no CLI para
+/// cair depois da entrada de cada animação: início, fim, motions, flashes e junções de trechos,
+/// ralos por igual quando passam do que cabe. Todos ficam dentro do reel.
 pub(crate) fn instantes(plano: &Plano) -> Vec<f64> {
-    let fim = (plano.duracao - FOLGA_DO_FIM).max(0.0);
-    let mut candidatos: Vec<f64> = plano
-        .motion
-        .motions
-        .iter()
-        .filter_map(|motion| motion["start"].as_f64().or_else(|| motion["at"].as_f64()))
-        .collect();
+    let mut candidatos = vec![INICIO, (plano.duracao - FOLGA_DO_FIM).max(0.1)];
+    for motion in &plano.motion.motions {
+        if let Some(inicio) = motion["start"].as_f64() {
+            candidatos.push(inicio + DEPOIS_DA_ENTRADA);
+        }
+        if motion["type"] == "flash"
+            && let Some(at) = motion["at"].as_f64()
+        {
+            candidatos.push(at + DEPOIS_DO_FLASH);
+        }
+    }
     let mut corte = 0.0;
     for (inicio, final_) in plano
         .trechos
@@ -31,28 +41,18 @@ pub(crate) fn instantes(plano: &Plano) -> Vec<f64> {
         .take(plano.trechos.len().saturating_sub(1))
     {
         corte += final_ - inicio;
-        candidatos.push(corte);
+        candidatos.push(corte + DEPOIS_DA_JUNCAO);
     }
-    candidatos.retain(|&t| t > 0.0 && t < fim);
+    candidatos.retain(|&t| t < plano.duracao);
     candidatos.sort_by(f64::total_cmp);
-    let mut distintos: Vec<f64> = vec![0.0];
-    for t in candidatos {
-        if t - distintos[distintos.len() - 1] >= DISTANCIA_MINIMA && fim - t >= DISTANCIA_MINIMA {
-            distintos.push(t);
-        }
+    candidatos.dedup();
+    if candidatos.len() > MAX_QUADROS {
+        let n = candidatos.len();
+        return (0..MAX_QUADROS)
+            .map(|i| candidatos[i * (n - 1) / (MAX_QUADROS - 1)])
+            .collect();
     }
-    let meio = &distintos[1..];
-    let vagas = MAX_QUADROS - 2;
-    let mut escolhidos: Vec<f64> = if meio.len() > vagas {
-        (0..vagas).map(|i| meio[i * meio.len() / vagas]).collect()
-    } else {
-        meio.to_vec()
-    };
-    escolhidos.insert(0, 0.0);
-    if fim > 0.0 {
-        escolhidos.push(fim);
-    }
-    escolhidos
+    candidatos
 }
 
 #[cfg(test)]
@@ -88,20 +88,35 @@ mod tests {
         let instantes = instantes(&plano(50.0, motions, vec![(0.0, 50.0)]));
 
         assert_eq!(instantes.len(), MAX_QUADROS);
-        assert_eq!(instantes[0], 0.0);
-        assert!((instantes[MAX_QUADROS - 1] - 49.9).abs() < 1e-9);
+        assert_eq!(instantes[0], 0.6);
+        assert!((instantes[MAX_QUADROS - 1] - 49.0).abs() < 1e-9);
         assert!(instantes.windows(2).all(|par| par[0] < par[1]));
     }
 
     #[test]
-    fn inclui_flashes_e_trocas_de_cena_sem_repetir_instantes_proximos() {
+    fn segue_os_deslocamentos_do_cli() {
         let motions = vec![
             json!({"type": "flash", "at": 3.0}),
-            json!({"type": "scene", "start": 3.1}),
+            json!({"type": "scene", "start": 4.0}),
         ];
 
         let instantes = instantes(&plano(10.0, motions, vec![(0.0, 6.0), (20.0, 24.0)]));
 
-        assert_eq!(instantes, [0.0, 3.0, 6.0, 9.9]);
+        let esperado = [0.6, 3.08, 4.5, 6.3, 9.0];
+        assert_eq!(instantes.len(), esperado.len());
+        for (obtido, esperado) in instantes.iter().zip(esperado) {
+            assert!((obtido - esperado).abs() < 1e-9, "{obtido} != {esperado}");
+        }
+    }
+
+    #[test]
+    fn descarta_o_que_passa_da_duracao_e_o_fim_nunca_fica_antes_de_um_decimo() {
+        let motions = vec![json!({"type": "zoom", "start": 9.8})];
+
+        let curto = instantes(&plano(0.5, vec![], vec![(0.0, 0.5)]));
+        let longo = instantes(&plano(10.0, motions, vec![(0.0, 10.0)]));
+
+        assert_eq!(curto, [0.1]);
+        assert_eq!(longo, [0.6, 9.0]);
     }
 }

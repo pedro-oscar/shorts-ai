@@ -608,11 +608,10 @@ fn a_folha_de_revisao_junta_os_quadros_em_seis_colunas_com_o_tempo_marcado() {
     );
     let chamadas = cenario.chamadas("ffmpeg");
     let quadros: Vec<_> = chamadas.iter().filter(|c| c.contains("drawtext")).collect();
-    // Início e fim do c01 e do c02; a duração de cada um é de 2,4 s ou menos, sem motion
-    // além do título automático (0,2 s, perto demais do início para ser outro quadro).
+    // Início (0,6 s) e fim do c01 e do c02; a duração de cada um é de 2,4 s ou menos, sem motion.
     assert_eq!(quadros.len(), 4, "{quadros:?}");
-    assert!(quadros[0].contains("-ss 0.000"), "{}", quadros[0]);
-    assert!(quadros[0].contains("text='0.00s'"), "{}", quadros[0]);
+    assert!(quadros[0].contains("-ss 0.600"), "{}", quadros[0]);
+    assert!(quadros[0].contains("text='0.60s'"), "{}", quadros[0]);
     let folhas: Vec<_> = chamadas.iter().filter(|c| c.contains("tile=")).collect();
     assert_eq!(folhas.len(), 2);
     assert!(folhas[0].contains("tile=6x1"), "{}", folhas[0]);
@@ -637,7 +636,7 @@ fn o_resumo_da_producao_lista_reels_folhas_e_avisos_para_a_revisao() {
         primeiro["arquivo"],
         "publicar/c01 - Negociar salário tem regra.mp4"
     );
-    assert_eq!(primeiro["instantes"][0], 0.0);
+    assert_eq!(primeiro["instantes"][0], 0.6);
     assert!(primeiro["avisos"].is_array());
     assert_eq!(resumo["erros"], json!([]));
 }
