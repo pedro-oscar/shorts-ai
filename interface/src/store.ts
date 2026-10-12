@@ -161,6 +161,8 @@ export interface AppState {
   erroDaVersaoFinal: Erro | null;
   /** Por que o núcleo não renomeou o lote. */
   erroDoLote: Erro | null;
+  /** O erro da última ação de Pausar, Cancelar, Retomar ou Tentar de novo. */
+  erroDoCiclo: Erro | null;
 }
 
 export interface AppStore extends AppState {
@@ -196,6 +198,16 @@ export interface AppStore extends AppState {
   definirPadroes: (mudancas: Partial<Padroes>) => void;
   carregarGaleria: (id: string) => Promise<void>;
   abrirNoSistema: (id: string, alvo: AlvoParaAbrir) => Promise<void>;
+  /** Pausa ao fim da etapa (ou tira da fila). */
+  pausarProjeto: (id: string) => Promise<void>;
+  /** Cancela na hora, descartando a etapa em curso. */
+  cancelarProjeto: (id: string) => Promise<void>;
+  /** Põe o projeto pausado ou cancelado no fim da fila. */
+  retomarProjeto: (id: string) => Promise<void>;
+  /** Retoma os projetos pausados do lote. */
+  retomarLote: (id: string) => Promise<void>;
+  /** Recomeça o projeto que falhou, da etapa que falhou. */
+  tentarDeNovo: (id: string) => Promise<void>;
   /** Pede a versão final dos reels dos projetos `ids`: é só render, sem custo de tokens. */
   gerarVersaoFinal: (ids: string[]) => Promise<void>;
   /** O endereço pelo qual o player toca o reel. */
@@ -306,6 +318,14 @@ export function createAppStore(nucleo: Nucleo) {
             };
           });
           break;
+        case "paradaMudou":
+          mudarProjeto(evento.projeto, (projeto) => ({
+            ...projeto,
+            parada: evento.parada,
+            percentual: null,
+            acoes: evento.parada ? [] : projeto.acoes,
+          }));
+          break;
         case "progressoDaEtapa":
           mudarProjeto(evento.projeto, (projeto) => ({
             ...projeto,
@@ -381,6 +401,13 @@ export function createAppStore(nucleo: Nucleo) {
       else set({ [flag]: false, conta: result.data });
     }
 
+    async function executarCiclo(
+      pedido: Promise<{ status: "ok" } | { status: "error"; error: Erro }>,
+    ) {
+      const result = await pedido;
+      set({ erroDoCiclo: result.status === "error" ? result.error : null });
+    }
+
     return {
       app: null,
       erroAoAbrir: null,
@@ -415,6 +442,7 @@ export function createAppStore(nucleo: Nucleo) {
       versoesFinais: {},
       erroDaVersaoFinal: null,
       erroDoLote: null,
+      erroDoCiclo: null,
 
       connect: () => {
         let connected = true;
@@ -650,6 +678,12 @@ export function createAppStore(nucleo: Nucleo) {
           },
         }));
       },
+
+      pausarProjeto: (id) => executarCiclo(nucleo.pausarProjeto(id)),
+      cancelarProjeto: (id) => executarCiclo(nucleo.cancelarProjeto(id)),
+      retomarProjeto: (id) => executarCiclo(nucleo.retomarProjeto(id)),
+      retomarLote: (id) => executarCiclo(nucleo.retomarLote(id)),
+      tentarDeNovo: (id) => executarCiclo(nucleo.tentarDeNovo(id)),
 
       gerarVersaoFinal: async (ids) => {
         const result = await nucleo.gerarVersaoFinal(ids);

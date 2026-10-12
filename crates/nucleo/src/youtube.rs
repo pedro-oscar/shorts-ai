@@ -136,6 +136,7 @@ impl Ytdlp {
         url: &str,
         faixa: Option<Faixa>,
         pasta: &Path,
+        cancelar: &AtomicBool,
         progresso: &mut dyn FnMut(u8),
     ) -> Result<PathBuf, String> {
         self.atualizar();
@@ -158,7 +159,7 @@ impl Ytdlp {
         }
         command.args(["--", url]);
         let mut ultimo = None;
-        let saida = process::run(command, &AtomicBool::new(false), &mut |stream, linha| {
+        let saida = process::run(command, cancelar, &mut |stream, linha| {
             if stream != Stream::Stdout {
                 return;
             }

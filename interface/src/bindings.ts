@@ -29,6 +29,16 @@ export const commands = {
 	renomearLote: (lote: string, nome: string) => typedError<null, Erro>(__TAURI_INVOKE("renomear_lote", { lote, nome })),
 	/**  Os lotes da Biblioteca, do mais novo para o mais antigo. */
 	lotes: () => __TAURI_INVOKE<LoteResumo[]>("lotes"),
+	/**  Pausa o projeto ao fim da etapa, ou o tira da fila se ainda não começou. */
+	pausarProjeto: (id: string) => typedError<null, Erro>(__TAURI_INVOKE("pausar_projeto", { id })),
+	/**  Cancela o projeto na hora, descartando a etapa em curso. */
+	cancelarProjeto: (id: string) => typedError<null, Erro>(__TAURI_INVOKE("cancelar_projeto", { id })),
+	/**  Põe o projeto pausado ou cancelado no fim da fila. */
+	retomarProjeto: (id: string) => typedError<null, Erro>(__TAURI_INVOKE("retomar_projeto", { id })),
+	/**  Retoma os projetos pausados do lote, na ordem dele. */
+	retomarLote: (lote: string) => typedError<null, Erro>(__TAURI_INVOKE("retomar_lote", { lote })),
+	/**  Põe o projeto que falhou no fim da fila, para recomeçar da etapa que falhou. */
+	tentarDeNovo: (id: string) => typedError<null, Erro>(__TAURI_INVOKE("tentar_de_novo", { id })),
 	dadosDoProjeto: (id: string) => typedError<DadosDoProjeto, Erro>(__TAURI_INVOKE("dados_do_projeto", { id })),
 	abrirNoSistema: (id: string, alvo: AlvoParaAbrir) => typedError<null, Erro>(__TAURI_INVOKE("abrir_no_sistema", { id, alvo })),
 	gerarVersaoFinal: (ids: string[]) => typedError<null, Erro>(__TAURI_INVOKE("gerar_versao_final", { ids })),
@@ -98,7 +108,9 @@ export type DadosDoProjeto = {
  */
 export type Erro = { codigo: "preferenciasIlegiveis"; caminho: string; detalhe: string } | { codigo: "preferenciasNaoGravadas"; caminho: string; detalhe: string } | { codigo: "loginNaoConcluido"; detalhe: string } | { codigo: "instalacaoFalhou"; detalhe: string } | { codigo: "atualizacaoFalhou"; detalhe: string } | { codigo: "claudeNaoRespondeu"; detalhe: string } | { codigo: "arquivoInvalido"; caminho: string } | { codigo: "projetoNaoCriado"; caminho: string; detalhe: string } | { codigo: "dependenciasDoRemotionNaoInstaladas"; detalhe: string } | { codigo: "projetoNaoLido"; id: string; detalhe: string } | 
 /**  A pasta do projeto foi apagada ou movida. */
-{ codigo: "projetoNaoEncontrado"; id: string } | { codigo: "loteNaoEncontrado"; id: string } | { codigo: "padroesInvalidos"; opcao: string; motivo: string } | { codigo: "preparacaoInterrompida"; detalhe: string } | { codigo: "naoAbriu"; caminho: string; detalhe: string } | { codigo: "linkInvalido"; url: string } | { codigo: "linkNaoConsultado"; url: string; detalhe: string } | { codigo: "direitoDeUsoNaoConfirmado"; url: string };
+{ codigo: "projetoNaoEncontrado"; id: string } | 
+/**  A ação não existe para o estado em que o projeto está. */
+{ codigo: "acaoIndisponivel"; id: string; acao: string } | { codigo: "loteNaoEncontrado"; id: string } | { codigo: "padroesInvalidos"; opcao: string; motivo: string } | { codigo: "preparacaoInterrompida"; detalhe: string } | { codigo: "naoAbriu"; caminho: string; detalhe: string } | { codigo: "linkInvalido"; url: string } | { codigo: "linkNaoConsultado"; url: string; detalhe: string } | { codigo: "direitoDeUsoNaoConfirmado"; url: string };
 
 /**  Em que pé está a conta Claude do app. */
 export type EstadoDaConta = { tipo: "naoInstalado" } | { tipo: "versaoAntiga"; versao: string; minima: string } | { tipo: "semLogin"; versao: string } | { tipo: "logado"; versao: string; 
@@ -158,6 +170,8 @@ export type Evento = { tipo: "avisoAceito"; aceite: Aceite } | { tipo: "planoCon
 { tipo: "progressoDaPreparacao"; pacote: Pacote; percentual: number } | 
 /**  Uma etapa do projeto mudou de estado. */
 { tipo: "etapaMudou"; projeto: string; etapa: Etapa; estado: EstadoDaEtapa; falha: string | null } | 
+/**  O projeto parou (`pausado`, `cancelado`) ou voltou para a fila (`None`). */
+{ tipo: "paradaMudou"; projeto: string; parada: Parada | null } | 
 /**  O progresso de uma etapa que o mede, de 0 a 100. */
 { tipo: "progressoDaEtapa"; projeto: string; etapa: Etapa; percentual: number } | 
 /**
@@ -272,6 +286,13 @@ export type Padroes = {
 	idiomaDoVideo: IdiomaDoVideo,
 };
 
+/**  Por que um projeto que não terminou nem falhou não está na fila. */
+export type Parada = 
+/**  Parou ao fim de uma etapa, a pedido, ou o app foi fechado com o projeto interrompido. */
+"pausado" | 
+/**  Teve o processo morto na hora; a etapa em curso foi descartada. */
+"cancelado";
+
 /**  Como a assinatura é paga. */
 export type PeriodoDeCobranca = "mensal" | "anual";
 
@@ -295,6 +316,8 @@ export type ProjetoResumo = {
 	etapas: EtapaDoProjeto[],
 	/**  Por que a etapa que falhou falhou, como a mensagem do sistema. */
 	falha: string | null,
+	/**  Pausado ou cancelado; `None` na fila, rodando, pronto ou falho. */
+	parada: Parada | null,
 };
 
 /**  Um corte a produzir, com o arquivo publicado dele se já existe. */

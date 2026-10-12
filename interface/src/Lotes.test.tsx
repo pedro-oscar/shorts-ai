@@ -35,6 +35,7 @@ function projeto(
       estado: i < concluidas ? "concluida" : "pendente",
     })),
     falha: null,
+    parada: null,
   };
 }
 

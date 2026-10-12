@@ -1,14 +1,15 @@
 //! A fila serial: um trabalhador roda, em ordem, as etapas que existem de cada projeto.
 
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Sender};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::thread;
 
 use crate::producao::{self, Producao, Qualidade};
-use crate::projeto::{ModoDeImportacao, Origem, ProjetoJson};
+use crate::projeto::{ModoDeImportacao, Origem, Parada, ProjetoJson};
 use crate::sessao::{self, EventoDaSessao, ResultadoDaRevisao, Roteirista};
 use crate::transcricao::{Pedido, Transcritor};
 use crate::youtube::Ytdlp;
@@ -18,14 +19,47 @@ pub(crate) type Emitir = Arc<dyn Fn(Evento) + Send + Sync>;
 
 /// O que o trabalhador faz com um projeto.
 enum Trabalho {
-    /// As etapas do projeto, da primeira não concluída em diante.
-    Etapas(PathBuf),
+    /// As etapas do projeto, da primeira não concluída em diante. O número identifica a vez
+    /// dele na fila: pausar ou cancelar o projeto ainda na fila invalida a vez.
+    Etapas(PathBuf, u64),
     /// Só o render da versão final, sem sessão do Claude.
     VersaoFinal(PathBuf),
 }
 
+/// Os pedidos de parada do projeto que está rodando.
+#[derive(Clone, Default)]
+struct Controle {
+    pausar: Arc<AtomicBool>,
+    cancelar: Arc<AtomicBool>,
+}
+
+/// Quem está na fila e quem está rodando.
+#[derive(Default)]
+struct Estado {
+    proxima_vez: u64,
+    /// O projeto na fila e a vez dele.
+    esperando: HashMap<String, u64>,
+    atual: Option<(String, Controle)>,
+}
+
+/// O que a fila fez com o pedido de parar um projeto.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum Parou {
+    /// Estava esperando a vez: saiu da fila na hora.
+    NaFila,
+    /// Está rodando: o trabalhador para quando a etapa terminar (ou na hora, se cancelar).
+    EmAndamento,
+    /// Não está na fila nem rodando.
+    NaoEstava,
+}
+
 pub(crate) struct Fila {
     envio: Sender<Trabalho>,
+    estado: Arc<Mutex<Estado>>,
+}
+
+fn travar(estado: &Mutex<Estado>) -> std::sync::MutexGuard<'_, Estado> {
+    estado.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 impl Fila {
@@ -38,31 +72,83 @@ impl Fila {
         ytdlp: Option<Ytdlp>,
     ) -> Self {
         let (envio, recebimento) = mpsc::channel::<Trabalho>();
+        let estado = Arc::new(Mutex::new(Estado::default()));
+        let do_trabalhador = Arc::clone(&estado);
         thread::spawn(move || {
             for trabalho in recebimento {
                 match trabalho {
-                    Trabalho::Etapas(pasta) => rodar(
-                        &pasta,
-                        &emit,
-                        &ligar,
-                        ytdlp.as_ref(),
-                        transcritor.as_ref(),
-                        roteirista.as_ref(),
-                        producao.as_ref(),
-                    ),
+                    Trabalho::Etapas(pasta, vez) => {
+                        let id = nome_do_arquivo(&pasta);
+                        let controle = Controle::default();
+                        {
+                            let mut estado = travar(&do_trabalhador);
+                            if estado.esperando.get(&id) != Some(&vez) {
+                                continue;
+                            }
+                            estado.esperando.remove(&id);
+                            estado.atual = Some((id, controle.clone()));
+                        }
+                        rodar(
+                            &pasta,
+                            &emit,
+                            &Executores {
+                                ligar: &ligar,
+                                ytdlp: ytdlp.as_ref(),
+                                transcritor: transcritor.as_ref(),
+                                roteirista: roteirista.as_ref(),
+                                producao: producao.as_ref(),
+                            },
+                            &controle,
+                        );
+                        travar(&do_trabalhador).atual = None;
+                    }
                     Trabalho::VersaoFinal(pasta) => {
                         renderizar_versao_final(&pasta, &emit, producao.as_ref());
                     }
                 }
             }
         });
-        Self { envio }
+        Self { envio, estado }
     }
 
     /// Põe o projeto no fim da fila.
     pub fn enfileirar(&self, pasta: PathBuf) {
+        let vez = {
+            let mut estado = travar(&self.estado);
+            estado.proxima_vez += 1;
+            let vez = estado.proxima_vez;
+            estado.esperando.insert(nome_do_arquivo(&pasta), vez);
+            vez
+        };
         // O trabalhador só sai quando a fila é largada.
-        let _ = self.envio.send(Trabalho::Etapas(pasta));
+        let _ = self.envio.send(Trabalho::Etapas(pasta, vez));
+    }
+
+    /// Tira da fila o projeto que espera a vez, ou pede ao que está rodando que pare ao fim da
+    /// etapa.
+    pub fn pausar(&self, id: &str) -> Parou {
+        self.parar(id, |controle| controle.pausar.store(true, Ordering::SeqCst))
+    }
+
+    /// Tira da fila o projeto que espera a vez, ou mata o processo do que está rodando.
+    pub fn cancelar(&self, id: &str) -> Parou {
+        self.parar(id, |controle| {
+            controle.cancelar.store(true, Ordering::SeqCst);
+        })
+    }
+
+    fn parar(&self, id: &str, pedir: impl FnOnce(&Controle)) -> Parou {
+        let mut estado = travar(&self.estado);
+        if estado.esperando.remove(id).is_some() {
+            return Parou::NaFila;
+        }
+        match &estado.atual {
+            Some((atual, controle)) if atual == id => {
+                pedir(controle);
+                Parou::EmAndamento
+            }
+            _ => Parou::NaoEstava,
+        }
     }
 
     /// Põe no fim da fila o render da versão final dos reels do projeto.
@@ -90,6 +176,7 @@ fn renderizar_versao_final(pasta: &Path, emit: &Emitir, producao: Option<&Produc
             &projeto,
             producao,
             Qualidade::Final,
+            &AtomicBool::new(false),
             &mut |percentual| {
                 emit(Evento::ProgressoDaVersaoFinal {
                     projeto: id.clone(),
@@ -106,17 +193,26 @@ fn renderizar_versao_final(pasta: &Path, emit: &Emitir, producao: Option<&Produc
     }
 }
 
+/// O que sabe fazer cada etapa; a que não tem executor fica pendente.
+#[derive(Clone, Copy)]
+struct Executores<'a> {
+    ligar: &'a LigarArquivo,
+    ytdlp: Option<&'a Ytdlp>,
+    transcritor: Option<&'a Transcritor>,
+    roteirista: Option<&'a Roteirista>,
+    producao: Option<&'a Producao>,
+}
+
 /// Roda as etapas que existem, da primeira não concluída em diante, e para na primeira que
 /// falha. As etapas sem executor continuam pendentes.
-fn rodar(
-    pasta: &Path,
-    emit: &Emitir,
-    ligar: &LigarArquivo,
-    ytdlp: Option<&Ytdlp>,
-    transcritor: Option<&Transcritor>,
-    roteirista: Option<&Roteirista>,
-    producao: Option<&Producao>,
-) {
+fn rodar(pasta: &Path, emit: &Emitir, executores: &Executores, controle: &Controle) {
+    let Executores {
+        ligar,
+        ytdlp,
+        transcritor,
+        roteirista,
+        producao,
+    } = *executores;
     let id = nome_do_arquivo(pasta);
     let mut projeto = match ProjetoJson::ler(pasta) {
         Ok(projeto) => projeto,
@@ -137,6 +233,14 @@ fn rodar(
             .any(|item| item.etapa == etapa && item.estado == EstadoDaEtapa::Concluida);
         if concluida {
             continue;
+        }
+        if controle.cancelar.load(Ordering::SeqCst) {
+            parar(pasta, &mut projeto, Parada::Cancelado, emit);
+            return;
+        }
+        if controle.pausar.load(Ordering::SeqCst) {
+            parar(pasta, &mut projeto, Parada::Pausado, emit);
+            return;
         }
         let tem_executor = match etapa {
             Etapa::Importacao => true,
@@ -166,23 +270,30 @@ fn rodar(
                 falha,
             });
         };
+        let cancelar: &AtomicBool = &controle.cancelar;
         transicao(&mut projeto, EstadoDaEtapa::EmAndamento, None);
         let resultado = match (etapa, transcritor, roteirista, producao) {
             (Etapa::Transcricao, Some(transcritor), _, _) => {
-                transcrever(pasta, &mut projeto, transcritor, &id, emit)
+                transcrever(pasta, &mut projeto, transcritor, &id, emit, cancelar)
             }
             (Etapa::Roteiro, _, Some(roteirista), _) => {
-                roteirizar(pasta, &projeto, roteirista, &id, emit)
+                roteirizar(pasta, &projeto, roteirista, &id, emit, cancelar)
             }
             (Etapa::Producao, _, _, Some(producao)) => {
-                produzir(pasta, &projeto, producao, &id, emit)
+                produzir(pasta, &projeto, producao, &id, emit, cancelar)
             }
             (Etapa::Revisao, _, Some(roteirista), Some(producao)) => {
-                revisar(pasta, &projeto, roteirista, producao, &id, emit)
+                revisar(pasta, &projeto, roteirista, producao, &id, emit, cancelar)
             }
             (Etapa::Revisao, ..) => Ok(()),
-            _ => importar(pasta, &mut projeto, ligar, ytdlp, &id, emit),
+            _ => importar(pasta, &mut projeto, ligar, ytdlp, &id, emit, cancelar),
         };
+        // Cancelar descarta a etapa em curso, tenha ela terminado ou não.
+        if cancelar.load(Ordering::SeqCst) {
+            transicao(&mut projeto, EstadoDaEtapa::Pendente, None);
+            parar(pasta, &mut projeto, Parada::Cancelado, emit);
+            return;
+        }
         match resultado {
             Ok(()) => transicao(&mut projeto, EstadoDaEtapa::Concluida, None),
             Err(falha) => {
@@ -191,6 +302,17 @@ fn rodar(
             }
         }
     }
+}
+
+/// Para o projeto: grava por que ele parou e avisa.
+fn parar(pasta: &Path, projeto: &mut ProjetoJson, parada: Parada, emit: &Emitir) {
+    projeto.parada = Some(parada);
+    // Sem gravar, a parada só vale até o app fechar; a reabertura pausa o projeto do mesmo jeito.
+    let _ = projeto.gravar(pasta);
+    emit(Evento::ParadaMudou {
+        projeto: nome_do_arquivo(pasta),
+        parada: Some(parada),
+    });
 }
 
 /// A Importação: um arquivo local vira um hardlink em `bruto/` (ou só a referência a ele,
@@ -202,6 +324,7 @@ fn importar(
     ytdlp: Option<&Ytdlp>,
     id: &str,
     emit: &Emitir,
+    cancelar: &AtomicBool,
 ) -> Result<(), String> {
     let faixa = projeto.opcoes.faixa;
     match &mut projeto.origem {
@@ -229,7 +352,7 @@ fn importar(
                 return Ok(());
             }
             let ytdlp = ytdlp.ok_or("o yt-dlp não está disponível")?;
-            ytdlp.baixar(url, faixa, &bruto, &mut |percentual| {
+            ytdlp.baixar(url, faixa, &bruto, cancelar, &mut |percentual| {
                 emit(Evento::ProgressoDaEtapa {
                     projeto: id.to_owned(),
                     etapa: Etapa::Importacao,
@@ -243,13 +366,14 @@ fn importar(
 
 /// A Transcrição do vídeo original: grava `edit/transcricao.json` e a transcrição compactada,
 /// e o idioma detectado no projeto. Um idioma já definido no projeto (pelos padrões ou pelas
-/// exceções) é respeitado. A fila ainda não cancela etapas, então nada liga o `cancelar`.
+/// exceções) é respeitado.
 fn transcrever(
     pasta: &Path,
     projeto: &mut ProjetoJson,
     transcritor: &Transcritor,
     id: &str,
     emit: &Emitir,
+    cancelar: &AtomicBool,
 ) -> Result<(), String> {
     let video = projeto.origem.video(pasta);
     let mut ultimo = None;
@@ -266,7 +390,7 @@ fn transcrever(
                     Origem::Youtube { .. } => None,
                 },
             },
-            &AtomicBool::new(false),
+            cancelar,
             &mut |fracao| {
                 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
                 let percentual = (fracao * 100.0).floor().clamp(0.0, 100.0) as u8;
@@ -285,14 +409,14 @@ fn transcrever(
     Ok(())
 }
 
-/// O Roteiro: a sessão do Claude escreve `edit/roteiro.json`, e o núcleo o valida no fim. A
-/// fila ainda não cancela etapas, então nada liga o `cancelar`.
+/// O Roteiro: a sessão do Claude escreve `edit/roteiro.json`, e o núcleo o valida no fim.
 fn roteirizar(
     pasta: &Path,
     projeto: &ProjetoJson,
     roteirista: &Roteirista,
     id: &str,
     emit: &Emitir,
+    cancelar: &AtomicBool,
 ) -> Result<(), String> {
     let nome = projeto.origem.nome();
     let idioma = projeto
@@ -310,7 +434,7 @@ fn roteirizar(
                 pedido: &projeto.opcoes.pedido,
                 modelo,
             },
-            &AtomicBool::new(false),
+            cancelar,
             &mut |evento| emit(evento_da_sessao(id, Etapa::Roteiro, evento)),
         )
         .map_err(|error| error.to_string())
@@ -335,8 +459,7 @@ fn evento_da_sessao(id: &str, etapa: Etapa, evento: EventoDaSessao) -> Evento {
 
 /// A Revisão: em cada rodada, a folha de revisão de cada reel vai para uma sessão do Claude
 /// que corrige o roteiro; se ele mudou, a Produção refaz só os cortes alterados (pelo cache).
-/// Sem mudanças, as rodadas que sobram seriam iguais e não rodam. A fila ainda não cancela
-/// etapas, então nada liga o `cancelar`.
+/// Sem mudanças, as rodadas que sobram seriam iguais e não rodam.
 fn revisar(
     pasta: &Path,
     projeto: &ProjetoJson,
@@ -344,6 +467,7 @@ fn revisar(
     producao: &Producao,
     id: &str,
     emit: &Emitir,
+    cancelar: &AtomicBool,
 ) -> Result<(), String> {
     if projeto.opcoes.revisoes == 0 {
         return Ok(());
@@ -360,7 +484,6 @@ fn revisar(
     } else {
         Qualidade::Final
     };
-    let cancelar = AtomicBool::new(false);
     let pedido_da_producao = producao::Pedido {
         pasta,
         video: &video,
@@ -368,13 +491,13 @@ fn revisar(
     };
     let produzir = || {
         producao
-            .produzir(&pedido_da_producao, &cancelar, &mut |_| {})
+            .produzir(&pedido_da_producao, cancelar, &mut |_| {})
             .map_err(|error| error.to_string())
     };
     let mut reels = produzir()?;
     for _ in 0..projeto.opcoes.revisoes {
         producao
-            .preparar_revisao(&pedido_da_producao, &reels, &cancelar)
+            .preparar_revisao(&pedido_da_producao, &reels, cancelar)
             .map_err(|error| error.to_string())?;
         let resultado = roteirista
             .revisar(
@@ -386,7 +509,7 @@ fn revisar(
                     pedido: &projeto.opcoes.pedido,
                     modelo,
                 },
-                &cancelar,
+                cancelar,
                 &mut |evento| emit(evento_da_sessao(id, Etapa::Revisao, evento)),
             )
             .map_err(|error| error.to_string())?;
@@ -399,27 +522,34 @@ fn revisar(
 }
 
 /// A Produção: corta, segue o rosto e renderiza cada reel. A prévia (meia escala) vem antes da
-/// versão final quando o projeto a pede. A fila ainda não cancela etapas, então nada liga o
-/// `cancelar`.
+/// versão final quando o projeto a pede.
 fn produzir(
     pasta: &Path,
     projeto: &ProjetoJson,
     producao: &Producao,
     id: &str,
     emit: &Emitir,
+    cancelar: &AtomicBool,
 ) -> Result<(), String> {
     let qualidade = if projeto.opcoes.previa {
         Qualidade::Previa
     } else {
         Qualidade::Final
     };
-    produzir_em(pasta, projeto, producao, qualidade, &mut |percentual| {
-        emit(Evento::ProgressoDaEtapa {
-            projeto: id.to_owned(),
-            etapa: Etapa::Producao,
-            percentual,
-        });
-    })
+    produzir_em(
+        pasta,
+        projeto,
+        producao,
+        qualidade,
+        cancelar,
+        &mut |percentual| {
+            emit(Evento::ProgressoDaEtapa {
+                projeto: id.to_owned(),
+                etapa: Etapa::Producao,
+                percentual,
+            });
+        },
+    )
 }
 
 /// Produz os reels do projeto na `qualidade`; `progresso` recebe o percentual (0 a 100) cada
@@ -429,6 +559,7 @@ fn produzir_em(
     projeto: &ProjetoJson,
     producao: &Producao,
     qualidade: Qualidade,
+    cancelar: &AtomicBool,
     progresso: &mut dyn FnMut(u8),
 ) -> Result<(), String> {
     let video = projeto.origem.video(pasta);
@@ -440,7 +571,7 @@ fn produzir_em(
                 video: &video,
                 qualidade,
             },
-            &AtomicBool::new(false),
+            cancelar,
             &mut |fracao| {
                 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
                 let percentual = (fracao * 100.0).floor().clamp(0.0, 100.0) as u8;

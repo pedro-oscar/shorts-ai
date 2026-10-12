@@ -104,6 +104,8 @@ export function createFakeNucleo(
     logins: [] as { modo: ModoDeLogin; porTerminal: boolean }[],
     /** Os projetos de cada `gerarVersaoFinal`. */
     versoesFinais: [] as string[][],
+    /** Cada ação do ciclo de vida pedida, como `pausar:<id>` ou `retomarLote:<lote>`. */
+    ciclo: [] as string[],
     /** O que cada `abrirNoSistema` pediu. */
     abertos: [] as { id: string; alvo: AlvoParaAbrir }[],
   };
@@ -152,12 +154,18 @@ export function createFakeNucleo(
           ] as const
         ).map((etapa) => ({ etapa, estado: "pendente" as const })),
         falha: null,
+        parada: null,
       };
       lote.projetos.push(projeto);
       return projeto;
     });
     for (const projeto of novos) emit({ tipo: "projetoCriado", projeto });
     return novos;
+  };
+
+  const cicloOk = (acao: string, id: string) => {
+    calls.ciclo.push(`${acao}:${id}`);
+    return Promise.resolve({ status: "ok" as const, data: null });
   };
 
   const nucleo: Nucleo = {
@@ -341,6 +349,11 @@ export function createFakeNucleo(
         });
       return Promise.resolve({ status: "ok", data: null });
     },
+    pausarProjeto: (id) => cicloOk("pausar", id),
+    cancelarProjeto: (id) => cicloOk("cancelar", id),
+    retomarProjeto: (id) => cicloOk("retomar", id),
+    retomarLote: (id) => cicloOk("retomarLote", id),
+    tentarDeNovo: (id) => cicloOk("tentarDeNovo", id),
     urlDoArquivo: (caminho) => `asset://${caminho}`,
     sair: () => {
       calls.sair++;

@@ -23,6 +23,16 @@ pub struct EtapaDoProjeto {
     pub estado: EstadoDaEtapa,
 }
 
+/// Por que um projeto que não terminou nem falhou não está na fila.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum Parada {
+    /// Parou ao fim de uma etapa, a pedido, ou o app foi fechado com o projeto interrompido.
+    Pausado,
+    /// Teve o processo morto na hora; a etapa em curso foi descartada.
+    Cancelado,
+}
+
 /// Como a Importação trouxe o arquivo para o projeto.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -165,6 +175,9 @@ pub(crate) struct ProjetoJson {
     /// Por que a etapa que falhou falhou.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub falha: Option<String>,
+    /// `None` enquanto o projeto está na fila, rodando, pronto ou falhou.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parada: Option<Parada>,
 }
 
 impl ProjetoJson {
@@ -185,6 +198,7 @@ impl ProjetoJson {
                 })
                 .collect(),
             falha: None,
+            parada: None,
         }
     }
 

@@ -71,6 +71,77 @@ function Acao({ acao }: { acao: AcaoDoClaude }) {
   );
 }
 
+/** As ações que a tabela do ciclo de vida permite ao projeto no estado em que ele está. */
+function Controles({
+  projeto,
+  estado,
+}: {
+  projeto: ProjetoNaFila;
+  estado: ReturnType<typeof resumir>["estado"];
+}) {
+  const { t } = useTranslation();
+  const pausar = useAppStore((store) => store.pausarProjeto);
+  const cancelar = useAppStore((store) => store.cancelarProjeto);
+  const retomar = useAppStore((store) => store.retomarProjeto);
+  const tentarDeNovo = useAppStore((store) => store.tentarDeNovo);
+  const nome = projeto.titulo;
+  const botao = (rotulo: string, aria: string, acao: (id: string) => void) => (
+    <button
+      type="button"
+      aria-label={aria}
+      onClick={() => {
+        acao(projeto.id);
+      }}
+    >
+      {rotulo}
+    </button>
+  );
+  const falhou = projeto.etapas.find((item) => item.estado === "falhou");
+  return (
+    <div className="actions">
+      {(estado === "naFila" || estado === "emAndamento") &&
+        botao(
+          t("gerando.pausar"),
+          t("gerando.pausarProjeto", { nome }),
+          (id) => {
+            void pausar(id);
+          },
+        )}
+      {(estado === "pausado" || estado === "cancelado") &&
+        botao(
+          t("gerando.retomar"),
+          t("gerando.retomarProjeto", { nome }),
+          (id) => {
+            void retomar(id);
+          },
+        )}
+      {estado !== "falhou" &&
+        estado !== "pronto" &&
+        estado !== "cancelado" &&
+        botao(
+          t("gerando.cancelar"),
+          t("gerando.cancelarProjeto", { nome }),
+          (id) => {
+            void cancelar(id);
+          },
+        )}
+      {falhou && (
+        <button
+          type="button"
+          aria-label={t("gerando.tentarDeNovoProjeto", { nome })}
+          onClick={() => {
+            void tentarDeNovo(projeto.id);
+          }}
+        >
+          {t("gerando.tentarDeNovo", {
+            etapa: t(`gerando.etapas.${falhou.etapa}`),
+          })}
+        </button>
+      )}
+    </div>
+  );
+}
+
 /** Uma linha do lote: o estado, a etapa N/5, o progresso e o tempo, com o detalhe ao lado. */
 function Linha({ projeto, agora }: { projeto: ProjetoNaFila; agora: number }) {
   const { t } = useTranslation();
@@ -104,6 +175,7 @@ function Linha({ projeto, agora }: { projeto: ProjetoNaFila; agora: number }) {
         max={projeto.etapas.length}
         aria-label={t("gerando.progresso", { nome: projeto.titulo })}
       />
+      <Controles projeto={projeto} estado={resumo.estado} />
       {projeto.falha && (
         <p role="alert" className="error detail">
           {t("erros.detalhe", { detalhe: projeto.falha })}
@@ -174,12 +246,29 @@ export function Gerando({
   const projetos = todos.filter((projeto) => projeto.lote === loteAtual);
   const rodando = projetos.some(emAberto);
   const agora = useAgora(rodando);
+  const retomarLote = useAppStore((store) => store.retomarLote);
+  const erroDoCiclo = useAppStore((store) => store.erroDoCiclo);
+  const pausados = projetos.some((projeto) => projeto.parada === "pausado");
   return (
     <>
       <Topo onOpenSobre={onOpenSobre} />
       <Screen title={t("gerando.titulo")}>
         {lote && <NomeDoLote key={lote.id} lote={lote} />}
         {projetos.length === 0 && <p>{t("gerando.semLote")}</p>}
+        {pausados && loteAtual && (
+          <div role="status">
+            <p>{t("gerando.loteInterrompido")}</p>
+            <button
+              type="button"
+              onClick={() => {
+                void retomarLote(loteAtual);
+              }}
+            >
+              {t("gerando.retomarLote")}
+            </button>
+          </div>
+        )}
+        {erroDoCiclo && <ErrorMessage erro={erroDoCiclo} />}
         <div className="actions">
           {rodando && (
             <button type="button" onClick={onAdicionar}>

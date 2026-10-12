@@ -200,9 +200,21 @@ export const ptBR = {
     estados: {
       naFila: "Na fila",
       emAndamento: "Em andamento",
+      pausado: "Pausado",
+      cancelado: "Cancelado",
       falhou: "Falhou",
       pronto: "Pronto",
     },
+    pausar: "Pausar",
+    cancelar: "Cancelar",
+    retomar: "Retomar",
+    pausarProjeto: "Pausar {{nome}}",
+    cancelarProjeto: "Cancelar {{nome}}",
+    retomarProjeto: "Retomar {{nome}}",
+    tentarDeNovo: "Tentar de novo a partir de {{etapa}}",
+    tentarDeNovoProjeto: "Tentar de novo {{nome}}",
+    retomarLote: "Retomar lote",
+    loteInterrompido: "Este lote parou: há projetos pausados.",
     etapas: {
       importacao: "Importação",
       transcricao: "Transcrição",
@@ -284,6 +296,8 @@ export const ptBR = {
       "Não foi possível instalar as dependências do Remotion. Confira a conexão com a internet e tente de novo.",
     projetoNaoLido:
       "Não foi possível ler o projeto {{id}}. Confira se a pasta dele ainda está na Biblioteca e tente de novo.",
+    acaoIndisponivel:
+      "O projeto {{id}} não pode {{acao}} agora: o estado dele mudou.",
     loteNaoEncontrado: "O lote {{id}} não foi encontrado na Biblioteca.",
     projetoNaoEncontrado:
       "O projeto {{id}} não foi encontrado na Biblioteca: a pasta dele foi apagada ou movida.",

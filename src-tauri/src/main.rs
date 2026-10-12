@@ -190,6 +190,41 @@ async fn lotes(app: AppHandle) -> Vec<LoteResumo> {
     app.state::<Nucleo>().lotes()
 }
 
+/// Pausa o projeto ao fim da etapa, ou o tira da fila se ainda não começou.
+#[tauri::command]
+#[specta::specta]
+async fn pausar_projeto(nucleo: State<'_, Nucleo>, id: String) -> Result<(), Erro> {
+    nucleo.pausar(&id)
+}
+
+/// Cancela o projeto na hora, descartando a etapa em curso.
+#[tauri::command]
+#[specta::specta]
+async fn cancelar_projeto(nucleo: State<'_, Nucleo>, id: String) -> Result<(), Erro> {
+    nucleo.cancelar(&id)
+}
+
+/// Põe o projeto pausado ou cancelado no fim da fila.
+#[tauri::command]
+#[specta::specta]
+async fn retomar_projeto(nucleo: State<'_, Nucleo>, id: String) -> Result<(), Erro> {
+    nucleo.retomar(&id)
+}
+
+/// Retoma os projetos pausados do lote, na ordem dele.
+#[tauri::command]
+#[specta::specta]
+async fn retomar_lote(nucleo: State<'_, Nucleo>, lote: String) -> Result<(), Erro> {
+    nucleo.retomar_lote(&lote)
+}
+
+/// Põe o projeto que falhou no fim da fila, para recomeçar da etapa que falhou.
+#[tauri::command]
+#[specta::specta]
+async fn tentar_de_novo(nucleo: State<'_, Nucleo>, id: String) -> Result<(), Erro> {
+    nucleo.tentar_de_novo(&id)
+}
+
 /// Título, canal e duração de um vídeo do YouTube, antes de baixar.
 #[tauri::command]
 #[specta::specta]
@@ -257,6 +292,11 @@ fn bindings() -> Builder<tauri::Wry> {
             adicionar_ao_lote,
             renomear_lote,
             lotes,
+            pausar_projeto,
+            cancelar_projeto,
+            retomar_projeto,
+            retomar_lote,
+            tentar_de_novo,
             dados_do_projeto,
             abrir_no_sistema,
             gerar_versao_final,

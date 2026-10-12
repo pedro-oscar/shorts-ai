@@ -197,9 +197,21 @@ export const en: typeof ptBR = {
     estados: {
       naFila: "Queued",
       emAndamento: "In progress",
+      pausado: "Paused",
+      cancelado: "Canceled",
       falhou: "Failed",
       pronto: "Done",
     },
+    pausar: "Pause",
+    cancelar: "Cancel",
+    retomar: "Resume",
+    pausarProjeto: "Pause {{nome}}",
+    cancelarProjeto: "Cancel {{nome}}",
+    retomarProjeto: "Resume {{nome}}",
+    tentarDeNovo: "Try again from {{etapa}}",
+    tentarDeNovoProjeto: "Try {{nome}} again",
+    retomarLote: "Resume batch",
+    loteInterrompido: "This batch stopped: some projects are paused.",
     etapas: {
       importacao: "Import",
       transcricao: "Transcription",
@@ -281,6 +293,8 @@ export const en: typeof ptBR = {
       "Could not install the Remotion dependencies. Check your internet connection and try again.",
     projetoNaoLido:
       "Could not read project {{id}}. Check that its folder is still in the Library and try again.",
+    acaoIndisponivel:
+      "Project {{id}} cannot do that right now: its state has changed.",
     loteNaoEncontrado: "Batch {{id}} was not found in the Library.",
     projetoNaoEncontrado:
       "Project {{id}} was not found in the Library: its folder was deleted or moved.",

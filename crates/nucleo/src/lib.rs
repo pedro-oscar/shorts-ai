@@ -40,7 +40,7 @@ pub use crate::claude_code::ClaudeCode;
 use crate::conta::Conta;
 pub use crate::conta::{Cobranca, EstadoDaConta, ModoDeLogin, VERSAO_MINIMA_DO_CLAUDE_CODE};
 use crate::corte::Ffmpeg;
-use crate::fila::Fila;
+use crate::fila::{Fila, Parou};
 pub use crate::galeria::{AlvoParaAbrir, DadosDoProjeto, ReelDoProjeto, Reserva};
 use crate::lote::LoteJson;
 pub use crate::lote::LoteResumo;
@@ -50,7 +50,7 @@ use crate::preparacao::NodePortatil;
 pub use crate::preparacao::{Downloads, EstadoDaPreparacao, Pacote, PacoteDaPreparacao};
 use crate::process::hide_console;
 use crate::producao::Producao;
-pub use crate::projeto::{EtapaDoProjeto, Faixa, ModoDeImportacao};
+pub use crate::projeto::{EtapaDoProjeto, Faixa, ModoDeImportacao, Parada};
 use crate::projeto::{Origem, ProjetoJson};
 use crate::remotion::Remotion;
 use crate::sessao::Roteirista;
@@ -270,6 +270,8 @@ pub struct ProjetoResumo {
     pub etapas: Vec<EtapaDoProjeto>,
     /// Por que a etapa que falhou falhou, como a mensagem do sistema.
     pub falha: Option<String>,
+    /// Pausado ou cancelado; `None` na fila, rodando, pronto ou falho.
+    pub parada: Option<Parada>,
 }
 
 /// Um arquivo de vídeo escolhido, para a lista do passo Vídeos.
@@ -322,6 +324,11 @@ pub enum Evento {
         etapa: Etapa,
         estado: EstadoDaEtapa,
         falha: Option<String>,
+    },
+    /// O projeto parou (`pausado`, `cancelado`) ou voltou para a fila (`None`).
+    ParadaMudou {
+        projeto: String,
+        parada: Option<Parada>,
     },
     /// O progresso de uma etapa que o mede, de 0 a 100.
     ProgressoDaEtapa {
@@ -390,6 +397,9 @@ pub enum Erro {
     /// A pasta do projeto foi apagada ou movida.
     #[error("projeto {id} não encontrado na Biblioteca")]
     ProjetoNaoEncontrado { id: String },
+    /// A ação não existe para o estado em que o projeto está.
+    #[error("o projeto {id} não pode {acao} agora")]
+    AcaoIndisponivel { id: String, acao: String },
     #[error("lote {id} não encontrado")]
     LoteNaoEncontrado { id: String },
     #[error("padrão {opcao} inválido: {motivo}")]
@@ -467,6 +477,7 @@ impl Nucleo {
                 }),
             )
         });
+        lote::pausar_interrompidos(&biblioteca);
         Self {
             biblioteca,
             fila: Fila::new(
@@ -928,6 +939,128 @@ impl Nucleo {
         Ok(id)
     }
 
+    /// Pausa o projeto: o que está rodando para ao fim da etapa; o que espera a vez sai da fila
+    /// na hora.
+    pub fn pausar(&self, id: &str) -> Result<(), Erro> {
+        let (pasta, projeto) = self.projeto_em_curso(id, "pausar")?;
+        if projeto.parada.is_some() {
+            return Err(acao_indisponivel(id, "pausar"));
+        }
+        match self.fila.pausar(id) {
+            Parou::NaFila => self.registrar_parada(&pasta, projeto, Parada::Pausado),
+            Parou::EmAndamento => Ok(()),
+            Parou::NaoEstava => Err(acao_indisponivel(id, "pausar")),
+        }
+    }
+
+    /// Cancela o projeto: o que está rodando tem o processo morto e a etapa descartada. Vale
+    /// também para o projeto pausado.
+    pub fn cancelar(&self, id: &str) -> Result<(), Erro> {
+        let (pasta, projeto) = self.projeto_em_curso(id, "cancelar")?;
+        match projeto.parada {
+            Some(Parada::Cancelado) => Err(acao_indisponivel(id, "cancelar")),
+            Some(Parada::Pausado) => self.registrar_parada(&pasta, projeto, Parada::Cancelado),
+            None => match self.fila.cancelar(id) {
+                Parou::NaFila => self.registrar_parada(&pasta, projeto, Parada::Cancelado),
+                Parou::EmAndamento => Ok(()),
+                Parou::NaoEstava => Err(acao_indisponivel(id, "cancelar")),
+            },
+        }
+    }
+
+    /// Devolve o projeto pausado ou cancelado ao fim da fila, para recomeçar da última etapa
+    /// concluída.
+    pub fn retomar(&self, id: &str) -> Result<(), Erro> {
+        let (pasta, mut projeto) = self.projeto_em_curso(id, "retomar")?;
+        if projeto.parada.take().is_none() {
+            return Err(acao_indisponivel(id, "retomar"));
+        }
+        self.gravar_projeto(&pasta, &projeto)?;
+        (self.emit)(Evento::ParadaMudou {
+            projeto: id.to_owned(),
+            parada: None,
+        });
+        self.fila.enfileirar(pasta);
+        Ok(())
+    }
+
+    /// Retoma, na ordem do lote, os projetos pausados.
+    pub fn retomar_lote(&self, id: &str) -> Result<(), Erro> {
+        for projeto in self.ler_lote(id)?.projetos {
+            let pausado = self
+                .projeto_em_curso(&projeto, "retomar")
+                .is_ok_and(|(_, json)| json.parada == Some(Parada::Pausado));
+            if pausado {
+                self.retomar(&projeto)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Põe o projeto que falhou no fim da fila para recomeçar da etapa que falhou. No Roteiro e
+    /// na Revisão, a nova sessão recebe os erros da anterior.
+    pub fn tentar_de_novo(&self, id: &str) -> Result<(), Erro> {
+        let (pasta, mut projeto) = self.projeto_em_curso(id, "tentar de novo")?;
+        let Some(etapa) = projeto
+            .etapas
+            .iter()
+            .find(|item| item.estado == EstadoDaEtapa::Falhou)
+            .map(|item| item.etapa)
+        else {
+            return Err(acao_indisponivel(id, "tentar de novo"));
+        };
+        projeto.marcar(etapa, EstadoDaEtapa::Pendente);
+        projeto.falha = None;
+        self.gravar_projeto(&pasta, &projeto)?;
+        (self.emit)(Evento::EtapaMudou {
+            projeto: id.to_owned(),
+            etapa,
+            estado: EstadoDaEtapa::Pendente,
+            falha: None,
+        });
+        self.fila.enfileirar(pasta);
+        Ok(())
+    }
+
+    /// O projeto que ainda pode andar, lido do disco: o que já terminou não tem ação aqui.
+    fn projeto_em_curso(&self, id: &str, acao: &str) -> Result<(PathBuf, ProjetoJson), Erro> {
+        let pasta = self.pasta_do_projeto(id)?;
+        let projeto = ProjetoJson::ler(&pasta).map_err(|error| Erro::ProjetoNaoLido {
+            id: id.to_owned(),
+            detalhe: error.to_string(),
+        })?;
+        let pronto = projeto
+            .etapas
+            .iter()
+            .all(|item| item.estado == EstadoDaEtapa::Concluida);
+        if pronto {
+            return Err(acao_indisponivel(id, acao));
+        }
+        Ok((pasta, projeto))
+    }
+
+    fn registrar_parada(
+        &self,
+        pasta: &Path,
+        mut projeto: ProjetoJson,
+        parada: Parada,
+    ) -> Result<(), Erro> {
+        projeto.parada = Some(parada);
+        self.gravar_projeto(pasta, &projeto)?;
+        (self.emit)(Evento::ParadaMudou {
+            projeto: nome_do_arquivo(pasta),
+            parada: Some(parada),
+        });
+        Ok(())
+    }
+
+    fn gravar_projeto(&self, pasta: &Path, projeto: &ProjetoJson) -> Result<(), Erro> {
+        projeto.gravar(pasta).map_err(|error| Erro::ProjetoNaoLido {
+            id: nome_do_arquivo(pasta),
+            detalhe: error.to_string(),
+        })
+    }
+
     /// Os reels e as reservas do projeto, para a Galeria.
     pub fn dados_do_projeto(&self, id: &str) -> Result<DadosDoProjeto, Erro> {
         let pasta = self.pasta_do_projeto(id)?;
@@ -1133,6 +1266,13 @@ fn nome_do_arquivo(path: &Path) -> String {
     path.file_name()
         .map(|nome| nome.to_string_lossy().into_owned())
         .unwrap_or_default()
+}
+
+fn acao_indisponivel(id: &str, acao: &str) -> Erro {
+    Erro::AcaoIndisponivel {
+        id: id.to_owned(),
+        acao: acao.to_owned(),
+    }
 }
 
 fn lote_nao_criado(caminho: &Path, error: &io::Error) -> Erro {

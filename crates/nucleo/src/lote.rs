@@ -12,7 +12,7 @@ use time::OffsetDateTime;
 use crate::ProjetoResumo;
 use crate::files::write_json;
 use crate::padroes::Padroes;
-use crate::projeto::ProjetoJson;
+use crate::projeto::{Parada, ProjetoJson};
 use crate::{EstadoDaEtapa, nome_do_arquivo};
 
 const PASTA: &str = ".lotes";
@@ -103,6 +103,7 @@ pub(crate) fn resumir(pasta: &Path, json: ProjetoJson) -> ProjetoResumo {
         lote: json.lote,
         etapas: json.etapas,
         falha: json.falha,
+        parada: json.parada,
     }
 }
 
@@ -137,6 +138,38 @@ pub(crate) fn resumos(biblioteca: &Path) -> Vec<LoteResumo> {
             }
         })
         .collect()
+}
+
+/// Reabrir o app deixa Pausado todo projeto que não terminou, não falhou e não está parado: a
+/// fila não sobrevive ao app, então nada retoma sozinho. A etapa que estava em andamento é
+/// descartada. Quem não se lê ou não se grava fica como está.
+pub(crate) fn pausar_interrompidos(biblioteca: &Path) {
+    for lote in LoteJson::listar(biblioteca) {
+        for id in &lote.projetos {
+            let pasta = biblioteca.join(id);
+            let Ok(mut projeto) = ProjetoJson::ler(&pasta) else {
+                continue;
+            };
+            let falhou = projeto
+                .etapas
+                .iter()
+                .any(|item| item.estado == EstadoDaEtapa::Falhou);
+            let pronto = projeto
+                .etapas
+                .iter()
+                .all(|item| item.estado == EstadoDaEtapa::Concluida);
+            if falhou || pronto || projeto.parada.is_some() {
+                continue;
+            }
+            for item in &mut projeto.etapas {
+                if item.estado == EstadoDaEtapa::EmAndamento {
+                    item.estado = EstadoDaEtapa::Pendente;
+                }
+            }
+            projeto.parada = Some(Parada::Pausado);
+            let _ = projeto.gravar(&pasta);
+        }
+    }
 }
 
 /// O projeto ainda vai andar: nenhuma etapa falhou e nem todas terminaram.
