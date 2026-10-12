@@ -11,9 +11,12 @@ import { formatarDuracao, lerFaixa } from "./formatos";
 export function Videos({
   onOpenSobre,
   onContinuar,
+  onVoltar,
 }: {
   onOpenSobre: () => void;
   onContinuar: () => void;
+  /** Só ao acrescentar vídeos a um lote que roda: volta para o Gerando. */
+  onVoltar?: () => void;
 }) {
   const { t } = useTranslation();
   const arquivos = useAppStore((store) => store.arquivos);
@@ -72,6 +75,11 @@ export function Videos({
     <>
       <Topo onOpenSobre={onOpenSobre} />
       <Screen title={t("videos.titulo")}>
+        {onVoltar && (
+          <button type="button" onClick={onVoltar}>
+            {t("videos.voltar")}
+          </button>
+        )}
         <div role="tablist">
           <button
             type="button"

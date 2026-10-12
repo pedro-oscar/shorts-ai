@@ -10,6 +10,7 @@ pub mod corte;
 mod fila;
 mod files;
 mod galeria;
+mod lote;
 mod padroes;
 mod preferencias;
 mod preparacao;
@@ -41,6 +42,8 @@ pub use crate::conta::{Cobranca, EstadoDaConta, ModoDeLogin, VERSAO_MINIMA_DO_CL
 use crate::corte::Ffmpeg;
 use crate::fila::Fila;
 pub use crate::galeria::{AlvoParaAbrir, DadosDoProjeto, ReelDoProjeto, Reserva};
+use crate::lote::LoteJson;
+pub use crate::lote::LoteResumo;
 pub use crate::padroes::{IdiomaDoVideo, ModeloDoClaude, Padroes};
 use crate::preferencias::{PreferencesFile, Preferencias};
 use crate::preparacao::NodePortatil;
@@ -262,6 +265,8 @@ pub struct ProjetoResumo {
     pub id: String,
     pub titulo: String,
     pub pasta: String,
+    /// O id do lote a que o projeto pertence.
+    pub lote: String,
     pub etapas: Vec<EtapaDoProjeto>,
     /// Por que a etapa que falhou falhou, como a mensagem do sistema.
     pub falha: Option<String>,
@@ -385,6 +390,8 @@ pub enum Erro {
     /// A pasta do projeto foi apagada ou movida.
     #[error("projeto {id} não encontrado na Biblioteca")]
     ProjetoNaoEncontrado { id: String },
+    #[error("lote {id} não encontrado")]
+    LoteNaoEncontrado { id: String },
     #[error("padrão {opcao} inválido: {motivo}")]
     PadroesInvalidos { opcao: String, motivo: String },
     #[error("a preparação foi interrompida: {detalhe}")]
@@ -758,50 +765,88 @@ impl Nucleo {
         padroes: &Padroes,
     ) -> Result<Vec<ProjetoResumo>, Erro> {
         padroes.validar()?;
-        let faixa_valida = |faixa| {
-            Faixa::validar(faixa).map_err(|motivo| Erro::PadroesInvalidos {
-                opcao: "faixa".to_owned(),
-                motivo,
-            })
-        };
-        let mut videos = arquivos
-            .iter()
-            .map(|arquivo| {
-                Ok(Video::Arquivo(
-                    validar_arquivo(&arquivo.caminho)?,
-                    faixa_valida(arquivo.faixa)?,
-                ))
-            })
-            .collect::<Result<Vec<_>, Erro>>()?;
-        for link in links {
-            let url = youtube::normalizar_url(&link.url).ok_or_else(|| Erro::LinkInvalido {
-                url: link.url.clone(),
-            })?;
-            if !link.direito_de_uso {
-                return Err(Erro::DireitoDeUsoNaoConfirmado { url });
-            }
-            videos.push(Video::Link(LinkDoLote {
-                url,
-                faixa: faixa_valida(link.faixa)?,
-                ..link.clone()
-            }));
-        }
+        let videos = validar_videos(arquivos, links)?;
         let agora = OffsetDateTime::now_utc();
-        let lote = self.reservar_lote(agora)?;
+        let mut lote = LoteJson::novo(self.reservar_lote(agora)?, agora, padroes.clone());
+        self.gravar_lote(&lote)?;
+        self.criar_projetos(&mut lote, agora, &videos)
+    }
+
+    /// Põe vídeos no fim da fila de um lote que já existe, com os padrões dele. Como em
+    /// [`Nucleo::criar_lote_com_links`], nada é criado se algum vídeo não for aceito.
+    pub fn adicionar_ao_lote(
+        &self,
+        id: &str,
+        arquivos: &[ArquivoDoLote],
+        links: &[LinkDoLote],
+    ) -> Result<Vec<ProjetoResumo>, Erro> {
+        let mut lote = self.ler_lote(id)?;
+        let videos = validar_videos(arquivos, links)?;
+        self.criar_projetos(&mut lote, OffsetDateTime::now_utc(), &videos)
+    }
+
+    /// Troca o nome do lote.
+    pub fn renomear_lote(&self, id: &str, nome: &str) -> Result<(), Erro> {
+        let nome = nome.trim();
+        if nome.is_empty() {
+            return Err(Erro::PadroesInvalidos {
+                opcao: "nome".to_owned(),
+                motivo: "não pode ficar vazio".to_owned(),
+            });
+        }
+        let mut lote = self.ler_lote(id)?;
+        nome.clone_into(&mut lote.nome);
+        self.gravar_lote(&lote)
+    }
+
+    /// Os lotes da Biblioteca, do mais novo para o mais antigo, com os projetos de cada um.
+    pub fn lotes(&self) -> Vec<LoteResumo> {
+        lote::resumos(&self.biblioteca)
+    }
+
+    fn ler_lote(&self, id: &str) -> Result<LoteJson, Erro> {
+        let simples = !id.is_empty() && !id.contains(['/', '\\', '.']);
+        if !simples {
+            return Err(Erro::LoteNaoEncontrado { id: id.to_owned() });
+        }
+        LoteJson::ler(&self.biblioteca, id).map_err(|error| {
+            if error.kind() == io::ErrorKind::NotFound {
+                Erro::LoteNaoEncontrado { id: id.to_owned() }
+            } else {
+                lote_nao_criado(&lote::pasta(&self.biblioteca), &error)
+            }
+        })
+    }
+
+    fn gravar_lote(&self, lote: &LoteJson) -> Result<(), Erro> {
+        lote.gravar(&self.biblioteca)
+            .map_err(|error| lote_nao_criado(&lote::pasta(&self.biblioteca), &error))
+    }
+
+    /// Cria um projeto por vídeo, põe cada um no fim da fila e o registra no fim do lote. O
+    /// que já foi criado fica registrado mesmo se um vídeo falhar.
+    fn criar_projetos(
+        &self,
+        lote: &mut LoteJson,
+        agora: OffsetDateTime,
+        videos: &[Video],
+    ) -> Result<Vec<ProjetoResumo>, Erro> {
         let mut projetos = Vec::new();
-        let resultado = self.criar_projetos(&lote, agora, &videos, padroes, &mut projetos);
-        self.registrar_lote(&lote, agora, &projetos)?;
+        let resultado = self.criar_cada_projeto(lote, agora, videos, &mut projetos);
+        lote.projetos
+            .extend(projetos.iter().map(|projeto| projeto.id.clone()));
+        self.gravar_lote(lote)?;
         resultado.map(|()| projetos)
     }
 
-    fn criar_projetos(
+    fn criar_cada_projeto(
         &self,
-        lote: &str,
+        lote: &LoteJson,
         agora: OffsetDateTime,
         videos: &[Video],
-        padroes: &Padroes,
         projetos: &mut Vec<ProjetoResumo>,
     ) -> Result<(), Erro> {
+        let padroes = &lote.padroes;
         for video in videos {
             let (titulo, origem, faixa) = match video {
                 Video::Arquivo(arquivo, faixa) => (
@@ -831,7 +876,7 @@ impl Nucleo {
             let nao_criado = |caminho: &Path, error: io::Error| lote_nao_criado(caminho, &error);
             let pasta = projeto::criar_pasta(&self.biblioteca, &titulo, agora.date())
                 .map_err(|error| nao_criado(&self.biblioteca, error))?;
-            let mut json = ProjetoJson::novo(titulo, lote.to_owned(), origem, agora);
+            let mut json = ProjetoJson::novo(titulo, lote.id.clone(), origem, agora);
             json.opcoes = padroes.opcoes();
             json.opcoes.faixa = faixa;
             if let Video::Link(link) = video {
@@ -849,13 +894,7 @@ impl Nucleo {
             self.remotion
                 .montar_no_projeto(&pasta)
                 .map_err(|error| nao_criado(&pasta, error))?;
-            let resumo = ProjetoResumo {
-                id: nome_do_arquivo(&pasta),
-                titulo: json.titulo,
-                pasta: pasta.display().to_string(),
-                etapas: json.etapas,
-                falha: None,
-            };
+            let resumo = lote::resumir(&pasta, json);
             (self.emit)(Evento::ProjetoCriado {
                 projeto: resumo.clone(),
             });
@@ -865,14 +904,10 @@ impl Nucleo {
         Ok(())
     }
 
-    fn pasta_dos_lotes(&self) -> PathBuf {
-        self.biblioteca.join(".lotes")
-    }
-
     /// Escolhe o id do lote, `AAAA-MM-DDTHH-MM-SS` (com `-2`, `-3`... se já existir), e
-    /// o reserva em `.lotes/` com um nome automático.
+    /// garante a pasta `.lotes/`.
     fn reservar_lote(&self, agora: OffsetDateTime) -> Result<String, Erro> {
-        let dir = self.pasta_dos_lotes();
+        let dir = lote::pasta(&self.biblioteca);
         std::fs::create_dir_all(&dir).map_err(|error| lote_nao_criado(&dir, &error))?;
         let base = format!(
             "{:04}-{:02}-{:02}T{:02}-{:02}-{:02}",
@@ -890,31 +925,7 @@ impl Nucleo {
             }
             id = format!("{base}-{numero}");
         }
-        self.registrar_lote(&id, agora, &[])?;
         Ok(id)
-    }
-
-    /// Grava `.lotes/<lote>.json`: o nome automático e os projetos do lote.
-    fn registrar_lote(
-        &self,
-        id: &str,
-        agora: OffsetDateTime,
-        projetos: &[ProjetoResumo],
-    ) -> Result<(), Erro> {
-        let arquivo = self.pasta_dos_lotes().join(format!("{id}.json"));
-        let lote = serde_json::json!({
-            "id": id,
-            "nome": format!(
-                "Lote {:04}-{:02}-{:02} {:02}:{:02}",
-                agora.year(),
-                u8::from(agora.month()),
-                agora.day(),
-                agora.hour(),
-                agora.minute()
-            ),
-            "projetos": projetos.iter().map(|projeto| &projeto.id).collect::<Vec<_>>(),
-        });
-        files::write_json(&arquivo, &lote).map_err(|error| lote_nao_criado(&arquivo, &error))
     }
 
     /// Os reels e as reservas do projeto, para a Galeria.
@@ -1065,6 +1076,40 @@ pub struct ArquivoDoLote {
 enum Video {
     Arquivo(PathBuf, Option<Faixa>),
     Link(LinkDoLote),
+}
+
+/// Confere os arquivos e os links de um lote e os junta na ordem da fila: os arquivos e,
+/// depois, os links.
+fn validar_videos(arquivos: &[ArquivoDoLote], links: &[LinkDoLote]) -> Result<Vec<Video>, Erro> {
+    let faixa_valida = |faixa| {
+        Faixa::validar(faixa).map_err(|motivo| Erro::PadroesInvalidos {
+            opcao: "faixa".to_owned(),
+            motivo,
+        })
+    };
+    let mut videos = arquivos
+        .iter()
+        .map(|arquivo| {
+            Ok(Video::Arquivo(
+                validar_arquivo(&arquivo.caminho)?,
+                faixa_valida(arquivo.faixa)?,
+            ))
+        })
+        .collect::<Result<Vec<_>, Erro>>()?;
+    for link in links {
+        let url = youtube::normalizar_url(&link.url).ok_or_else(|| Erro::LinkInvalido {
+            url: link.url.clone(),
+        })?;
+        if !link.direito_de_uso {
+            return Err(Erro::DireitoDeUsoNaoConfirmado { url });
+        }
+        videos.push(Video::Link(LinkDoLote {
+            url,
+            faixa: faixa_valida(link.faixa)?,
+            ..link.clone()
+        }));
+    }
+    Ok(videos)
 }
 
 /// O arquivo existe e tem uma das extensões aceitas.

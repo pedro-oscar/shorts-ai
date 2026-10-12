@@ -24,6 +24,11 @@ export const commands = {
 	/**  Título, canal e duração de um vídeo do YouTube, antes de baixar. */
 	consultarLink: (url: string) => typedError<InfoDoLink, Erro>(__TAURI_INVOKE("consultar_link", { url })),
 	criarLote: (arquivos: ArquivoDoLote[], links: LinkDoLote[], padroes: Padroes) => typedError<ProjetoResumo[], Erro>(__TAURI_INVOKE("criar_lote", { arquivos, links, padroes })),
+	/**  Põe vídeos no fim da fila de um lote que já existe, com os padrões dele. */
+	adicionarAoLote: (lote: string, arquivos: ArquivoDoLote[], links: LinkDoLote[]) => typedError<ProjetoResumo[], Erro>(__TAURI_INVOKE("adicionar_ao_lote", { lote, arquivos, links })),
+	renomearLote: (lote: string, nome: string) => typedError<null, Erro>(__TAURI_INVOKE("renomear_lote", { lote, nome })),
+	/**  Os lotes da Biblioteca, do mais novo para o mais antigo. */
+	lotes: () => __TAURI_INVOKE<LoteResumo[]>("lotes"),
 	dadosDoProjeto: (id: string) => typedError<DadosDoProjeto, Erro>(__TAURI_INVOKE("dados_do_projeto", { id })),
 	abrirNoSistema: (id: string, alvo: AlvoParaAbrir) => typedError<null, Erro>(__TAURI_INVOKE("abrir_no_sistema", { id, alvo })),
 	gerarVersaoFinal: (ids: string[]) => typedError<null, Erro>(__TAURI_INVOKE("gerar_versao_final", { ids })),
@@ -93,7 +98,7 @@ export type DadosDoProjeto = {
  */
 export type Erro = { codigo: "preferenciasIlegiveis"; caminho: string; detalhe: string } | { codigo: "preferenciasNaoGravadas"; caminho: string; detalhe: string } | { codigo: "loginNaoConcluido"; detalhe: string } | { codigo: "instalacaoFalhou"; detalhe: string } | { codigo: "atualizacaoFalhou"; detalhe: string } | { codigo: "claudeNaoRespondeu"; detalhe: string } | { codigo: "arquivoInvalido"; caminho: string } | { codigo: "projetoNaoCriado"; caminho: string; detalhe: string } | { codigo: "dependenciasDoRemotionNaoInstaladas"; detalhe: string } | { codigo: "projetoNaoLido"; id: string; detalhe: string } | 
 /**  A pasta do projeto foi apagada ou movida. */
-{ codigo: "projetoNaoEncontrado"; id: string } | { codigo: "padroesInvalidos"; opcao: string; motivo: string } | { codigo: "preparacaoInterrompida"; detalhe: string } | { codigo: "naoAbriu"; caminho: string; detalhe: string } | { codigo: "linkInvalido"; url: string } | { codigo: "linkNaoConsultado"; url: string; detalhe: string } | { codigo: "direitoDeUsoNaoConfirmado"; url: string };
+{ codigo: "projetoNaoEncontrado"; id: string } | { codigo: "loteNaoEncontrado"; id: string } | { codigo: "padroesInvalidos"; opcao: string; motivo: string } | { codigo: "preparacaoInterrompida"; detalhe: string } | { codigo: "naoAbriu"; caminho: string; detalhe: string } | { codigo: "linkInvalido"; url: string } | { codigo: "linkNaoConsultado"; url: string; detalhe: string } | { codigo: "direitoDeUsoNaoConfirmado"; url: string };
 
 /**  Em que pé está a conta Claude do app. */
 export type EstadoDaConta = { tipo: "naoInstalado" } | { tipo: "versaoAntiga"; versao: string; minima: string } | { tipo: "semLogin"; versao: string } | { tipo: "logado"; versao: string; 
@@ -212,6 +217,19 @@ export type LinkDoLote = {
 	faixa: Faixa | null,
 };
 
+/**  Um lote como a interface o mostra no histórico. */
+export type LoteResumo = {
+	id: string,
+	nome: string,
+	/**  O dia e a hora da criação, em RFC 3339. */
+	criadoEm: string,
+	padroes: Padroes,
+	/**  Os projetos na ordem da fila. */
+	projetos: ProjetoResumo[],
+	/**  Tem projeto que ainda não terminou nem falhou. Só o lote mais novo fica aberto. */
+	aberto: boolean,
+};
+
 /**  O modelo das sessões do Claude. */
 export type ModeloDoClaude = 
 /**  O que a conta usa quando nada é pedido. */
@@ -272,6 +290,8 @@ export type ProjetoResumo = {
 	id: string,
 	titulo: string,
 	pasta: string,
+	/**  O id do lote a que o projeto pertence. */
+	lote: string,
 	etapas: EtapaDoProjeto[],
 	/**  Por que a etapa que falhou falhou, como a mensagem do sistema. */
 	falha: string | null,

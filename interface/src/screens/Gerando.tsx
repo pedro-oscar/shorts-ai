@@ -1,27 +1,60 @@
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { ProjetoResumo } from "../bindings";
+import type { LoteResumo } from "../bindings";
 import { useAppStore } from "../context";
-import type { AcaoDoClaude } from "../store";
-import { Screen, Topo } from "./common";
-import { producaoConcluida } from "./formatos";
+import type { AcaoDoClaude, ProjetoNaFila } from "../store";
+import { ErrorMessage, Screen, Topo } from "./common";
+import {
+  emAberto,
+  formatarDuracao,
+  producaoConcluida,
+  resumir,
+} from "./formatos";
 
-/** O estado do projeto e a etapa N/5 em que ele está (a próxima a rodar, se parou). */
-function resumir(projeto: ProjetoResumo) {
-  const concluidas = projeto.etapas.filter((e) => e.estado === "concluida");
-  const iniciado = projeto.etapas.some((e) => e.estado !== "pendente");
-  const falhou = projeto.etapas.some((e) => e.estado === "falhou");
-  const estado = falhou
-    ? "falhou"
-    : concluidas.length === projeto.etapas.length
-      ? "pronto"
-      : iniciado
-        ? "emAndamento"
-        : "naFila";
-  return {
-    estado,
-    concluidas: concluidas.length,
-    etapa: Math.min(concluidas.length + 1, projeto.etapas.length),
-  } as const;
+/** O relógio, a cada segundo enquanto `ativo`, para o tempo dos projetos andar. */
+function useAgora(ativo: boolean) {
+  const [agora, setAgora] = useState(() => Date.now());
+  useEffect(() => {
+    if (!ativo) return;
+    const intervalo = setInterval(() => {
+      setAgora(Date.now());
+    }, 1000);
+    return () => {
+      clearInterval(intervalo);
+    };
+  }, [ativo]);
+  return agora;
+}
+
+/** O nome do lote, que a pessoa pode editar. */
+function NomeDoLote({ lote }: { lote: LoteResumo }) {
+  const { t } = useTranslation();
+  const renomear = useAppStore((store) => store.renomearLote);
+  const erro = useAppStore((store) => store.erroDoLote);
+  const [nome, setNome] = useState(lote.nome);
+  return (
+    <form
+      onSubmit={(event) => {
+        event.preventDefault();
+        void renomear(lote.id, nome);
+      }}
+    >
+      <label>
+        {t("gerando.nomeDoLote")}
+        <input
+          type="text"
+          value={nome}
+          onChange={(event) => {
+            setNome(event.target.value);
+          }}
+        />
+      </label>
+      <button type="submit" disabled={nome.trim() === lote.nome}>
+        {t("gerando.salvarNome")}
+      </button>
+      {erro && <ErrorMessage erro={erro} />}
+    </form>
+  );
 }
 
 /** Uma ação como o Claude a fez: "→ Read …", ou o texto que ele escreveu, entre aspas. */
@@ -38,82 +71,134 @@ function Acao({ acao }: { acao: AcaoDoClaude }) {
   );
 }
 
+/** Uma linha do lote: o estado, a etapa N/5, o progresso e o tempo, com o detalhe ao lado. */
+function Linha({ projeto, agora }: { projeto: ProjetoNaFila; agora: number }) {
+  const { t } = useTranslation();
+  const abrirNoSistema = useAppStore((store) => store.abrirNoSistema);
+  const resumo = resumir(projeto);
+  const tempo =
+    projeto.iniciadoEm === null
+      ? null
+      : formatarDuracao(
+          Math.max(0, (projeto.terminadoEm ?? agora) - projeto.iniciadoEm) /
+            1000,
+        );
+  return (
+    <li aria-label={projeto.titulo}>
+      <strong>{projeto.titulo}</strong>
+      <span>
+        {t(`gerando.estados.${resumo.estado}`)}
+        {resumo.estado === "emAndamento" &&
+          ` · ${t("gerando.etapaNdeM", {
+            n: resumo.etapa,
+            m: projeto.etapas.length,
+          })}`}
+        {projeto.percentual !== null &&
+          ` · ${t("gerando.percentual", { percentual: projeto.percentual })}`}
+      </span>
+      {tempo !== null && (
+        <span className="detail">{t("gerando.tempo", { tempo })}</span>
+      )}
+      <progress
+        value={resumo.concluidas + (projeto.percentual ?? 0) / 100}
+        max={projeto.etapas.length}
+        aria-label={t("gerando.progresso", { nome: projeto.titulo })}
+      />
+      {projeto.falha && (
+        <p role="alert" className="error detail">
+          {t("erros.detalhe", { detalhe: projeto.falha })}
+        </p>
+      )}
+      <details>
+        <summary aria-label={t("gerando.detalhes", { nome: projeto.titulo })}>
+          {t("gerando.verDetalhes")}
+        </summary>
+        <ol className="stages">
+          {projeto.etapas.map((item) => (
+            <li key={item.etapa}>
+              {t(`gerando.etapas.${item.etapa}`)}:{" "}
+              {t(`gerando.estadosDaEtapa.${item.estado}`)}
+            </li>
+          ))}
+        </ol>
+        {projeto.acoes.length > 0 && (
+          <ol
+            className="claude-actions"
+            aria-label={t("gerando.acoesDoClaude")}
+          >
+            {projeto.acoes.map((acao) => (
+              <Acao key={acao.numero} acao={acao} />
+            ))}
+          </ol>
+        )}
+        {projeto.tokens && (
+          <p className="detail">
+            {t("gerando.tokens", {
+              entrada: projeto.tokens.entrada,
+              cache: projeto.tokens.cache,
+            })}
+          </p>
+        )}
+        <button
+          type="button"
+          aria-label={t("gerando.abrirLogsDe", { nome: projeto.titulo })}
+          onClick={() => {
+            void abrirNoSistema(projeto.id, "logs");
+          }}
+        >
+          {t("gerando.abrirLogs")}
+        </button>
+      </details>
+    </li>
+  );
+}
+
 /** O passo Gerando: cada projeto do lote com o estado e as etapas, ao vivo. */
 export function Gerando({
   onOpenSobre,
   onVerReels,
+  onAdicionar,
+  onNovoLote,
 }: {
   onOpenSobre: () => void;
   onVerReels: () => void;
+  onAdicionar: () => void;
+  onNovoLote: () => void;
 }) {
   const { t } = useTranslation();
-  const projetos = useAppStore((store) => store.projetos);
+  const loteAtual = useAppStore((store) => store.loteAtual);
+  const lote = useAppStore((store) =>
+    store.lotes.find((item) => item.id === store.loteAtual),
+  );
+  const todos = useAppStore((store) => store.projetos);
+  const projetos = todos.filter((projeto) => projeto.lote === loteAtual);
+  const rodando = projetos.some(emAberto);
+  const agora = useAgora(rodando);
   return (
     <>
       <Topo onOpenSobre={onOpenSobre} />
       <Screen title={t("gerando.titulo")}>
-        {projetos.some(producaoConcluida) && (
-          <button type="button" onClick={onVerReels}>
-            {t("gerando.verReels")}
+        {lote && <NomeDoLote key={lote.id} lote={lote} />}
+        {projetos.length === 0 && <p>{t("gerando.semLote")}</p>}
+        <div className="actions">
+          {rodando && (
+            <button type="button" onClick={onAdicionar}>
+              {t("gerando.adicionarVideo")}
+            </button>
+          )}
+          <button type="button" onClick={onNovoLote}>
+            {t("gerando.novoLote")}
           </button>
-        )}
+          {projetos.some(producaoConcluida) && (
+            <button type="button" onClick={onVerReels}>
+              {t("gerando.verReels")}
+            </button>
+          )}
+        </div>
         <ul className="project-list">
-          {projetos.map((projeto) => {
-            const resumo = resumir(projeto);
-            return (
-              <li key={projeto.id} aria-label={projeto.titulo}>
-                <strong>{projeto.titulo}</strong>
-                <span>
-                  {t(`gerando.estados.${resumo.estado}`)}
-                  {resumo.estado === "emAndamento" &&
-                    ` · ${t("gerando.etapaNdeM", {
-                      n: resumo.etapa,
-                      m: projeto.etapas.length,
-                    })}`}
-                  {projeto.percentual !== null &&
-                    ` · ${t("gerando.percentual", {
-                      percentual: projeto.percentual,
-                    })}`}
-                </span>
-                <progress
-                  value={resumo.concluidas + (projeto.percentual ?? 0) / 100}
-                  max={projeto.etapas.length}
-                  aria-label={t("gerando.progresso", { nome: projeto.titulo })}
-                />
-                <ol className="stages">
-                  {projeto.etapas.map((item) => (
-                    <li key={item.etapa}>
-                      {t(`gerando.etapas.${item.etapa}`)}:{" "}
-                      {t(`gerando.estadosDaEtapa.${item.estado}`)}
-                    </li>
-                  ))}
-                </ol>
-                {projeto.acoes.length > 0 && (
-                  <ol
-                    className="claude-actions"
-                    aria-label={t("gerando.acoesDoClaude")}
-                  >
-                    {projeto.acoes.map((acao) => (
-                      <Acao key={acao.numero} acao={acao} />
-                    ))}
-                  </ol>
-                )}
-                {projeto.tokens && (
-                  <p className="detail">
-                    {t("gerando.tokens", {
-                      entrada: projeto.tokens.entrada,
-                      cache: projeto.tokens.cache,
-                    })}
-                  </p>
-                )}
-                {projeto.falha && (
-                  <p role="alert" className="error detail">
-                    {t("erros.detalhe", { detalhe: projeto.falha })}
-                  </p>
-                )}
-              </li>
-            );
-          })}
+          {projetos.map((projeto) => (
+            <Linha key={projeto.id} projeto={projeto} agora={agora} />
+          ))}
         </ul>
       </Screen>
     </>

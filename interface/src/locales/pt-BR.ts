@@ -124,6 +124,7 @@ export const ptBR = {
       "Solte aqui os vídeos (MP4, MOV ou MKV) ou escolha-os no computador.",
     escolher: "Escolher arquivos",
     lista: "Vídeos escolhidos",
+    voltar: "Voltar para Gerando",
     remover: "Remover",
     removerArquivo: "Remover {{nome}}",
     biblioteca: "Os projetos ficam na Biblioteca: {{pasta}}",
@@ -186,6 +187,16 @@ export const ptBR = {
     tokens:
       "Tokens da sessão: {{entrada, number}} de entrada e {{cache, number}} de cache",
     verReels: "Ver reels",
+    nomeDoLote: "Nome do lote",
+    salvarNome: "Salvar nome",
+    adicionarVideo: "+ Adicionar vídeo",
+    novoLote: "Novo lote",
+    tempo: "Tempo {{tempo}}",
+    detalhes: "Detalhes de {{nome}}",
+    verDetalhes: "Detalhes",
+    abrirLogs: "Abrir logs",
+    abrirLogsDe: "Abrir logs de {{nome}}",
+    semLote: "Nenhum lote ainda. Escolha vídeos para começar.",
     estados: {
       naFila: "Na fila",
       emAndamento: "Em andamento",
@@ -206,8 +217,21 @@ export const ptBR = {
       falhou: "falhou",
     },
   },
+  lotes: {
+    titulo: "Lotes",
+    historico: "Lotes",
+    voltar: "Voltar",
+    vazio: "Nenhum lote ainda.",
+    projetos_one: "{{count}} vídeo",
+    projetos_other: "{{count}} vídeos",
+    aberto: "Aberto",
+    abrir: "Abrir",
+    abrirDe: "Abrir {{nome}}",
+    projetosDe: "Vídeos de {{nome}}",
+  },
   reels: {
     titulo: "Reels",
+    doLote: "Lote: {{nome}}",
     voltar: "Voltar para Gerando",
     vazio: "Nenhum projeto com reels ainda.",
     semReels: "Este projeto ainda não tem reels.",
@@ -260,6 +284,7 @@ export const ptBR = {
       "Não foi possível instalar as dependências do Remotion. Confira a conexão com a internet e tente de novo.",
     projetoNaoLido:
       "Não foi possível ler o projeto {{id}}. Confira se a pasta dele ainda está na Biblioteca e tente de novo.",
+    loteNaoEncontrado: "O lote {{id}} não foi encontrado na Biblioteca.",
     projetoNaoEncontrado:
       "O projeto {{id}} não foi encontrado na Biblioteca: a pasta dele foi apagada ou movida.",
     padroesInvalidos:

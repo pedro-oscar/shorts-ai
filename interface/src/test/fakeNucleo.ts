@@ -10,6 +10,7 @@ import type {
   Evento,
   Faixa,
   LinkDoLote,
+  LoteResumo,
   ModoDeLogin,
   Pacote,
   Padroes,
@@ -44,6 +45,7 @@ const PACOTES: Pacote[] = [
 export function createFakeNucleo(
   initial: Partial<EstadoInicial> = {},
   conta: EstadoDaConta = LOGADO,
+  lotesIniciais: LoteResumo[] = [],
 ) {
   let state: EstadoInicial = {
     versao: "0.1.0",
@@ -75,7 +77,7 @@ export function createFakeNucleo(
   const listeners = new Set<(evento: Evento) => void>();
   const droppers = new Set<(caminhos: string[]) => void>();
   let picked: string[] = [];
-  let projetos: ProjetoResumo[] = [];
+  const lotes: LoteResumo[] = [...lotesIniciais];
   const dados = new Map<string, DadosDoProjeto>();
   const calls = {
     sair: 0,
@@ -94,6 +96,10 @@ export function createFakeNucleo(
     consultas: [] as string[],
     /** Os padrões de cada `criarLote`. */
     padroes: [] as Padroes[],
+    /** O lote e os caminhos de cada `adicionarAoLote`. */
+    adicoes: [] as { lote: string; caminhos: string[] }[],
+    /** O lote e o nome de cada `renomearLote`. */
+    renomeacoes: [] as { lote: string; nome: string }[],
     /** Os argumentos de cada `entrarNoClaudeCode`. */
     logins: [] as { modo: ModoDeLogin; porTerminal: boolean }[],
     /** Os projetos de cada `gerarVersaoFinal`. */
@@ -112,6 +118,46 @@ export function createFakeNucleo(
 
   const emit = (evento: Evento) => {
     for (const listener of listeners) listener(evento);
+  };
+
+  /** Cria um projeto por vídeo no fim do lote; o mesmo vídeo de novo ganha outro id. */
+  const criarProjetos = (
+    lote: LoteResumo,
+    caminhos: string[],
+    links: LinkDoLote[],
+  ): ProjetoResumo[] => {
+    const nomes = [
+      ...caminhos.map((caminho) =>
+        (caminho.split("/").pop() ?? caminho).replace(/\.\w+$/, ""),
+      ),
+      ...links.map((link) => link.titulo),
+    ];
+    const novos = nomes.map((nome): ProjetoResumo => {
+      const existentes = lotes
+        .flatMap((item) => item.projetos)
+        .filter((projeto) => projeto.titulo === nome).length;
+      const id = `${nome} (2026-10-09)${existentes > 0 ? ` (${String(existentes + 1)})` : ""}`;
+      const projeto: ProjetoResumo = {
+        id,
+        titulo: nome,
+        pasta: `/Biblioteca/${id}`,
+        lote: lote.id,
+        etapas: (
+          [
+            "importacao",
+            "transcricao",
+            "roteiro",
+            "producao",
+            "revisao",
+          ] as const
+        ).map((etapa) => ({ etapa, estado: "pendente" as const })),
+        falha: null,
+      };
+      lote.projetos.push(projeto);
+      return projeto;
+    });
+    for (const projeto of novos) emit({ tipo: "projetoCriado", projeto });
+    return novos;
   };
 
   const nucleo: Nucleo = {
@@ -227,32 +273,48 @@ export function createFakeNucleo(
       calls.padroes.push(padroes);
       if (batchError)
         return Promise.resolve({ status: "error", error: batchError });
-      const nomes = [
-        ...caminhos.map((caminho) =>
-          (caminho.split("/").pop() ?? caminho).replace(/\.\w+$/, ""),
-        ),
-        ...links.map((link) => link.titulo),
-      ];
-      projetos = nomes.map((nome) => {
-        return {
-          id: `${nome} (2026-10-09)`,
-          titulo: nome,
-          pasta: `/Biblioteca/${nome} (2026-10-09)`,
-          etapas: (
-            [
-              "importacao",
-              "transcricao",
-              "roteiro",
-              "producao",
-              "revisao",
-            ] as const
-          ).map((etapa) => ({ etapa, estado: "pendente" as const })),
-          falha: null,
-        };
+      const numero = lotes.length + 1;
+      const lote: LoteResumo = {
+        id: `2026-10-09T10-0${String(numero)}-00`,
+        nome: `Lote de 09/10 10:0${String(numero)}`,
+        criadoEm: "2026-10-09T10:00:00Z",
+        padroes,
+        projetos: [],
+        aberto: true,
+      };
+      lotes.unshift(lote);
+      return Promise.resolve({
+        status: "ok",
+        data: criarProjetos(lote, caminhos, links),
       });
-      for (const projeto of projetos) emit({ tipo: "projetoCriado", projeto });
-      return Promise.resolve({ status: "ok", data: projetos });
     },
+    adicionarAoLote: (id, arquivos, links) => {
+      const caminhos = arquivos.map((arquivo) => arquivo.caminho);
+      calls.adicoes.push({ lote: id, caminhos });
+      calls.links.push(links);
+      const lote = lotes.find((item) => item.id === id);
+      if (!lote)
+        return Promise.resolve({
+          status: "error",
+          error: { codigo: "loteNaoEncontrado", id },
+        });
+      return Promise.resolve({
+        status: "ok",
+        data: criarProjetos(lote, caminhos, links),
+      });
+    },
+    renomearLote: (id, nome) => {
+      calls.renomeacoes.push({ lote: id, nome });
+      const lote = lotes.find((item) => item.id === id);
+      if (!lote)
+        return Promise.resolve({
+          status: "error",
+          error: { codigo: "loteNaoEncontrado", id },
+        });
+      lote.nome = nome.trim();
+      return Promise.resolve({ status: "ok", data: null });
+    },
+    lotes: () => Promise.resolve(structuredClone(lotes)),
     dadosDoProjeto: (id) => {
       const readError = readErrors.get(id);
       if (readError)

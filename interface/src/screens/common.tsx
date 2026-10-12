@@ -1,7 +1,7 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { use, useEffect, useRef, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import type { Erro } from "../bindings";
-import { useAppStore } from "../context";
+import { AbrirLotesContext, useAppStore } from "../context";
 
 /**
  * Uma tela com o título dela. O título recebe o foco ao abrir, para quem usa teclado ou
@@ -30,11 +30,17 @@ export function Screen({
 
 export function Topo({ onOpenSobre }: { onOpenSobre: () => void }) {
   const { t } = useTranslation();
+  const abrirLotes = use(AbrirLotesContext);
   return (
     <header className="top-bar">
       <span className="brand">{t("app.nome")}</span>
       <div className="top-actions">
         <ContaChip />
+        {abrirLotes && (
+          <button type="button" onClick={abrirLotes}>
+            {t("lotes.historico")}
+          </button>
+        )}
         <button type="button" onClick={onOpenSobre}>
           {t("sobre.abrir")}
         </button>

@@ -121,6 +121,7 @@ export const en: typeof ptBR = {
     soltar: "Drop videos here (MP4, MOV or MKV) or pick them on your computer.",
     escolher: "Choose files",
     lista: "Chosen videos",
+    voltar: "Back to Generating",
     remover: "Remove",
     removerArquivo: "Remove {{nome}}",
     biblioteca: "Projects are kept in the Library: {{pasta}}",
@@ -183,6 +184,16 @@ export const en: typeof ptBR = {
     tokens:
       "Session tokens: {{entrada, number}} input and {{cache, number}} cache",
     verReels: "View reels",
+    nomeDoLote: "Batch name",
+    salvarNome: "Save name",
+    adicionarVideo: "+ Add video",
+    novoLote: "New batch",
+    tempo: "Time {{tempo}}",
+    detalhes: "Details of {{nome}}",
+    verDetalhes: "Details",
+    abrirLogs: "Open logs",
+    abrirLogsDe: "Open logs of {{nome}}",
+    semLote: "No batch yet. Choose videos to start.",
     estados: {
       naFila: "Queued",
       emAndamento: "In progress",
@@ -203,8 +214,21 @@ export const en: typeof ptBR = {
       falhou: "failed",
     },
   },
+  lotes: {
+    titulo: "Batches",
+    historico: "Batches",
+    voltar: "Back",
+    vazio: "No batches yet.",
+    projetos_one: "{{count}} video",
+    projetos_other: "{{count}} videos",
+    aberto: "Open",
+    abrir: "Open",
+    abrirDe: "Open {{nome}}",
+    projetosDe: "Videos of {{nome}}",
+  },
   reels: {
     titulo: "Reels",
+    doLote: "Batch: {{nome}}",
     voltar: "Back to Generating",
     vazio: "No projects with reels yet.",
     semReels: "This project has no reels yet.",
@@ -257,6 +281,7 @@ export const en: typeof ptBR = {
       "Could not install the Remotion dependencies. Check your internet connection and try again.",
     projetoNaoLido:
       "Could not read project {{id}}. Check that its folder is still in the Library and try again.",
+    loteNaoEncontrado: "Batch {{id}} was not found in the Library.",
     projetoNaoEncontrado:
       "Project {{id}} was not found in the Library: its folder was deleted or moved.",
     padroesInvalidos:

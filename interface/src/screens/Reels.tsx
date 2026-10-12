@@ -252,8 +252,14 @@ export function Reels({
   onVoltar: () => void;
 }) {
   const { t } = useTranslation();
+  const loteAtual = useAppStore((store) => store.loteAtual);
+  const lote = useAppStore((store) =>
+    store.lotes.find((item) => item.id === store.loteAtual),
+  );
   const projetos = useAppStore((store) => store.projetos);
-  const comReels = projetos.filter(producaoConcluida);
+  const comReels = projetos
+    .filter((projeto) => projeto.lote === loteAtual)
+    .filter(producaoConcluida);
   const gerarVersaoFinal = useAppStore((store) => store.gerarVersaoFinal);
   const erroDaVersaoFinal = useAppStore((store) => store.erroDaVersaoFinal);
   const galeria = useAppStore((store) => store.galeria);
@@ -270,6 +276,7 @@ export function Reels({
         <button type="button" onClick={onVoltar}>
           {t("reels.voltar")}
         </button>
+        {lote && <p>{t("reels.doLote", { nome: lote.nome })}</p>}
         {paraRenderizar.length > 0 && (
           <button
             type="button"

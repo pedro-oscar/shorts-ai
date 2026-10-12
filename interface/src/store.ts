@@ -10,6 +10,7 @@ import type {
   Evento,
   IdiomaDaInterface,
   InfoDoLink,
+  LoteResumo,
   ModoDeLogin,
   NivelDoPlano,
   Pacote,
@@ -66,6 +67,22 @@ export interface ProjetoNaFila extends ProjetoResumo {
   acoes: AcaoDoClaude[];
   /** Os tokens de entrada e de cache que a sessão do Claude já usou. */
   tokens: { entrada: number; cache: number } | null;
+  /** Quando a primeira etapa começou, em ms; `null` se não foi nesta execução do app. */
+  iniciadoEm: number | null;
+  /** Quando o projeto terminou ou falhou, em ms. */
+  terminadoEm: number | null;
+}
+
+/** Um projeto que chegou do disco ou de um evento, ainda sem nada ao vivo. */
+function naFila(projeto: ProjetoResumo): ProjetoNaFila {
+  return {
+    ...projeto,
+    percentual: null,
+    acoes: [],
+    tokens: null,
+    iniciadoEm: null,
+    terminadoEm: null,
+  };
 }
 
 /** O render da versão final de um projeto, da fila até o fim. */
@@ -126,8 +143,14 @@ export interface AppState {
   faixas: Record<string, { inicio: string; fim: string }>;
   /** As opções que valem para todos os projetos do lote. */
   padroes: Padroes;
-  /** Os projetos criados, com o estado de cada etapa, em ordem de criação. */
+  /** Os projetos de todos os lotes, com o estado de cada etapa, na ordem da fila. */
   projetos: ProjetoNaFila[];
+  /** Os lotes da Biblioteca, do mais novo para o mais antigo. */
+  lotes: LoteResumo[];
+  /** O lote que o Gerando e os Reels mostram; `null` enquanto não há nenhum. */
+  loteAtual: string | null;
+  /** O passo Vídeos acrescenta ao lote atual em vez de começar outro. */
+  adicionandoAoLote: boolean;
   /** A leitura de cada projeto, feita pelo núcleo ao abrir o passo Reels. */
   galeria: Record<string, LeituraDoProjeto>;
   /** O que o sistema não abriu, por projeto; some quando ele abre. */
@@ -136,6 +159,8 @@ export interface AppState {
   versoesFinais: Record<string, VersaoFinalDoProjeto>;
   /** Por que o núcleo não aceitou o pedido de versão final. */
   erroDaVersaoFinal: Erro | null;
+  /** Por que o núcleo não renomeou o lote. */
+  erroDoLote: Erro | null;
 }
 
 export interface AppStore extends AppState {
@@ -175,8 +200,15 @@ export interface AppStore extends AppState {
   gerarVersaoFinal: (ids: string[]) => Promise<void>;
   /** O endereço pelo qual o player toca o reel. */
   urlDoArquivo: (caminho: string) => string;
-  /** Cria o lote com os vídeos da lista; devolve se criou. */
+  /** Cria o lote com os vídeos da lista, ou os põe no fim do lote atual; devolve se criou. */
   gerar: () => Promise<boolean>;
+  /** Relê os lotes da Biblioteca. */
+  carregarLotes: () => Promise<void>;
+  /** Passa a mostrar os projetos do lote `id`. */
+  abrirLote: (id: string) => void;
+  renomearLote: (id: string, nome: string) => Promise<void>;
+  /** Liga ou desliga o modo de acrescentar vídeos ao lote atual. */
+  adicionarAoLoteAtual: (adicionando: boolean) => void;
 }
 
 /** O estado da interface, alimentado pelos eventos do núcleo. */
@@ -239,24 +271,40 @@ export function createAppStore(nucleo: Nucleo) {
           set((current) => ({
             projetos: [
               ...current.projetos.filter((p) => p.id !== evento.projeto.id),
-              { ...evento.projeto, percentual: null, acoes: [], tokens: null },
+              naFila(evento.projeto),
             ],
+            loteAtual: evento.projeto.lote,
           }));
           break;
         case "etapaMudou":
           // Uma etapa que começa limpa o que a anterior mostrava; uma que falha deixa as
           // ações do Claude à vista, junto com o motivo.
-          mudarProjeto(evento.projeto, (projeto) => ({
-            ...projeto,
-            etapas: projeto.etapas.map((item) =>
+          mudarProjeto(evento.projeto, (projeto) => {
+            const etapas = projeto.etapas.map((item) =>
               item.etapa === evento.etapa
                 ? { ...item, estado: evento.estado }
                 : item,
-            ),
-            falha: evento.falha,
-            percentual: null,
-            ...(evento.estado === "emAndamento" && { acoes: [], tokens: null }),
-          }));
+            );
+            const terminou =
+              etapas.some((item) => item.estado === "falhou") ||
+              etapas.every((item) => item.estado === "concluida");
+            return {
+              ...projeto,
+              etapas,
+              falha: evento.falha,
+              percentual: null,
+              iniciadoEm:
+                projeto.iniciadoEm ??
+                (evento.estado === "emAndamento" ? Date.now() : null),
+              terminadoEm: terminou
+                ? (projeto.terminadoEm ?? Date.now())
+                : null,
+              ...(evento.estado === "emAndamento" && {
+                acoes: [],
+                tokens: null,
+              }),
+            };
+          });
           break;
         case "progressoDaEtapa":
           mudarProjeto(evento.projeto, (projeto) => ({
@@ -359,10 +407,14 @@ export function createAppStore(nucleo: Nucleo) {
       faixas: {},
       padroes: PADROES_INICIAIS,
       projetos: [],
+      lotes: [],
+      loteAtual: null,
+      adicionandoAoLote: false,
       galeria: {},
       errosAoAbrir: {},
       versoesFinais: {},
       erroDaVersaoFinal: null,
+      erroDoLote: null,
 
       connect: () => {
         let connected = true;
@@ -377,6 +429,7 @@ export function createAppStore(nucleo: Nucleo) {
           .then(() => nucleo.estadoInicial())
           .then(async (inicial) => {
             const preparacao = await nucleo.verificarPreparacao();
+            const lotes = await nucleo.lotes();
             if (!connected) return;
             set((current) => ({
               app: {
@@ -391,6 +444,20 @@ export function createAppStore(nucleo: Nucleo) {
               chaveDeApiNoAmbiente: inicial.chaveDeApiNoAmbiente,
               biblioteca: inicial.biblioteca,
               preparacao: current.preparacao ?? preparacao,
+              lotes,
+              // Um projeto que chegou por evento vale mais que o do disco.
+              projetos: [
+                ...lotes
+                  .toReversed()
+                  .flatMap((lote) => lote.projetos)
+                  .filter((p) => !current.projetos.some((c) => c.id === p.id))
+                  .map(naFila),
+                ...current.projetos,
+              ],
+              loteAtual:
+                current.loteAtual ??
+                (lotes.find((lote) => lote.aberto) ?? lotes[0])?.id ??
+                null,
             }));
           });
         return () => {
@@ -599,32 +666,63 @@ export function createAppStore(nucleo: Nucleo) {
           const faixa = campos ? lerFaixa(campos.inicio, campos.fim) : null;
           return faixa === "invalida" ? null : faixa;
         };
-        const result = await nucleo.criarLote(
-          get().arquivos.map((a) => ({
-            caminho: a.caminho,
-            faixa: faixaDe(a.caminho),
-          })),
-          get().links.flatMap((link) =>
-            link.estado === "pronto"
-              ? [
-                  {
-                    url: link.info.url,
-                    titulo: link.info.titulo,
-                    canal: link.info.canal,
-                    direitoDeUso: link.direitoDeUso,
-                    faixa: faixaDe(link.url),
-                  },
-                ]
-              : [],
-          ),
-          get().padroes,
+        const arquivos = get().arquivos.map((a) => ({
+          caminho: a.caminho,
+          faixa: faixaDe(a.caminho),
+        }));
+        const links = get().links.flatMap((link) =>
+          link.estado === "pronto"
+            ? [
+                {
+                  url: link.info.url,
+                  titulo: link.info.titulo,
+                  canal: link.info.canal,
+                  direitoDeUso: link.direitoDeUso,
+                  faixa: faixaDe(link.url),
+                },
+              ]
+            : [],
         );
+        const { adicionandoAoLote, loteAtual } = get();
+        const result =
+          adicionandoAoLote && loteAtual
+            ? await nucleo.adicionarAoLote(loteAtual, arquivos, links)
+            : await nucleo.criarLote(arquivos, links, get().padroes);
         if (result.status === "error") {
           set({ erroDeArquivos: result.error });
           return false;
         }
-        set({ arquivos: [], links: [], faixas: {}, erroDeArquivos: null });
+        set({
+          arquivos: [],
+          links: [],
+          faixas: {},
+          erroDeArquivos: null,
+          adicionandoAoLote: false,
+        });
+        await get().carregarLotes();
         return true;
+      },
+
+      carregarLotes: async () => {
+        set({ lotes: await nucleo.lotes() });
+      },
+
+      abrirLote: (id) => {
+        set({ loteAtual: id });
+      },
+
+      renomearLote: async (id, nome) => {
+        const result = await nucleo.renomearLote(id, nome);
+        if (result.status === "error") {
+          set({ erroDoLote: result.error });
+          return;
+        }
+        set({ erroDoLote: null });
+        await get().carregarLotes();
+      },
+
+      adicionarAoLoteAtual: (adicionandoAoLote) => {
+        set({ adicionandoAoLote, erroDeArquivos: null });
       },
     };
   });

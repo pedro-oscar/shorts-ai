@@ -49,3 +49,28 @@ export function lerFaixa(
   if (ate !== null && ate <= de) return "invalida";
   return { inicio: de, fim: ate };
 }
+
+/** O estado do projeto e a etapa N/5 em que ele está (a próxima a rodar, se parou). */
+export function resumir(projeto: ProjetoResumo) {
+  const concluidas = projeto.etapas.filter((e) => e.estado === "concluida");
+  const iniciado = projeto.etapas.some((e) => e.estado !== "pendente");
+  const falhou = projeto.etapas.some((e) => e.estado === "falhou");
+  const estado = falhou
+    ? "falhou"
+    : concluidas.length === projeto.etapas.length
+      ? "pronto"
+      : iniciado
+        ? "emAndamento"
+        : "naFila";
+  return {
+    estado,
+    concluidas: concluidas.length,
+    etapa: Math.min(concluidas.length + 1, projeto.etapas.length),
+  } as const;
+}
+
+/** O projeto ainda vai andar: não falhou e não está pronto. */
+export function emAberto(projeto: ProjetoResumo): boolean {
+  const { estado } = resumir(projeto);
+  return estado !== "falhou" && estado !== "pronto";
+}

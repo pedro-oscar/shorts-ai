@@ -6,8 +6,8 @@
 
 use nucleo::{
     Aceite, AlvoParaAbrir, ArquivoDeVideo, ArquivoDoLote, Config, DadosDoProjeto, Erro,
-    EstadoDaConta, EstadoDaPreparacao, EstadoInicial, Evento, InfoDoLink, LinkDoLote, ModoDeLogin,
-    NivelDoPlano, Nucleo, Padroes, PeriodoDeCobranca, PlanoConfirmado, ProjetoResumo,
+    EstadoDaConta, EstadoDaPreparacao, EstadoInicial, Evento, InfoDoLink, LinkDoLote, LoteResumo,
+    ModoDeLogin, NivelDoPlano, Nucleo, Padroes, PeriodoDeCobranca, PlanoConfirmado, ProjetoResumo,
 };
 use serde::Serialize;
 use specta::Type;
@@ -165,6 +165,31 @@ async fn criar_lote(
     nucleo.criar_lote_com_links(&arquivos, &links, &padroes)
 }
 
+/// Põe vídeos no fim da fila de um lote que já existe, com os padrões dele.
+#[tauri::command]
+#[specta::specta]
+async fn adicionar_ao_lote(
+    nucleo: State<'_, Nucleo>,
+    lote: String,
+    arquivos: Vec<ArquivoDoLote>,
+    links: Vec<LinkDoLote>,
+) -> Result<Vec<ProjetoResumo>, Erro> {
+    nucleo.adicionar_ao_lote(&lote, &arquivos, &links)
+}
+
+#[tauri::command]
+#[specta::specta]
+async fn renomear_lote(nucleo: State<'_, Nucleo>, lote: String, nome: String) -> Result<(), Erro> {
+    nucleo.renomear_lote(&lote, &nome)
+}
+
+/// Os lotes da Biblioteca, do mais novo para o mais antigo.
+#[tauri::command]
+#[specta::specta]
+async fn lotes(app: AppHandle) -> Vec<LoteResumo> {
+    app.state::<Nucleo>().lotes()
+}
+
 /// Título, canal e duração de um vídeo do YouTube, antes de baixar.
 #[tauri::command]
 #[specta::specta]
@@ -229,6 +254,9 @@ fn bindings() -> Builder<tauri::Wry> {
             inspecionar_arquivos,
             consultar_link,
             criar_lote,
+            adicionar_ao_lote,
+            renomear_lote,
+            lotes,
             dados_do_projeto,
             abrir_no_sistema,
             gerar_versao_final,
