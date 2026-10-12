@@ -194,6 +194,7 @@ test("o kit só vale depois de salvo com nome, e o lote o usa", async () => {
       corDaPalavra: "#FFE600",
       fonteDaLegenda: "Bebas Neue",
       fonteDosTitulos: "Montserrat",
+      logo: null,
     },
   ]);
   await waitFor(() => {
@@ -223,4 +224,72 @@ test("o kit Padrão não tem como apagar, e apagar outro volta ao Padrão", asyn
   await waitFor(() => {
     expect(screen.getByLabelText("Kit")).toHaveValue("Padrão");
   });
+});
+
+test("a logo escolhida aparece na Amostra e entra no kit salvo", async () => {
+  const fake = await abrirPadroes();
+  const { user, calls } = fake;
+  fake.escolherLogo("/m/logo.png");
+
+  await user.click(
+    await screen.findByRole("button", { name: "Escolher logo" }),
+  );
+  await user.selectOptions(
+    screen.getByLabelText("Posição da logo"),
+    "inferiorEsquerdo",
+  );
+  await user.selectOptions(
+    screen.getByLabelText("Quando a logo aparece"),
+    "fim",
+  );
+
+  const logo = await screen.findByTestId("logo-da-amostra");
+  expect(logo).toHaveStyle({ bottom: "8%", left: "6%", width: "14%" });
+  expect(logo).toHaveStyle({ opacity: "0.8" });
+  expect(screen.getByLabelText("Largura da logo (14%)")).toHaveValue("14");
+  expect(screen.getByLabelText("Opacidade da logo (80%)")).toHaveValue("80");
+  expect(screen.queryByRole("alert")).toBeNull();
+  await user.type(screen.getByLabelText("Nome do kit"), "Canal");
+  await user.click(screen.getByRole("button", { name: "Salvar como kit" }));
+  expect(calls.kitsSalvos[0]?.logo).toEqual({
+    arquivo: "/m/logo.png",
+    posicao: "inferiorEsquerdo",
+    largura: 14,
+    opacidade: 80,
+    quando: "fim",
+    proporcao: 1,
+  });
+});
+
+test("um PNG sem transparência recebe um aviso claro", async () => {
+  const fake = await abrirPadroes();
+  fake.escolherLogo("/m/logo.png", {
+    comTransparencia: false,
+    proporcao: 1,
+    previa: "data:image/png;base64,AAAA",
+  });
+
+  await fake.user.click(
+    await screen.findByRole("button", { name: "Escolher logo" }),
+  );
+
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "Este PNG não tem transparência",
+  );
+});
+
+test("cancelar o seletor ou tirar a logo deixa o kit sem logo", async () => {
+  const fake = await abrirPadroes();
+  const { user } = fake;
+  const escolher = await screen.findByRole("button", { name: "Escolher logo" });
+
+  await user.click(escolher);
+  expect(screen.queryByTestId("logo-da-amostra")).toBeNull();
+  fake.escolherLogo("/m/logo.png");
+  await user.click(escolher);
+  await screen.findByTestId("logo-da-amostra");
+  await user.click(screen.getByRole("button", { name: "Tirar logo" }));
+
+  expect(screen.queryByTestId("logo-da-amostra")).toBeNull();
+  expect(screen.queryByLabelText("Posição da logo")).toBeNull();
 });

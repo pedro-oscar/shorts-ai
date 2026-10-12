@@ -279,6 +279,7 @@ fieldset label {
 }
 
 .kit-amostra {
+  position: relative;
   display: grid;
   align-content: center;
   justify-items: center;
@@ -304,4 +305,10 @@ fieldset label {
   line-height: 1.1;
   -webkit-text-stroke: 3px #000;
   paint-order: stroke fill;
+}
+
+.kit-amostra-logo {
+  position: absolute;
+  height: auto;
+  object-fit: contain;
 }

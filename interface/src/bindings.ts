@@ -29,12 +29,15 @@ export const commands = {
 	escolherArquivos: () => __TAURI_INVOKE<string[]>("escolher_arquivos"),
 	/**  O seletor de pastas do sistema, para a Biblioteca nova; `None` se a pessoa cancela. */
 	escolherPasta: () => __TAURI_INVOKE<string | null>("escolher_pasta"),
+	/**  O seletor de arquivos do sistema para a logo do kit: PNG ou SVG. */
+	escolherLogo: () => __TAURI_INVOKE<string | null>("escolher_logo"),
 	/**  Muda a Biblioteca e libera a pasta nova para o player da interface. */
 	definirBiblioteca: (caminho: string) => typedError<string, Erro>(__TAURI_INVOKE("definir_biblioteca", { caminho })),
 	definirIdioma: (idioma: IdiomaDaInterface) => typedError<null, Erro>(__TAURI_INVOKE("definir_idioma", { idioma })),
 	kits: () => typedError<Kit[], Erro>(__TAURI_INVOKE("kits")),
 	salvarKit: (kit: Kit) => typedError<Kit[], Erro>(__TAURI_INVOKE("salvar_kit", { kit })),
 	apagarKit: (nome: string) => typedError<Kit[], Erro>(__TAURI_INVOKE("apagar_kit", { nome })),
+	verificarLogo: (caminho: string) => typedError<VerificacaoDaLogo, Erro>(__TAURI_INVOKE("verificar_logo", { caminho })),
 	fontesEmbutidas: () => __TAURI_INVOKE<string[]>("fontes_embutidas"),
 	regrasAprendidas: () => typedError<Regra[], Erro>(__TAURI_INVOKE("regras_aprendidas")),
 	editarRegraAprendida: (indice: number, texto: string) => typedError<Regra[], Erro>(__TAURI_INVOKE("editar_regra_aprendida", { indice, texto })),
@@ -361,6 +364,8 @@ export type Kit = {
 	corDaPalavra: string,
 	fonteDaLegenda: string,
 	fonteDosTitulos: string,
+	/**  A logo; sem ela, o reel sai sem marca. */
+	logo?: Logo | null,
 };
 
 /**  Um link do lote, como a pessoa o viu e confirmou no passo Vídeos. */
@@ -374,6 +379,20 @@ export type LinkDoLote = {
 	faixa: Faixa | null,
 	/**  O que este vídeo muda dos padrões do lote; a `faixa` acima vale no lugar da daqui. */
 	excecoes?: Excecoes,
+};
+
+/**  A logo do kit. */
+export type Logo = {
+	/**  O PNG ou SVG que a pessoa escolheu. */
+	arquivo: string,
+	posicao: PosicaoDaLogo,
+	/**  Largura em % da largura do reel, de 6 a 30. */
+	largura: number,
+	/**  Opacidade em %, de 20 a 100. */
+	opacidade: number,
+	quando: QuandoAparece,
+	/**  Altura ÷ largura da imagem; o núcleo a confere ao validar o kit. */
+	proporcao?: number | null,
 };
 
 /**  Um lote como a interface o mostra no histórico. */
@@ -483,6 +502,9 @@ export type PlanoConfirmado = {
 	fatorDeCusto?: number | null,
 };
 
+/**  Onde a logo fica no reel: o canto mais longe do rosto em cada trecho, ou um canto fixo. */
+export type PosicaoDaLogo = "automatica" | "superiorEsquerdo" | "superiorDireito" | "inferiorEsquerdo" | "inferiorDireito";
+
 /**  Um projeto como a interface o mostra na fila. */
 export type ProjetoResumo = {
 	/**  O nome da pasta do projeto na Biblioteca. */
@@ -503,6 +525,15 @@ export type ProjetoResumo = {
 	/**  Quanto o Claude custou até agora, estimado. */
 	custo: ResumoDeCusto,
 };
+
+/**  Em que momento do reel a logo aparece. */
+export type QuandoAparece = 
+/**  O reel todo. */
+"sempre" | 
+/**  Só nos 3 primeiros segundos. */
+"inicio" | 
+/**  Só nos 3 últimos segundos. */
+"fim";
 
 /**  Um corte a produzir, com o arquivo publicado dele se já existe. */
 export type ReelDoProjeto = {
@@ -564,6 +595,15 @@ export type Tokens = {
 	saida: number,
 	cacheLeitura: number,
 	cacheCriacao: number,
+};
+
+/**  O que se sabe de um arquivo de logo. */
+export type VerificacaoDaLogo = {
+	/**  `false` num PNG sem alfa nem `tRNS`: no vídeo sairia um retângulo. */
+	comTransparencia: boolean,
+	proporcao: number | null,
+	/**  A imagem como `data:` URL, para a Amostra mostrá-la sem abrir o arquivo. */
+	previa: string,
 };
 
 /* Tauri Specta runtime */

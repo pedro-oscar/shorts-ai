@@ -214,5 +214,20 @@ fn o_remotion_empacota_com_node_modules_ligado_por_symlink() {
     fs::write(&motion, plano).unwrap();
     let condensada = rodar(&["still", "demo", "1"]);
     assert!(condensada.status.success(), "{}", texto(&condensada.stderr));
+
+    // Com a logo no estilo, o render a desenha e o layout reserva o espaço dela.
+    fs::write(
+        remotion.join("public/logo.svg"),
+        r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="48" fill="#0af"/></svg>"##,
+    )
+    .unwrap();
+    let plano: String = fs::read_to_string(&motion).unwrap().replacen(
+        "\"style\": {",
+        "\"style\": {\"marca\": {\"arquivo\": \"remotion/public/logo.svg\", \"posicao\": \"automatica\", \"largura\": 0.3, \"opacidade\": 1, \"quando\": \"sempre\", \"proporcao\": 1}, ",
+        1,
+    );
+    fs::write(&motion, plano).unwrap();
+    let com_logo = rodar(&["still", "demo", "1"]);
+    assert!(com_logo.status.success(), "{}", texto(&com_logo.stderr));
     assert!(!compartilhado.join("node_modules/.cache").exists());
 }

@@ -290,6 +290,28 @@ export const en: typeof ptBR = {
     nome: "Kit name",
     salvar: "Save as kit",
     apagar: "Delete the {{nome}} kit",
+    logo: "Logo",
+    escolherLogo: "Choose logo",
+    trocarLogo: "Change logo",
+    tirarLogo: "Remove logo",
+    semTransparencia:
+      "This PNG has no transparency: the logo would show up inside a rectangle. Use a PNG with a transparent background or an SVG.",
+    posicao: "Logo position",
+    posicoes: {
+      automatica: "Automatic (away from the face)",
+      superiorEsquerdo: "Top left corner",
+      superiorDireito: "Top right corner",
+      inferiorEsquerdo: "Bottom left corner",
+      inferiorDireito: "Bottom right corner",
+    },
+    largura: "Logo width ({{valor}}%)",
+    opacidade: "Logo opacity ({{valor}}%)",
+    quando: "When the logo shows",
+    quandos: {
+      sempre: "The whole reel",
+      inicio: "Only the first 3 seconds",
+      fim: "Only the last 3 seconds",
+    },
   },
   estimativa: {
     titulo: "Estimate",

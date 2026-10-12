@@ -209,6 +209,15 @@ async fn salvar_kit(nucleo: State<'_, Nucleo>, kit: Kit) -> Result<Vec<Kit>, Err
 
 #[tauri::command]
 #[specta::specta]
+async fn verificar_logo(
+    nucleo: State<'_, Nucleo>,
+    caminho: String,
+) -> Result<nucleo::VerificacaoDaLogo, Erro> {
+    nucleo.verificar_logo(&caminho)
+}
+
+#[tauri::command]
+#[specta::specta]
 async fn apagar_kit(nucleo: State<'_, Nucleo>, nome: String) -> Result<Vec<Kit>, Erro> {
     nucleo.apagar_kit(&nome)
 }
@@ -269,6 +278,22 @@ async fn escolher_arquivos(app: AppHandle) -> Vec<String> {
             .filter_map(|arquivo| arquivo.into_path().ok())
             .map(|caminho| caminho.display().to_string())
             .collect()
+    })
+    .await
+    .unwrap_or_default()
+}
+
+/// O seletor de arquivos do sistema para a logo do kit: PNG ou SVG.
+#[tauri::command]
+#[specta::specta]
+async fn escolher_logo(app: AppHandle) -> Option<String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        app.dialog()
+            .file()
+            .add_filter("Logo", &["png", "svg"])
+            .blocking_pick_file()
+            .and_then(|arquivo| arquivo.into_path().ok())
+            .map(|caminho| caminho.display().to_string())
     })
     .await
     .unwrap_or_default()
@@ -492,11 +517,13 @@ fn bindings() -> Builder<tauri::Wry> {
             testar_claude,
             escolher_arquivos,
             escolher_pasta,
+            escolher_logo,
             definir_biblioteca,
             definir_idioma,
             kits,
             salvar_kit,
             apagar_kit,
+            verificar_logo,
             fontes_embutidas,
             regras_aprendidas,
             editar_regra_aprendida,

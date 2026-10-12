@@ -3,6 +3,8 @@ import {AbsoluteFill, cancelRender, continueRender, delayRender, interpolate, us
 import {Captions} from './components/Captions';
 import {FaceCropVideo} from './components/FaceCropVideo';
 import {Grain} from './components/Grain';
+import {Logo} from './components/Logo';
+import {planejarLogo} from './logo';
 import {planejarLayout} from './motions/layout';
 import {MotionLayer} from './motions/MotionLayer';
 import {carregarFonte} from './fonts';
@@ -16,7 +18,8 @@ import type {ReelProps} from './types';
  * 3. granulado
  * 4. legenda
  * 5. títulos, palavras-chave, contadores, cards e flashes, sempre fora da cabeça em foco
- * 6. saída suave: escurece no fim (o áudio baixa junto, no FaceCropVideo)
+ * 6. logo do kit, no canto mais longe do rosto
+ * 7. saída suave: escurece no fim (o áudio baixa junto, no FaceCropVideo)
  */
 export const Reel: React.FC<ReelProps> = ({clipId, data}) => {
   const frame = useCurrentFrame();
@@ -34,10 +37,18 @@ export const Reel: React.FC<ReelProps> = ({clipId, data}) => {
       })
       .catch((erro: unknown) => cancelRender(erro));
   }, [espera, style.fonteLegenda, style.fonteTitulos]);
-  const placements = useMemo(
-    () => (data && fontesProntas ? planejarLayout(motions, data.clip, data.face, style, fps, width, height) : []),
+  const trechosDaLogo = useMemo(
+    () => (data ? planejarLogo(style.marca, data.clip, data.face, motions, durationInFrames, fps, width, height) : []),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [data, fontesProntas, fps, width, height],
+    [data, durationInFrames, fps, width, height],
+  );
+  const placements = useMemo(
+    () =>
+      data && fontesProntas
+        ? planejarLayout(motions, data.clip, data.face, style, fps, width, height, trechosDaLogo)
+        : [],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [data, fontesProntas, fps, width, height, trechosDaLogo],
   );
   if (!data || !fontesProntas) return null; // calculateMetadata sempre preenche os dados
 
@@ -57,6 +68,7 @@ export const Reel: React.FC<ReelProps> = ({clipId, data}) => {
       {style.grain ? <Grain /> : null}
       <Captions captions={data.captions} style={style} emphasis={data.plan.emphasis ?? []} />
       <MotionLayer motions={motions} placements={placements} style={style} fullScenesOnly={false} />
+      {style.marca ? <Logo marca={style.marca} trechos={trechosDaLogo} /> : null}
       {escurecer > 0 ? <AbsoluteFill style={{backgroundColor: '#000', opacity: escurecer}} /> : null}
     </AbsoluteFill>
   );

@@ -292,6 +292,28 @@ export const ptBR = {
     nome: "Nome do kit",
     salvar: "Salvar como kit",
     apagar: "Apagar o kit {{nome}}",
+    logo: "Logo",
+    escolherLogo: "Escolher logo",
+    trocarLogo: "Trocar logo",
+    tirarLogo: "Tirar logo",
+    semTransparencia:
+      "Este PNG não tem transparência: no vídeo a logo sairia dentro de um retângulo. Use um PNG com fundo transparente ou um SVG.",
+    posicao: "Posição da logo",
+    posicoes: {
+      automatica: "Automática (longe do rosto)",
+      superiorEsquerdo: "Canto superior esquerdo",
+      superiorDireito: "Canto superior direito",
+      inferiorEsquerdo: "Canto inferior esquerdo",
+      inferiorDireito: "Canto inferior direito",
+    },
+    largura: "Largura da logo ({{valor}}%)",
+    opacidade: "Opacidade da logo ({{valor}}%)",
+    quando: "Quando a logo aparece",
+    quandos: {
+      sempre: "No reel todo",
+      inicio: "Só nos 3 primeiros segundos",
+      fim: "Só nos 3 últimos segundos",
+    },
   },
   estimativa: {
     titulo: "Estimativa",

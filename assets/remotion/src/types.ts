@@ -42,6 +42,18 @@ export type Motion =
     })
   | {type: 'flash'; at: number; color?: string};
 
+/** A logo do kit, como o núcleo a escreve em `estilo.marca`. Largura e opacidade são frações (0–1). */
+export type Marca = {
+  /** caminho a partir da pasta do projeto: remotion/public/logo.<ext> */
+  arquivo: string;
+  posicao: 'automatica' | 'superiorEsquerdo' | 'superiorDireito' | 'inferiorEsquerdo' | 'inferiorDireito';
+  largura: number;
+  opacidade: number;
+  quando: 'sempre' | 'inicio' | 'fim';
+  /** altura ÷ largura da imagem */
+  proporcao: number;
+};
+
 export type MotionStyle = {
   /** cor de destaque (palavras-chave, títulos). Padrão vermelho */
   accent?: string;
@@ -59,6 +71,8 @@ export type MotionStyle = {
   fadeOut?: number;
   /** fontes do kit de marca (nomes do catálogo embutido). Padrão Montserrat */
   fontes?: {legenda?: string; titulos?: string};
+  /** a logo do kit; sem ela, o reel sai sem marca */
+  marca?: Marca;
 };
 
 export type MotionPlan = {

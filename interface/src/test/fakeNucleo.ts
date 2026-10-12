@@ -23,6 +23,7 @@ import type {
   ProjetoResumo,
   Regra,
   ResumoDeCusto,
+  VerificacaoDaLogo,
 } from "../bindings";
 import type { Nucleo } from "../nucleo";
 
@@ -45,6 +46,7 @@ export const KIT_PADRAO: Kit = {
   corDaPalavra: "#FFE600",
   fonteDaLegenda: "Montserrat",
   fonteDosTitulos: "Montserrat",
+  logo: null,
 };
 
 const FONTES_EMBUTIDAS = [
@@ -179,6 +181,12 @@ export function createFakeNucleo(
   let bibliotecaError: Erro | null = null;
   let regras: Regra[] = [];
   let kits: Kit[] = [KIT_PADRAO];
+  let logoEscolhida: string | null = null;
+  let verificacaoDaLogo: VerificacaoDaLogo = {
+    comTransparencia: true,
+    proporcao: 0.5,
+    previa: "data:image/png;base64,AAAA",
+  };
   let estimativa: Estimativa = {
     porVideo: { deUsd: 0.7, ateUsd: 1.8 },
     lote: { deUsd: 0.7, ateUsd: 1.8 },
@@ -210,6 +218,7 @@ export function createFakeNucleo(
     padroes: [] as Padroes[],
     kitsSalvos: [] as Kit[],
     kitsApagados: [] as string[],
+    logosVerificadas: [] as string[],
     /** O lote e os caminhos de cada `adicionarAoLote`. */
     adicoes: [] as { lote: string; caminhos: string[] }[],
     /** O lote e o nome de cada `renomearLote`. */
@@ -414,6 +423,11 @@ export function createFakeNucleo(
     },
     escolherArquivos: () => Promise.resolve(picked),
     escolherPasta: () => Promise.resolve(pastaEscolhida),
+    escolherLogo: () => Promise.resolve(logoEscolhida),
+    verificarLogo: (caminho) => {
+      calls.logosVerificadas.push(caminho);
+      return Promise.resolve({ status: "ok", data: verificacaoDaLogo });
+    },
     definirBiblioteca: (caminho) => {
       if (bibliotecaError)
         return Promise.resolve({ status: "error", error: bibliotecaError });
@@ -669,6 +683,11 @@ export function createFakeNucleo(
     /** O que o seletor de pastas devolve na próxima vez; `null` é a pessoa cancelar. */
     escolherPastaDaBiblioteca: (caminho: string | null) => {
       pastaEscolhida = caminho;
+    },
+    /** O que o seletor de logo devolve na próxima vez, e o que o núcleo diz do arquivo. */
+    escolherLogo: (caminho: string | null, verificacao?: VerificacaoDaLogo) => {
+      logoEscolhida = caminho;
+      if (verificacao) verificacaoDaLogo = verificacao;
     },
     /** Estes lotes já estão na pasta `caminho`, como se a pessoa os tivesse copiado para lá. */
     copiarParaBiblioteca: (caminho: string, lotesCopiados: LoteResumo[]) => {

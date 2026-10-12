@@ -56,7 +56,7 @@ pub use crate::estimativa::{Estimativa, FaixaDeCusto, FaixaDeTempo};
 pub use crate::fila::Movimento;
 use crate::fila::{Fila, Parou};
 pub use crate::galeria::{AlvoParaAbrir, DadosDoProjeto, ReelDoProjeto, Reserva};
-pub use crate::kit::Kit;
+pub use crate::kit::{Kit, Logo, PosicaoDaLogo, QuandoAparece, VerificacaoDaLogo};
 use crate::lote::LoteJson;
 pub use crate::lote::LoteResumo;
 pub use crate::padroes::{Excecoes, IdiomaDoVideo, ModeloDoClaude, Padroes};
@@ -1206,6 +1206,15 @@ impl Nucleo {
         Ok(kit::todos(&self.preferences_file().read()?.kits))
     }
 
+    /// Confere o arquivo da logo antes de ela entrar no kit: o motivo da recusa, ou se o PNG tem
+    /// transparência.
+    pub fn verificar_logo(&self, caminho: &str) -> Result<VerificacaoDaLogo, Erro> {
+        kit::verificar_logo(Path::new(caminho)).map_err(|motivo| Erro::PadroesInvalidos {
+            opcao: "logo.arquivo".to_owned(),
+            motivo,
+        })
+    }
+
     /// Salva o kit, no lugar do que tem o mesmo nome. O nome do kit Padrão não se usa.
     pub fn salvar_kit(&self, kit: Kit) -> Result<Vec<Kit>, Erro> {
         let kit = kit.validar()?;
@@ -1338,6 +1347,8 @@ impl Nucleo {
                 .map_err(|error| nao_criado(&pasta, error))?;
             self.remotion
                 .montar_no_projeto(&pasta)
+                .map_err(|error| nao_criado(&pasta, error))?;
+            kit.copiar_logo(&pasta)
                 .map_err(|error| nao_criado(&pasta, error))?;
             let resumo = lote::resumir(&pasta, json);
             (self.emit)(Evento::ProjetoCriado {

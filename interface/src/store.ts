@@ -25,6 +25,7 @@ import type {
   PlanoConfirmado,
   ProjetoResumo,
   Regra,
+  VerificacaoDaLogo,
 } from "./bindings";
 import type { Nucleo } from "./nucleo";
 import {
@@ -202,6 +203,10 @@ export interface AppStore extends AppState {
   definirIdioma: (idioma: IdiomaDaInterface) => Promise<void>;
   carregarRegrasAprendidas: () => Promise<void>;
   carregarKits: () => Promise<void>;
+  /** Abre o seletor da logo; o caminho escolhido, ou `null` se a pessoa cancelou. */
+  escolherLogo: () => Promise<string | null>;
+  /** Confere o arquivo da logo (transparência, proporção, prévia); `null` se o núcleo o recusou. */
+  verificarLogo: (caminho: string) => Promise<VerificacaoDaLogo | null>;
   /** Salva o kit e o escolhe para o lote; devolve se salvou. */
   salvarKit: (kit: Kit) => Promise<boolean>;
   /** Apaga um kit salvo; se era o do lote, volta ao Padrão. */
@@ -678,6 +683,15 @@ export function createAppStore(nucleo: Nucleo) {
         if (kits.status === "ok")
           set({ kits: kits.data, fontesEmbutidas: fontes });
         else set({ erroDeArquivos: kits.error });
+      },
+
+      escolherLogo: () => nucleo.escolherLogo(),
+
+      verificarLogo: async (caminho) => {
+        const result = await nucleo.verificarLogo(caminho);
+        if (result.status === "ok") return result.data;
+        set({ erroDeArquivos: result.error });
+        return null;
       },
 
       salvarKit: async (kit) => {

@@ -1,5 +1,6 @@
 import {measureText} from '@remotion/layout-utils';
 import {cabecaAt} from '../components/camera';
+import {TOPO_SEGURO, type Trecho} from '../logo';
 import {SCENE_BOX} from '../scenes/types';
 import type {Style} from '../theme';
 import type {ClipInfo, FaceTrack, Motion} from '../types';
@@ -13,14 +14,14 @@ import type {ClipInfo, FaceTrack, Motion} from '../types';
  *   2. entre a cabeça e a legenda
  * Encolhe o elemento até uma escala mínima para caber. Se um card não cabe em lugar nenhum, vira
  * cena "full" (substitui a imagem por alguns segundos em vez de cobrir o rosto). Dois motions
- * simultâneos não disputam o mesmo espaço.
+ * simultâneos não disputam o mesmo espaço. O retângulo da logo é reservado: nenhum elemento
+ * ocupa o espaço dela enquanto ela aparece.
  */
 
 export type Area = {top: number; height: number};
 export type Zona = 'acima' | 'abaixo' | 'tela';
 export type Placement = {area: Area; scale: number; zona: Zona; layout?: 'card' | 'full'};
 
-const TOPO_SEGURO = 150; // barra/status do app
 const FOLGA = 28; // distância mínima entre o elemento e a cabeça
 const MEIA_LEGENDA = 150; // a legenda ocupa ~±150 px em volta de captionY
 
@@ -78,6 +79,7 @@ export const planejarLayout = (
   fps: number,
   W: number,
   H: number,
+  logo: Trecho[] = [],
 ): (Placement | null)[] => {
   const limiteLegenda = H * style.captionY - MEIA_LEGENDA;
   const ocupado: {zona: Zona; de: number; ate: number}[] = [];
@@ -98,9 +100,17 @@ export const planejarLayout = (
       baseCabeca = Math.max(baseCabeca, c.bottom);
     }
 
+    // A logo ocupa a faixa de cima ou a de baixo enquanto aparece; o elemento fica fora dela.
+    let topoLivre = TOPO_SEGURO;
+    let limiteBaixo = limiteLegenda;
+    for (const t of logo) {
+      if (t.de >= ate || de >= t.ate) continue;
+      if (t.caixa.top < H / 2) topoLivre = Math.max(topoLivre, t.caixa.bottom + FOLGA);
+      else limiteBaixo = Math.min(limiteBaixo, t.caixa.top - FOLGA);
+    }
     const zonas: {zona: Zona; area: Area}[] = [
-      {zona: 'acima', area: {top: TOPO_SEGURO, height: topoCabeca - FOLGA - TOPO_SEGURO}},
-      {zona: 'abaixo', area: {top: baseCabeca + FOLGA, height: limiteLegenda - (baseCabeca + FOLGA)}},
+      {zona: 'acima', area: {top: topoLivre, height: topoCabeca - FOLGA - topoLivre}},
+      {zona: 'abaixo', area: {top: baseCabeca + FOLGA, height: limiteBaixo - (baseCabeca + FOLGA)}},
     ];
     const minimo = ESCALA_MIN[m.type] ?? 0.6;
     const livre = (z: Zona) => !ocupado.some((o) => o.zona === z && o.de < ate && de < o.ate);

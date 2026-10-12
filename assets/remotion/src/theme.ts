@@ -1,5 +1,5 @@
 import {carregarFonte, familia} from './fonts';
-import type {MotionStyle} from './types';
+import type {Marca, MotionStyle} from './types';
 
 /** A fonte das cenas e do kit Padrão. */
 export const FONT = 'Montserrat';
@@ -10,7 +10,11 @@ export const HEIGHT = 1920;
 export const FPS = 30;
 
 /** O estilo com os padrões preenchidos; as fontes viram os nomes do kit. */
-export type Style = Required<Omit<MotionStyle, 'fontes'>> & {fonteLegenda: string; fonteTitulos: string};
+export type Style = Required<Omit<MotionStyle, 'fontes' | 'marca'>> & {
+  fonteLegenda: string;
+  fonteTitulos: string;
+  marca?: Marca;
+};
 
 /** O CSS `font-family` da fonte da legenda e o da dos títulos. */
 export const familiaLegenda = (s: Style) => familia(s.fonteLegenda);
@@ -26,6 +30,7 @@ export const resolveStyle = (s: MotionStyle | undefined): Style => ({
   captionGroupMs: s?.captionGroupMs ?? 900,
   uppercase: s?.uppercase ?? true,
   fadeOut: s?.fadeOut ?? 0.5,
+  marca: s?.marca,
 });
 
 /** Contorno preto grosso legível sobre qualquer fundo. */
