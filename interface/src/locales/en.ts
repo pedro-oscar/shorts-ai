@@ -103,7 +103,38 @@ export const en: typeof ptBR = {
     remover: "Remove",
     removerArquivo: "Remove {{nome}}",
     biblioteca: "Projects are kept in the Library: {{pasta}}",
-    gerar: "Generate",
+    continuar: "Continue",
+  },
+  padroes: {
+    titulo: "Defaults",
+    introducao: "They apply to every video in this batch.",
+    quantidade: "Up to how many reels",
+    previa: "Generate a half-resolution preview first",
+    pedido: "Request",
+    pedidoDica: "Optional: what Claude should favor when picking cuts.",
+    maisOpcoes: "More options",
+    revisoes: "Claude revisions",
+    modelo: "Model",
+    modelos: {
+      padrao: "Account default",
+      opus: "Opus",
+      sonnet: "Sonnet",
+    },
+    nomesProprios: "Proper names",
+    nomesDica:
+      "One per line: people, brands and terms the transcription should get right.",
+    idioma: "Video language",
+    idiomas: {
+      automatico: "Automatic",
+      pt: "Portuguese",
+      en: "English",
+    },
+    voltar: "Back",
+    reels_one: "{{count}} reel",
+    reels_other: "{{count}} reels",
+    videos_one: "{{count}} video",
+    videos_other: "{{count}} videos",
+    gerar: "Generate up to {{reels}} from {{videos}}",
   },
   gerando: {
     titulo: "Generating",
@@ -193,6 +224,8 @@ export const en: typeof ptBR = {
       "Could not read project {{id}}. Check that its folder is still in the Library and try again.",
     projetoNaoEncontrado:
       "Project {{id}} was not found in the Library: its folder was deleted or moved.",
+    padroesInvalidos:
+      "The batch defaults were not accepted: check the number of reels (1 to 12) and of revisions (0 to 3).",
     naoAbriu: "Could not open {{caminho}}.",
     detalhe: "Technical details (from the system): {{detalhe}}",
   },

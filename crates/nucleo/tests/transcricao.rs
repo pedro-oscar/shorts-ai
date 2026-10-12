@@ -631,14 +631,14 @@ mod na_fila {
     use std::sync::mpsc;
     use std::time::Duration;
 
-    use nucleo::{Config, EstadoDaEtapa, Etapa, Evento, Nucleo};
+    use nucleo::{Config, EstadoDaEtapa, Etapa, Evento, Nucleo, Padroes};
 
     use super::gravado;
 
     /// O núcleo acha o ffmpeg e o whisper-cli na pasta dos sidecars e os modelos nos dados do
     /// app.
-    #[test]
-    fn a_etapa_transcreve_grava_o_idioma_no_projeto_e_avisa_o_progresso() {
+    /// Roda a etapa com whisper-cli e ffmpeg falsos; devolve o que ela avisou e onde ficou.
+    fn transcrever_com(padroes: &Padroes) -> Rodada {
         let tmp = tempfile::tempdir().unwrap();
         let bin = tmp.path().join("bin");
         fs::create_dir(&bin).unwrap();
@@ -681,7 +681,7 @@ mod na_fila {
         fs::write(&video, b"video de mentira").unwrap();
 
         let projeto = nucleo
-            .criar_lote(&[video.display().to_string()])
+            .criar_lote(&[video.display().to_string()], padroes)
             .unwrap()
             .remove(0);
 
@@ -711,12 +711,39 @@ mod na_fila {
             }
         }
 
+        Rodada {
+            percentuais,
+            pasta: std::path::PathBuf::from(&projeto.pasta),
+            bin,
+            dados,
+            _tmp: tmp,
+        }
+    }
+
+    struct Rodada {
+        percentuais: Vec<u8>,
+        pasta: std::path::PathBuf,
+        bin: std::path::PathBuf,
+        dados: std::path::PathBuf,
+        _tmp: tempfile::TempDir,
+    }
+
+    #[test]
+    fn a_etapa_transcreve_grava_o_idioma_no_projeto_e_avisa_o_progresso() {
+        let Rodada {
+            percentuais,
+            pasta,
+            bin,
+            dados,
+            _tmp,
+            ..
+        } = transcrever_com(&Padroes::default());
+
         assert!(
             percentuais.contains(&40) && percentuais.last() == Some(&100),
             "{percentuais:?}"
         );
         assert!(percentuais.windows(2).all(|par| par[0] < par[1]));
-        let pasta = std::path::PathBuf::from(&projeto.pasta);
         let json: serde_json::Value =
             serde_json::from_slice(&fs::read(pasta.join("projeto.json")).unwrap()).unwrap();
         assert_eq!(json["idiomaDoVideo"], "pt");
@@ -732,6 +759,26 @@ mod na_fila {
             let linha = format!("{opcao}\n{}\n", modelos.join(modelo).display());
             assert!(resposta.contains(&linha), "faltou {linha}: {resposta}");
         }
+    }
+
+    #[test]
+    fn idioma_e_nomes_proprios_dos_padroes_chegam_ao_whisper() {
+        let padroes = Padroes {
+            idioma_do_video: nucleo::IdiomaDoVideo::En,
+            nomes_proprios: vec!["Ana Souza".to_owned()],
+            ..Padroes::default()
+        };
+
+        let Rodada {
+            pasta, bin, _tmp, ..
+        } = transcrever_com(&padroes);
+
+        let resposta = fs::read_to_string(bin.join("resposta.txt")).unwrap();
+        assert!(resposta.contains("-l\nen\n"), "{resposta}");
+        assert!(resposta.contains("Ana Souza"), "{resposta}");
+        let json: serde_json::Value =
+            serde_json::from_slice(&fs::read(pasta.join("projeto.json")).unwrap()).unwrap();
+        assert_eq!(json["idiomaDoVideo"], "pt");
     }
 }
 

@@ -10,11 +10,23 @@ import type {
   IdiomaDaInterface,
   ModoDeLogin,
   NivelDoPlano,
+  Padroes,
   PeriodoDeCobranca,
   PlanoConfirmado,
   ProjetoResumo,
 } from "./bindings";
 import type { Nucleo } from "./nucleo";
+
+/** Os padrões que o passo Padrões mostra antes de a pessoa mexer em algo. */
+export const PADROES_INICIAIS: Padroes = {
+  quantidadeDeReels: 6,
+  previa: true,
+  pedido: "",
+  revisoes: 1,
+  modelo: "padrao",
+  nomesProprios: [],
+  idiomaDoVideo: "automatico",
+};
 
 /** Quantas ações do Claude o Gerando mostra por projeto. */
 const ULTIMAS_ACOES = 5;
@@ -79,6 +91,8 @@ export interface AppState {
   /** Os vídeos da lista do passo Vídeos, antes de Gerar. */
   arquivos: ArquivoDeVideo[];
   erroDeArquivos: Erro | null;
+  /** As opções que valem para todos os projetos do lote. */
+  padroes: Padroes;
   /** Os projetos criados, com o estado de cada etapa, em ordem de criação. */
   projetos: ProjetoNaFila[];
   /** A leitura de cada projeto, feita pelo núcleo ao abrir o passo Reels. */
@@ -109,6 +123,8 @@ export interface AppStore extends AppState {
   adicionarArquivos: (caminhos: string[]) => Promise<void>;
   escolherArquivos: () => Promise<void>;
   removerArquivo: (caminho: string) => void;
+  /** Muda só as opções de `mudancas`; as outras ficam como estão. */
+  definirPadroes: (mudancas: Partial<Padroes>) => void;
   carregarGaleria: (id: string) => Promise<void>;
   abrirNoSistema: (id: string, alvo: AlvoParaAbrir) => Promise<void>;
   /** Pede a versão final dos reels dos projetos `ids`: é só render, sem custo de tokens. */
@@ -264,6 +280,7 @@ export function createAppStore(nucleo: Nucleo) {
       biblioteca: "",
       arquivos: [],
       erroDeArquivos: null,
+      padroes: PADROES_INICIAIS,
       projetos: [],
       galeria: {},
       errosAoAbrir: {},
@@ -388,6 +405,10 @@ export function createAppStore(nucleo: Nucleo) {
         }));
       },
 
+      definirPadroes: (mudancas) => {
+        set((current) => ({ padroes: { ...current.padroes, ...mudancas } }));
+      },
+
       carregarGaleria: async (id) => {
         const leitura = await nucleo.dadosDoProjeto(id);
         set((current) => ({ galeria: { ...current.galeria, [id]: leitura } }));
@@ -415,6 +436,7 @@ export function createAppStore(nucleo: Nucleo) {
       gerar: async () => {
         const result = await nucleo.criarLote(
           get().arquivos.map((a) => a.caminho),
+          get().padroes,
         );
         if (result.status === "error") {
           set({ erroDeArquivos: result.error });

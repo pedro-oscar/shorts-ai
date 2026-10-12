@@ -6,8 +6,8 @@
 
 use nucleo::{
     Aceite, AlvoParaAbrir, ArquivoDeVideo, Config, DadosDoProjeto, Erro, EstadoDaConta,
-    EstadoInicial, Evento, ModoDeLogin, NivelDoPlano, Nucleo, PeriodoDeCobranca, PlanoConfirmado,
-    ProjetoResumo,
+    EstadoInicial, Evento, ModoDeLogin, NivelDoPlano, Nucleo, Padroes, PeriodoDeCobranca,
+    PlanoConfirmado, ProjetoResumo,
 };
 use serde::Serialize;
 use specta::Type;
@@ -142,8 +142,9 @@ async fn inspecionar_arquivos(
 async fn criar_lote(
     nucleo: State<'_, Nucleo>,
     caminhos: Vec<String>,
+    padroes: Padroes,
 ) -> Result<Vec<ProjetoResumo>, Erro> {
-    nucleo.criar_lote(&caminhos)
+    nucleo.criar_lote(&caminhos, &padroes)
 }
 
 #[tauri::command]

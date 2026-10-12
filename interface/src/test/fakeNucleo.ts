@@ -8,6 +8,7 @@ import type {
   EstadoInicial,
   Evento,
   ModoDeLogin,
+  Padroes,
   PlanoConfirmado,
   ProjetoResumo,
 } from "../bindings";
@@ -58,6 +59,8 @@ export function createFakeNucleo(
     atualizar: 0,
     /** Os caminhos de cada `criarLote`. */
     lotes: [] as string[][],
+    /** Os padrões de cada `criarLote`. */
+    padroes: [] as Padroes[],
     /** Os argumentos de cada `entrarNoClaudeCode`. */
     logins: [] as { modo: ModoDeLogin; porTerminal: boolean }[],
     /** Os projetos de cada `gerarVersaoFinal`. */
@@ -140,8 +143,9 @@ export function createFakeNucleo(
           duracaoEmSegundos: caminho.endsWith("aula.mp4") ? 125 : null,
         })),
       }),
-    criarLote: (caminhos) => {
+    criarLote: (caminhos, padroes) => {
       calls.lotes.push(caminhos);
+      calls.padroes.push(padroes);
       if (batchError)
         return Promise.resolve({ status: "error", error: batchError });
       projetos = caminhos.map((caminho) => {

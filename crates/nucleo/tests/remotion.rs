@@ -7,7 +7,7 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 
-use nucleo::{Config, Erro, Nucleo};
+use nucleo::{Config, Erro, Nucleo, Padroes};
 
 const FAKE_NPM: &str = "#!/bin/sh\necho \"$PWD: $@\" >> \"$(dirname \"$0\")/npm.log\"\n[ -f \"$(dirname \"$0\")/npm-fails\" ] && { echo 'sem rede' >&2; exit 1; }\nmkdir -p node_modules\ntouch node_modules/.package-lock.json\n";
 
@@ -64,7 +64,7 @@ impl Cenario {
         fs::write(&entrada, b"video").unwrap();
         let projetos = self
             .nucleo
-            .criar_lote(&[entrada.display().to_string()])
+            .criar_lote(&[entrada.display().to_string()], &Padroes::default())
             .unwrap();
         self.tmp
             .path()

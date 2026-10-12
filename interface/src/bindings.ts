@@ -18,7 +18,7 @@ export const commands = {
 	/**  O seletor de arquivos do sistema, só com os vídeos que o app aceita. */
 	escolherArquivos: () => __TAURI_INVOKE<string[]>("escolher_arquivos"),
 	inspecionarArquivos: (caminhos: string[]) => typedError<ArquivoDeVideo[], Erro>(__TAURI_INVOKE("inspecionar_arquivos", { caminhos })),
-	criarLote: (caminhos: string[]) => typedError<ProjetoResumo[], Erro>(__TAURI_INVOKE("criar_lote", { caminhos })),
+	criarLote: (caminhos: string[], padroes: Padroes) => typedError<ProjetoResumo[], Erro>(__TAURI_INVOKE("criar_lote", { caminhos, padroes })),
 	dadosDoProjeto: (id: string) => typedError<DadosDoProjeto, Erro>(__TAURI_INVOKE("dados_do_projeto", { id })),
 	abrirNoSistema: (id: string, alvo: AlvoParaAbrir) => typedError<null, Erro>(__TAURI_INVOKE("abrir_no_sistema", { id, alvo })),
 	gerarVersaoFinal: (ids: string[]) => typedError<null, Erro>(__TAURI_INVOKE("gerar_versao_final", { ids })),
@@ -82,7 +82,7 @@ export type DadosDoProjeto = {
  */
 export type Erro = { codigo: "preferenciasIlegiveis"; caminho: string; detalhe: string } | { codigo: "preferenciasNaoGravadas"; caminho: string; detalhe: string } | { codigo: "loginNaoConcluido"; detalhe: string } | { codigo: "instalacaoFalhou"; detalhe: string } | { codigo: "atualizacaoFalhou"; detalhe: string } | { codigo: "claudeNaoRespondeu"; detalhe: string } | { codigo: "arquivoInvalido"; caminho: string } | { codigo: "projetoNaoCriado"; caminho: string; detalhe: string } | { codigo: "dependenciasDoRemotionNaoInstaladas"; detalhe: string } | { codigo: "projetoNaoLido"; id: string; detalhe: string } | 
 /**  A pasta do projeto foi apagada ou movida. */
-{ codigo: "projetoNaoEncontrado"; id: string } | { codigo: "naoAbriu"; caminho: string; detalhe: string };
+{ codigo: "projetoNaoEncontrado"; id: string } | { codigo: "padroesInvalidos"; opcao: string; motivo: string } | { codigo: "naoAbriu"; caminho: string; detalhe: string };
 
 /**  Em que pé está a conta Claude do app. */
 export type EstadoDaConta = { tipo: "naoInstalado" } | { tipo: "versaoAntiga"; versao: string; minima: string } | { tipo: "semLogin"; versao: string } | { tipo: "logado"; versao: string; 
@@ -155,6 +155,16 @@ export type EventoDoNucleo = Evento;
  */
 export type IdiomaDaInterface = "pt-BR" | "en";
 
+/**  O idioma falado no vídeo. */
+export type IdiomaDoVideo = 
+/**  A Transcrição detecta o idioma. */
+"automatico" | "pt" | "en";
+
+/**  O modelo das sessões do Claude. */
+export type ModeloDoClaude = 
+/**  O que a conta usa quando nada é pedido. */
+"padrao" | "opus" | "sonnet";
+
 /**  Como a pessoa entra: pela assinatura Claude ou pela conta do Console (cobrança por uso). */
 export type ModoDeLogin = "assinatura" | "console";
 
@@ -163,6 +173,19 @@ export type ModoDeLogin = "assinatura" | "console";
  *  (`subscriptionType`): não diz se o Max é 5x ou 20x.
  */
 export type NivelDoPlano = "pro" | "max5x" | "max20x" | "teamPadrao" | "teamPremium" | "enterprise" | "console";
+
+/**  As opções do lote, como a pessoa as escolhe. */
+export type Padroes = {
+	/**  De 1 a 12. */
+	quantidadeDeReels: number,
+	previa: boolean,
+	pedido: string,
+	/**  De 0 a 3. */
+	revisoes: number,
+	modelo: ModeloDoClaude,
+	nomesProprios: string[],
+	idiomaDoVideo: IdiomaDoVideo,
+};
 
 /**  Como a assinatura é paga. */
 export type PeriodoDeCobranca = "mensal" | "anual";

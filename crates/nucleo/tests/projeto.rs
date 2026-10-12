@@ -8,7 +8,10 @@ use std::sync::mpsc::{self, Receiver};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use nucleo::{Config, Erro, EstadoDaEtapa, Etapa, Evento, LigarArquivo, Nucleo, ProjetoResumo};
+use nucleo::{
+    Config, Erro, EstadoDaEtapa, Etapa, Evento, IdiomaDoVideo, LigarArquivo, ModeloDoClaude,
+    Nucleo, Padroes, ProjetoResumo,
+};
 use time::OffsetDateTime;
 
 struct Cenario {
@@ -100,7 +103,10 @@ fn data_de_hoje() -> String {
 }
 
 fn um_projeto(cenario: &Cenario, nome: &str) -> ProjetoResumo {
-    let mut projetos = cenario.nucleo.criar_lote(&[cenario.video(nome)]).unwrap();
+    let mut projetos = cenario
+        .nucleo
+        .criar_lote(&[cenario.video(nome)], &Padroes::default())
+        .unwrap();
     assert_eq!(projetos.len(), 1);
     projetos.remove(0)
 }
@@ -220,9 +226,12 @@ fn nomes_repetidos_ganham_2_3_e_assim_por_diante() {
 
     let projetos = cenario
         .nucleo
-        .criar_lote(&[arquivo.clone(), arquivo.clone()])
+        .criar_lote(&[arquivo.clone(), arquivo.clone()], &Padroes::default())
         .unwrap();
-    let depois = cenario.nucleo.criar_lote(&[arquivo]).unwrap();
+    let depois = cenario
+        .nucleo
+        .criar_lote(&[arquivo], &Padroes::default())
+        .unwrap();
 
     let hoje = data_de_hoje();
     let ids: Vec<_> = projetos
@@ -267,7 +276,10 @@ fn a_fila_roda_os_projetos_um_de_cada_vez_em_ordem() {
     let cenario = Cenario::novo();
     let projetos = cenario
         .nucleo
-        .criar_lote(&[cenario.video("um.mp4"), cenario.video("dois.mp4")])
+        .criar_lote(
+            &[cenario.video("um.mp4"), cenario.video("dois.mp4")],
+            &Padroes::default(),
+        )
         .unwrap();
 
     let mut transicoes = Vec::new();
@@ -323,7 +335,10 @@ fn arquivo_que_nao_e_video_aceito_nao_cria_nada() {
     let bom = cenario.video("aula.mp4");
     let ruim = cenario.video("notas.txt");
 
-    let erro = cenario.nucleo.criar_lote(&[bom, ruim.clone()]).unwrap_err();
+    let erro = cenario
+        .nucleo
+        .criar_lote(&[bom, ruim.clone()], &Padroes::default())
+        .unwrap_err();
 
     assert_eq!(erro, Erro::ArquivoInvalido { caminho: ruim });
     assert!(!cenario.biblioteca().exists());
@@ -339,4 +354,71 @@ fn os_arquivos_inspecionados_trazem_nome_e_tamanho() {
     assert_eq!(lista[0].nome, "aula.mp4");
     assert!((lista[0].tamanho - 16.0).abs() < f64::EPSILON);
     assert_eq!(lista[0].duracao_em_segundos, None);
+}
+
+#[test]
+fn os_padroes_do_lote_ficam_gravados_como_opcoes_efetivas_de_cada_projeto() {
+    let cenario = Cenario::novo();
+    let padroes = Padroes {
+        quantidade_de_reels: 3,
+        previa: false,
+        pedido: "  só os cortes de humor  ".to_owned(),
+        revisoes: 2,
+        modelo: ModeloDoClaude::Sonnet,
+        nomes_proprios: vec![
+            "Ana Souza".to_owned(),
+            "  ".to_owned(),
+            "Remotion".to_owned(),
+        ],
+        idioma_do_video: IdiomaDoVideo::En,
+    };
+
+    let projetos = cenario
+        .nucleo
+        .criar_lote(
+            &[cenario.video("um.mp4"), cenario.video("dois.mp4")],
+            &padroes,
+        )
+        .unwrap();
+
+    for projeto in &projetos {
+        cenario.esperar_importacao(&projeto.id);
+        let json = cenario.projeto_json(&projeto.id);
+        assert_eq!(json["opcoes"]["quantidadeDeReels"], 3);
+        assert_eq!(json["opcoes"]["previa"], false);
+        assert_eq!(json["opcoes"]["pedido"], "só os cortes de humor");
+        assert_eq!(json["opcoes"]["revisoes"], 2);
+        assert_eq!(json["opcoes"]["modelo"], "sonnet");
+        assert_eq!(
+            json["opcoes"]["nomesProprios"],
+            serde_json::json!(["Ana Souza", "Remotion"])
+        );
+        assert_eq!(json["idiomaDoVideo"], "en");
+    }
+}
+
+#[test]
+fn padroes_fora_dos_limites_nao_criam_nada() {
+    let cenario = Cenario::novo();
+    for padroes in [
+        Padroes {
+            quantidade_de_reels: 0,
+            ..Padroes::default()
+        },
+        Padroes {
+            quantidade_de_reels: 13,
+            ..Padroes::default()
+        },
+        Padroes {
+            revisoes: 4,
+            ..Padroes::default()
+        },
+    ] {
+        let erro = cenario
+            .nucleo
+            .criar_lote(&[cenario.video("aula.mp4")], &padroes)
+            .unwrap_err();
+        assert!(matches!(erro, Erro::PadroesInvalidos { .. }), "{erro:?}");
+    }
+    assert!(!cenario.biblioteca().join(".lotes").exists());
 }

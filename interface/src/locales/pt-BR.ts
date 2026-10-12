@@ -105,7 +105,38 @@ export const ptBR = {
     remover: "Remover",
     removerArquivo: "Remover {{nome}}",
     biblioteca: "Os projetos ficam na Biblioteca: {{pasta}}",
-    gerar: "Gerar",
+    continuar: "Continuar",
+  },
+  padroes: {
+    titulo: "Padrões",
+    introducao: "Valem para todos os vídeos deste lote.",
+    quantidade: "Até quantos reels",
+    previa: "Gerar primeiro uma prévia em meia resolução",
+    pedido: "Pedido",
+    pedidoDica: "Opcional: o que o Claude deve priorizar nos cortes.",
+    maisOpcoes: "Mais opções",
+    revisoes: "Revisões do Claude",
+    modelo: "Modelo",
+    modelos: {
+      padrao: "Padrão da conta",
+      opus: "Opus",
+      sonnet: "Sonnet",
+    },
+    nomesProprios: "Nomes próprios",
+    nomesDica:
+      "Um por linha: pessoas, marcas e termos que a Transcrição deve acertar.",
+    idioma: "Idioma do vídeo",
+    idiomas: {
+      automatico: "Automático",
+      pt: "Português",
+      en: "Inglês",
+    },
+    voltar: "Voltar",
+    reels_one: "{{count}} reel",
+    reels_other: "{{count}} reels",
+    videos_one: "{{count}} vídeo",
+    videos_other: "{{count}} vídeos",
+    gerar: "Gerar até {{reels}} de {{videos}}",
   },
   gerando: {
     titulo: "Gerando",
@@ -195,6 +226,8 @@ export const ptBR = {
       "Não foi possível ler o projeto {{id}}. Confira se a pasta dele ainda está na Biblioteca e tente de novo.",
     projetoNaoEncontrado:
       "O projeto {{id}} não foi encontrado na Biblioteca: a pasta dele foi apagada ou movida.",
+    padroesInvalidos:
+      "Os padrões do lote não foram aceitos: confira o número de reels (1 a 12) e o de revisões (0 a 3).",
     naoAbriu: "Não foi possível abrir {{caminho}}.",
     detalhe: "Detalhe técnico (do sistema): {{detalhe}}",
   },

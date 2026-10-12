@@ -43,10 +43,10 @@ test("soltar arquivos na janela os põe na lista, sem repetir", async () => {
   expect(within(lista).getAllByRole("listitem")).toHaveLength(1);
 });
 
-test("Gerar fica desligado sem vídeos e mostra a Biblioteca", async () => {
+test("Continuar fica desligado sem vídeos e a tela mostra a Biblioteca", async () => {
   await renderVideos();
 
-  expect(screen.getByRole("button", { name: "Gerar" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Continuar" })).toBeDisabled();
   screen.getByText(/Biblioteca: \/home\/ana\/Vídeos\/Shorts AI/);
 });
 
@@ -56,7 +56,8 @@ test("Gerar cria o lote e Gerando mostra o projeto etapa a etapa", async () => {
   await user.click(screen.getByRole("button", { name: "Escolher arquivos" }));
   await screen.findByRole("list", { name: "Vídeos escolhidos" });
 
-  await user.click(screen.getByRole("button", { name: "Gerar" }));
+  await user.click(screen.getByRole("button", { name: "Continuar" }));
+  await user.click(await screen.findByRole("button", { name: /^Gerar até/ }));
 
   await screen.findByRole("heading", { name: "Gerando" });
   expect(calls.lotes).toEqual([["/v/aula.mp4"]]);
@@ -79,7 +80,10 @@ async function gerarAula() {
     screen.getByRole("button", { name: "Escolher arquivos" }),
   );
   await screen.findByRole("list", { name: "Vídeos escolhidos" });
-  await fake.user.click(screen.getByRole("button", { name: "Gerar" }));
+  await fake.user.click(screen.getByRole("button", { name: "Continuar" }));
+  await fake.user.click(
+    await screen.findByRole("button", { name: /^Gerar até/ }),
+  );
   await screen.findByRole("heading", { name: "Gerando" });
   return { ...fake, projeto: screen.getByRole("listitem", { name: "aula" }) };
 }
@@ -171,7 +175,8 @@ test("a falha da Importação mostra o motivo", async () => {
   pick(["/v/aula.mp4"]);
   await user.click(screen.getByRole("button", { name: "Escolher arquivos" }));
   await screen.findByRole("list", { name: "Vídeos escolhidos" });
-  await user.click(screen.getByRole("button", { name: "Gerar" }));
+  await user.click(screen.getByRole("button", { name: "Continuar" }));
+  await user.click(await screen.findByRole("button", { name: /^Gerar até/ }));
   await screen.findByRole("heading", { name: "Gerando" });
 
   etapa("aula (2026-10-09)", "importacao", "falhou", "No such file");
@@ -180,17 +185,18 @@ test("a falha da Importação mostra o motivo", async () => {
   expect(screen.getByRole("alert")).toHaveTextContent("No such file");
 });
 
-test("um lote recusado pelo núcleo mostra o erro e fica em Vídeos", async () => {
+test("um lote recusado pelo núcleo mostra o erro e fica em Padrões", async () => {
   const { user, pick, failBatch } = await renderVideos();
   failBatch({ codigo: "arquivoInvalido", caminho: "/v/aula.mp4" });
   pick(["/v/aula.mp4"]);
   await user.click(screen.getByRole("button", { name: "Escolher arquivos" }));
   await screen.findByRole("list", { name: "Vídeos escolhidos" });
 
-  await user.click(screen.getByRole("button", { name: "Gerar" }));
+  await user.click(screen.getByRole("button", { name: "Continuar" }));
+  await user.click(await screen.findByRole("button", { name: /^Gerar até/ }));
 
   expect(await screen.findByRole("alert")).toHaveTextContent(
     "/v/aula.mp4 não é um vídeo aceito",
   );
-  screen.getByRole("heading", { name: "Vídeos" });
+  screen.getByRole("heading", { name: "Padrões" });
 });

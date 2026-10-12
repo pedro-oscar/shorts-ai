@@ -10,6 +10,7 @@ pub mod corte;
 mod fila;
 mod files;
 mod galeria;
+mod padroes;
 mod preferencias;
 mod process;
 pub mod producao;
@@ -38,6 +39,7 @@ pub use crate::conta::{Cobranca, EstadoDaConta, ModoDeLogin, VERSAO_MINIMA_DO_CL
 use crate::corte::Ffmpeg;
 use crate::fila::Fila;
 pub use crate::galeria::{AlvoParaAbrir, DadosDoProjeto, ReelDoProjeto, Reserva};
+pub use crate::padroes::{IdiomaDoVideo, ModeloDoClaude, Padroes};
 use crate::preferencias::{PreferencesFile, Preferencias};
 use crate::process::hide_console;
 use crate::producao::Producao;
@@ -359,6 +361,8 @@ pub enum Erro {
     /// A pasta do projeto foi apagada ou movida.
     #[error("projeto {id} não encontrado na Biblioteca")]
     ProjetoNaoEncontrado { id: String },
+    #[error("padrão {opcao} inválido: {motivo}")]
+    PadroesInvalidos { opcao: String, motivo: String },
     #[error("{caminho} não aberto: {detalhe}")]
     NaoAbriu { caminho: String, detalhe: String },
 }
@@ -531,8 +535,14 @@ impl Nucleo {
     }
 
     /// Cria um lote de projetos, um por arquivo, cada um com a sua pasta na Biblioteca, e
-    /// põe todos na fila. Nada é criado se algum arquivo não for aceito.
-    pub fn criar_lote(&self, caminhos: &[String]) -> Result<Vec<ProjetoResumo>, Erro> {
+    /// põe todos na fila, com os padrões do lote. Nada é criado se algum arquivo ou padrão não
+    /// for aceito.
+    pub fn criar_lote(
+        &self,
+        caminhos: &[String],
+        padroes: &Padroes,
+    ) -> Result<Vec<ProjetoResumo>, Erro> {
+        padroes.validar()?;
         let arquivos = caminhos
             .iter()
             .map(|caminho| validar_arquivo(caminho))
@@ -540,7 +550,7 @@ impl Nucleo {
         let agora = OffsetDateTime::now_utc();
         let lote = self.reservar_lote(agora)?;
         let mut projetos = Vec::new();
-        let resultado = self.criar_projetos(&lote, agora, &arquivos, &mut projetos);
+        let resultado = self.criar_projetos(&lote, agora, &arquivos, padroes, &mut projetos);
         self.registrar_lote(&lote, agora, &projetos)?;
         resultado.map(|()| projetos)
     }
@@ -550,6 +560,7 @@ impl Nucleo {
         lote: &str,
         agora: OffsetDateTime,
         arquivos: &[PathBuf],
+        padroes: &Padroes,
         projetos: &mut Vec<ProjetoResumo>,
     ) -> Result<(), Erro> {
         for arquivo in arquivos {
@@ -559,7 +570,7 @@ impl Nucleo {
             let nao_criado = |caminho: &Path, error: io::Error| lote_nao_criado(caminho, &error);
             let pasta = projeto::criar_pasta(&self.biblioteca, &titulo, agora.date())
                 .map_err(|error| nao_criado(&self.biblioteca, error))?;
-            let json = ProjetoJson::novo(
+            let mut json = ProjetoJson::novo(
                 titulo,
                 lote.to_owned(),
                 Origem::Arquivo {
@@ -571,6 +582,8 @@ impl Nucleo {
                 },
                 agora,
             );
+            json.opcoes = padroes.opcoes();
+            json.idioma_do_video = padroes.idioma().map(str::to_owned);
             json.gravar(&pasta)
                 .map_err(|error| nao_criado(&pasta, error))?;
             self.remotion

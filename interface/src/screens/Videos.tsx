@@ -3,13 +3,13 @@ import { useAppStore } from "../context";
 import { ErrorMessage, Screen, Topo } from "./common";
 import { formatarDuracao } from "./formatos";
 
-/** O passo Vídeos: os arquivos do computador que viram um lote ao apertar Gerar. */
+/** O passo Vídeos: os arquivos do computador que formam o lote, que o passo Padrões gera. */
 export function Videos({
   onOpenSobre,
-  onGerado,
+  onContinuar,
 }: {
   onOpenSobre: () => void;
-  onGerado: () => void;
+  onContinuar: () => void;
 }) {
   const { t } = useTranslation();
   const arquivos = useAppStore((store) => store.arquivos);
@@ -17,7 +17,6 @@ export function Videos({
   const biblioteca = useAppStore((store) => store.biblioteca);
   const escolher = useAppStore((store) => store.escolherArquivos);
   const remover = useAppStore((store) => store.removerArquivo);
-  const gerar = useAppStore((store) => store.gerar);
   return (
     <>
       <Topo onOpenSobre={onOpenSobre} />
@@ -68,13 +67,9 @@ export function Videos({
         <button
           type="button"
           disabled={arquivos.length === 0}
-          onClick={() => {
-            void gerar().then((criou) => {
-              if (criou) onGerado();
-            });
-          }}
+          onClick={onContinuar}
         >
-          {t("videos.gerar")}
+          {t("videos.continuar")}
         </button>
       </Screen>
     </>

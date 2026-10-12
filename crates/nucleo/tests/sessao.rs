@@ -672,7 +672,7 @@ mod na_fila {
     use std::sync::mpsc;
     use std::time::Duration;
 
-    use nucleo::{Config, EstadoDaEtapa, Etapa, Evento, Nucleo};
+    use nucleo::{Config, EstadoDaEtapa, Etapa, Evento, Nucleo, Padroes};
 
     use super::*;
 
@@ -728,7 +728,7 @@ mod na_fila {
         fs::write(&video, b"video de mentira").unwrap();
 
         let projeto = nucleo
-            .criar_lote(&[video.display().to_string()])
+            .criar_lote(&[video.display().to_string()], &Padroes::default())
             .unwrap()
             .remove(0);
 

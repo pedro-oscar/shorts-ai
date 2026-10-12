@@ -69,7 +69,8 @@ async function abrirReels(
   fake.pick(videos);
   await user.click(screen.getByRole("button", { name: "Escolher arquivos" }));
   await screen.findByRole("list", { name: "Vídeos escolhidos" });
-  await user.click(screen.getByRole("button", { name: "Gerar" }));
+  await user.click(screen.getByRole("button", { name: "Continuar" }));
+  await user.click(await screen.findByRole("button", { name: /^Gerar até/ }));
   await screen.findByRole("heading", { name: "Gerando" });
   expect(screen.queryByRole("button", { name: "Ver reels" })).toBeNull();
   for (const id of [AULA, LIVE].slice(0, videos.length))

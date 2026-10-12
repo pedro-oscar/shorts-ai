@@ -7,6 +7,7 @@ import { Aviso } from "./screens/Aviso";
 import { Conta } from "./screens/Conta";
 import { ErroAoAbrir } from "./screens/ErroAoAbrir";
 import { Gerando } from "./screens/Gerando";
+import { Padroes } from "./screens/Padroes";
 import { Reels } from "./screens/Reels";
 import { Sobre } from "./screens/Sobre";
 import { Videos } from "./screens/Videos";
@@ -44,9 +45,9 @@ function Screens() {
   const [sobreOpen, setSobreOpen] = useState(false);
   // Aqui, e não no Aviso, porque o Sobre desmonta o Aviso.
   const [concordo, setConcordo] = useState(false);
-  const [passo, setPasso] = useState<"conta" | "videos" | "gerando" | "reels">(
-    "conta",
-  );
+  const [passo, setPasso] = useState<
+    "conta" | "videos" | "padroes" | "gerando" | "reels"
+  >("conta");
 
   if (erroAoAbrir) return <ErroAoAbrir erro={erroAoAbrir} />;
   if (sobreOpen)
@@ -78,12 +79,24 @@ function Screens() {
         }}
       />
     );
+  if (aceito && passo === "padroes")
+    return (
+      <Padroes
+        onOpenSobre={openSobre}
+        onVoltar={() => {
+          setPasso("videos");
+        }}
+        onGerado={() => {
+          setPasso("gerando");
+        }}
+      />
+    );
   if (aceito && passo === "videos")
     return (
       <Videos
         onOpenSobre={openSobre}
-        onGerado={() => {
-          setPasso("gerando");
+        onContinuar={() => {
+          setPasso("padroes");
         }}
       />
     );
