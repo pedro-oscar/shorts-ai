@@ -8,3 +8,5 @@ target/
 # A interface empacotada, que o Tauri embute no build; e os esquemas que ele gera.
 /dist/
 /src-tauri/gen/
+# Os executáveis que vão com o app, montados pelo `npm run sidecars`.
+/src-tauri/binaries/

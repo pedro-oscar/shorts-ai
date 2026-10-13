@@ -1,0 +1,13 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "externalBin": [
+      "binaries/ffmpeg",
+      "binaries/ffprobe",
+      "binaries/yt-dlp",
+      "binaries/whisper-cli",
+      "binaries/whisper-cli-cpu",
+      "binaries/shorts-cli"
+    ]
+  }
+}

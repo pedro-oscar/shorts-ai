@@ -1,7 +1,7 @@
 //! As preferências da pessoa, num JSON nos dados do app (ADR 0007).
 
-use std::fs::{self, File};
-use std::io::{self, Write};
+use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -106,12 +106,7 @@ impl PreferencesFile {
         if let Some(dir) = self.path.parent() {
             fs::create_dir_all(dir)?;
         }
-        let temporary = self.path.with_extension("json.tmp");
-        let mut file = File::create(&temporary)?;
-        serde_json::to_writer_pretty(&mut file, preferencias)?;
-        file.write_all(b"\n")?;
-        file.sync_all()?;
-        fs::rename(&temporary, &self.path)
+        crate::files::write_json(&self.path, preferencias)
     }
 
     fn unreadable(&self, detalhe: String) -> Erro {

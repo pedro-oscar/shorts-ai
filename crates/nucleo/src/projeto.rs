@@ -348,6 +348,31 @@ mod tests {
     }
 
     #[test]
+    fn gravacoes_ao_mesmo_tempo_nunca_deixam_o_projeto_json_pela_metade() {
+        let pasta = tempfile::tempdir().unwrap();
+        projeto().gravar(pasta.path()).unwrap();
+
+        // A fila e um comando da interface gravando o mesmo projeto, com tamanhos diferentes.
+        std::thread::scope(|scope| {
+            for tamanho in [1, 5_000, 20_000] {
+                let pasta = pasta.path();
+                scope.spawn(move || {
+                    let mut json = projeto();
+                    json.titulo = "a".repeat(tamanho);
+                    for _ in 0..200 {
+                        json.gravar(pasta).unwrap();
+                    }
+                });
+            }
+            for _ in 0..2_000 {
+                if let Err(erro) = ProjetoJson::ler(pasta.path()) {
+                    panic!("projeto.json ilegível: {erro}");
+                }
+            }
+        });
+    }
+
+    #[test]
     fn titulo_da_pasta_sem_caracteres_proibidos_e_ate_40_caracteres() {
         assert_eq!(titulo_para_pasta("a/b:c?"), "abc");
         assert_eq!(titulo_para_pasta(&"é".repeat(60)), "é".repeat(40));

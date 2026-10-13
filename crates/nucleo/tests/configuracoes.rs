@@ -6,10 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 
-use nucleo::{
-    Config, Erro, Gpu, IdiomaDaInterface, LigarArquivo, NomeDaDependencia, Nucleo, Padroes,
-    SituacaoDaDependencia,
-};
+use nucleo::{Config, Erro, IdiomaDaInterface, LigarArquivo, Nucleo, Padroes};
 
 fn config(dados: &Path, videos: &Path) -> Config {
     Config {
@@ -145,6 +142,8 @@ fn o_idioma_escolhido_vale_no_lugar_do_do_sistema_e_fica_gravado() {
 #[cfg(unix)]
 mod diagnostico {
     use std::os::unix::fs::PermissionsExt;
+
+    use nucleo::{Gpu, NomeDaDependencia, SituacaoDaDependencia};
 
     use super::*;
 

@@ -1,14 +1,14 @@
 //! O Remotion do projeto (ADR 0003), pela interface pública do núcleo: as dependências
 //! instaladas uma vez nos dados do app e o `remotion/` de cada projeto, com o `node_modules`
-//! ligado por symlink. O `npm` é falso (um script de shell).
-#![cfg(unix)]
+//! ligado por symlink (junction no Windows). O `npm` é falso (um script de shell), então os
+//! testes da instalação só rodam no Linux e no macOS.
 
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-use nucleo::{Config, Erro, Nucleo, Padroes};
+use nucleo::{Config, Nucleo, Padroes};
 
+#[cfg(unix)]
 const FAKE_NPM: &str = "#!/bin/sh\necho \"$PWD: $@\" >> \"$(dirname \"$0\")/npm.log\"\n[ -f \"$(dirname \"$0\")/npm-fails\" ] && { echo 'sem rede' >&2; exit 1; }\nmkdir -p node_modules\ntouch node_modules/.package-lock.json\n";
 
 struct Cenario {
@@ -35,15 +35,13 @@ impl Cenario {
         }
         let bin = tmp.path().join("bin");
         fs::create_dir(&bin).unwrap();
-        let npm = bin.join("npm");
-        fs::write(&npm, FAKE_NPM).unwrap();
-        fs::set_permissions(&npm, fs::Permissions::from_mode(0o755)).unwrap();
+        let npm = npm_falso(&bin);
         let nucleo = Nucleo::new(
             Config {
                 app_data_dir: tmp.path().join("dados"),
                 pasta_de_videos: Some(tmp.path().join("Videos")),
                 assets_dir: Some(tmp.path().join("assets")),
-                npm: Some(npm),
+                npm,
                 ..Config::default()
             },
             |_| {},
@@ -55,6 +53,7 @@ impl Cenario {
         self.tmp.path().join("dados/remotion/node_modules")
     }
 
+    #[cfg(unix)]
     fn log_do_npm(&self) -> String {
         fs::read_to_string(self.tmp.path().join("bin/npm.log")).unwrap_or_default()
     }
@@ -73,6 +72,21 @@ impl Cenario {
     }
 }
 
+#[cfg(unix)]
+fn npm_falso(bin: &Path) -> Option<PathBuf> {
+    use std::os::unix::fs::PermissionsExt;
+    let npm = bin.join("npm");
+    fs::write(&npm, FAKE_NPM).unwrap();
+    fs::set_permissions(&npm, fs::Permissions::from_mode(0o755)).unwrap();
+    Some(npm)
+}
+
+#[cfg(not(unix))]
+fn npm_falso(_bin: &Path) -> Option<PathBuf> {
+    None
+}
+
+#[cfg(unix)]
 #[test]
 fn as_dependencias_sao_instaladas_uma_vez_numa_pasta_node_modules_dos_dados_do_app() {
     let cenario = Cenario::novo();
@@ -96,6 +110,7 @@ fn as_dependencias_sao_instaladas_uma_vez_numa_pasta_node_modules_dos_dados_do_a
     );
 }
 
+#[cfg(unix)]
 #[test]
 fn instalacao_que_falha_vira_erro_com_a_saida_do_npm() {
     let cenario = Cenario::novo();
@@ -107,13 +122,13 @@ fn instalacao_que_falha_vira_erro_com_a_saida_do_npm() {
         .unwrap_err();
 
     assert!(
-        matches!(&erro, Erro::DependenciasDoRemotionNaoInstaladas { detalhe } if detalhe.contains("sem rede")),
+        matches!(&erro, nucleo::Erro::DependenciasDoRemotionNaoInstaladas { detalhe } if detalhe.contains("sem rede")),
         "{erro:?}"
     );
 }
 
 #[test]
-fn o_projeto_recebe_src_e_public_copiados_e_o_node_modules_por_symlink() {
+fn o_projeto_recebe_src_e_public_copiados_e_o_node_modules_ligado() {
     let cenario = Cenario::novo();
 
     let pasta = cenario.projeto().join("remotion");
@@ -134,9 +149,13 @@ fn o_projeto_recebe_src_e_public_copiados_e_o_node_modules_por_symlink() {
         assert!(pasta.join(nome).is_file(), "falta {nome}");
     }
     assert!(!pasta.join("src").is_symlink());
-    assert_eq!(
-        fs::read_link(pasta.join("node_modules")).unwrap(),
-        cenario.node_modules_compartilhado()
+    fs::create_dir_all(cenario.node_modules_compartilhado()).unwrap();
+    fs::write(pasta.join("node_modules/pelo-projeto"), "").unwrap();
+    assert!(
+        cenario
+            .node_modules_compartilhado()
+            .join("pelo-projeto")
+            .is_file()
     );
 }
 
@@ -151,6 +170,7 @@ fn a_cena_nova_de_um_projeto_nao_aparece_nos_outros() {
     assert!(!segundo.join("src/scenes/Nova.tsx").exists());
 }
 
+#[cfg(unix)]
 #[test]
 fn o_node_modules_ligado_enxerga_o_que_foi_instalado_depois() {
     let cenario = Cenario::novo();

@@ -34,6 +34,8 @@
     "sast": "node scripts/sast.mjs",
     "e2e": "node scripts/e2e.mjs",
     "tickets": "node scripts/tickets.mjs",
+    "sidecars": "node scripts/sidecars.mjs",
+    "instalador:windows": "npm run sidecars && tauri build --bundles nsis --config src-tauri/tauri.sidecars.conf.json",
     "afk": "tsx .sandcastle/main.ts"
   },
   "dependencies": {

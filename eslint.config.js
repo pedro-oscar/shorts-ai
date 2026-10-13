@@ -65,6 +65,12 @@ export default defineConfig([
     },
   },
   {
+    // O script dos sidecars só abre caminhos do repositório, do cache em target/ e das opções
+    // de quem o roda.
+    files: ["scripts/sidecars.mjs"],
+    rules: { "security/detect-non-literal-fs-filename": "off" },
+  },
+  {
     // TypeScript de Node, fora da interface: vite.config.ts e a fábrica (.sandcastle/).
     files: ["**/*.{ts,mts,cts}"],
     ignores: ["interface/**"],

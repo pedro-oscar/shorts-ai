@@ -1,6 +1,6 @@
 //! O Remotion do projeto (ADR 0003): as dependências do Node ficam numa cópia única nos dados
 //! do app, e cada projeto tem o próprio `remotion/`, com `src/` e `public/` copiados do
-//! template e o `node_modules` ligado por symlink.
+//! template e o `node_modules` ligado por symlink (junction no Windows).
 
 use std::ffi::OsString;
 use std::fs;
@@ -152,14 +152,14 @@ impl Remotion {
     }
 }
 
-/// Symlink no Linux e no macOS. A junction do Windows, que não exige administrador, fica
-/// para o ticket 19.
+/// Symlink no Linux e no macOS.
 #[cfg(unix)]
 fn link_dir(source: &Path, destination: &Path) -> io::Result<()> {
     std::os::unix::fs::symlink(source, destination)
 }
 
-#[cfg(not(unix))]
-fn link_dir(_source: &Path, _destination: &Path) -> io::Result<()> {
-    Ok(())
+/// Junction no Windows: o symlink de pasta exige administrador ou o modo de desenvolvedor.
+#[cfg(windows)]
+fn link_dir(source: &Path, destination: &Path) -> io::Result<()> {
+    junction::create(source, destination)
 }

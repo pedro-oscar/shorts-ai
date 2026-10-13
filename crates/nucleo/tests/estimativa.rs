@@ -180,7 +180,9 @@ fn sem_gpu_a_transcricao_alonga_o_tempo() {
         let tmp = tempfile::tempdir().unwrap();
         let carregador = tmp.path().join("libvulkan.so.1");
         fs::write(&carregador, b"").unwrap();
-        let fake_whisper = tmp.path().join("whisper-cli");
+        let fake_whisper = tmp
+            .path()
+            .join(format!("whisper-cli{}", std::env::consts::EXE_SUFFIX));
         fs::write(&fake_whisper, b"").unwrap();
         let nucleo = Nucleo::new(
             Config {

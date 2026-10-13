@@ -460,7 +460,11 @@ fn a_sessao_roda_na_pasta_do_projeto_com_as_flags_e_as_ferramentas_da_spec() {
         "Read,Write,Edit,MultiEdit,Glob,Grep,Skill,Task,Agent,TodoWrite,",
         "Bash(shorts-cli validar:*),Bash(shorts-cli tsc:*),Bash(shorts-cli still:*),Bash(shorts-cli cena:*)",
         "Bash(grep:*),Bash(ls:*),Bash(head:*),Bash(tail:*),Bash(wc:*),Bash(sed -n:*),Bash(cat:*)",
+        // O Claude Code do Windows sem Git Bash roda os comandos pelo PowerShell.
+        "PowerShell(shorts-cli validar *),PowerShell(shorts-cli tsc *),PowerShell(shorts-cli still *),PowerShell(shorts-cli cena *)",
+        "PowerShell(Get-ChildItem *),PowerShell(Get-Content *),PowerShell(Select-String *),PowerShell(Select-Object *),PowerShell(Measure-Object *)",
         "--disallowedTools Bash(rm:*),WebFetch,WebSearch",
+        "PowerShell(Remove-Item *),PowerShell(Invoke-WebRequest *),PowerShell(Invoke-RestMethod *),PowerShell(curl *),PowerShell(wget *),PowerShell(yt-dlp *),PowerShell(ffmpeg *)",
     ] {
         assert!(args.contains(trecho), "faltou {trecho}: {args}");
     }

@@ -3,12 +3,18 @@
 use std::fs::{self, File};
 use std::io::{self, Write};
 use std::path::Path;
+use std::sync::{Mutex, PoisonError};
 
 use serde::Serialize;
+
+/// Uma gravação de cada vez: duas no mesmo arquivo (a fila e um comando da interface)
+/// escreveriam juntas no mesmo temporário e trocariam o definitivo por uma mistura das duas.
+static WRITING: Mutex<()> = Mutex::new(());
 
 /// Grava num arquivo temporário e troca pelo definitivo: um app fechado no meio da gravação
 /// deixa o arquivo antigo inteiro, nunca um pela metade.
 pub(crate) fn write_json(path: &Path, value: &impl Serialize) -> io::Result<()> {
+    let _writing = WRITING.lock().unwrap_or_else(PoisonError::into_inner);
     let temporary = path.with_extension("json.tmp");
     let mut file = File::create(&temporary)?;
     serde_json::to_writer_pretty(&mut file, value)?;

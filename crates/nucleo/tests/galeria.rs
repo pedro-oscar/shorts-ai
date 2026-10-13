@@ -47,8 +47,13 @@ impl Cenario {
         fs::write(self.projeto.join("edit/roteiro.json"), roteiro.to_string()).unwrap();
     }
 
+    /// O `relativo` usa `/`; o caminho devolvido, o separador do sistema, como o do núcleo.
     fn publicar(&self, relativo: &str) -> String {
-        let arquivo = self.projeto.join("publicar").join(relativo);
+        let arquivo = relativo
+            .split('/')
+            .fold(self.projeto.join("publicar"), |pasta, parte| {
+                pasta.join(parte)
+            });
         fs::create_dir_all(arquivo.parent().unwrap()).unwrap();
         fs::write(&arquivo, b"reel").unwrap();
         arquivo.display().to_string()

@@ -38,7 +38,10 @@ const MAX_TARGET_CHARS: usize = 120;
 /// Quantas linhas do stderr entram no detalhe de uma sessão que caiu.
 const STDERR_DETAIL_LINES: usize = 10;
 
-const ALLOWED_TOOLS: [&str; 21] = [
+/// As regras de `Bash` e as mesmas no formato do `PowerShell`, que o Claude Code do Windows usa
+/// quando não acha o Git Bash. Com o Git Bash, as regras escopadas de `PowerShell` mantêm a
+/// ferramenta ligada ao lado do `Bash`; sem elas, a negação de um `Bash(...)` a desligaria.
+const ALLOWED_TOOLS: [&str; 30] = [
     "Read",
     "Write",
     "Edit",
@@ -60,9 +63,20 @@ const ALLOWED_TOOLS: [&str; 21] = [
     "Bash(wc:*)",
     "Bash(sed -n:*)",
     "Bash(cat:*)",
+    "PowerShell(shorts-cli validar *)",
+    "PowerShell(shorts-cli tsc *)",
+    "PowerShell(shorts-cli still *)",
+    "PowerShell(shorts-cli cena *)",
+    // Os apelidos (`ls`, `cat`, `gc`, `sls`) caem no cmdlet; um pipeline precisa que cada
+    // parte case com uma regra.
+    "PowerShell(Get-ChildItem *)",
+    "PowerShell(Get-Content *)",
+    "PowerShell(Select-String *)",
+    "PowerShell(Select-Object *)",
+    "PowerShell(Measure-Object *)",
 ];
 
-const DISALLOWED_TOOLS: [&str; 7] = [
+const DISALLOWED_TOOLS: [&str; 14] = [
     "Bash(rm:*)",
     "WebFetch",
     "WebSearch",
@@ -70,6 +84,14 @@ const DISALLOWED_TOOLS: [&str; 7] = [
     "Bash(wget:*)",
     "Bash(yt-dlp:*)",
     "Bash(ffmpeg:*)",
+    "PowerShell(Remove-Item *)",
+    "PowerShell(Invoke-WebRequest *)",
+    "PowerShell(Invoke-RestMethod *)",
+    // No PowerShell 7, `curl` e `wget` são os executáveis, não apelidos do Invoke-WebRequest.
+    "PowerShell(curl *)",
+    "PowerShell(wget *)",
+    "PowerShell(yt-dlp *)",
+    "PowerShell(ffmpeg *)",
 ];
 
 /// Um passo da sessão, para a interface mostrar ao vivo.
