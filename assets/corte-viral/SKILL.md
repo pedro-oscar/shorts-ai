@@ -83,7 +83,7 @@ Para cada corte:
 - **`trechos`:**
   - Comece no gancho mais forte. *Cold open* é permitido se não distorcer o sentido.
   - Divida em vários trechos para tirar enrolação, digressões e falsos começos (> 0,7 s de "lixo").
-  - Duração: ideal 35–60 s; **até 90 s só quando a história precisar** (contexto + desenvolvimento + payoff não cabem em menos). Acima de 90 s a validação falha.
+  - Duração: **alvo 60–90 s** (os de 35–60 s saem curtos: contexto cortado, payoff sem espaço). Acima de 90 s a validação falha.
   - **Final sem corte seco:** o último trecho termina numa frase completa que fecha a ideia, de preferência seguida de uma pausa natural (reação, riso, respiro). O produzir acrescenta respiro e saída suave; a validação avisa se o corte acabar sem fim de frase.
   - O produzir ajusta os limites às palavras, então tempos aproximados de frase bastam.
 - **`titulo`:** manchete do gancho, até 6 palavras, sem repetir a primeira frase.
@@ -99,7 +99,7 @@ Para cada corte:
 
 ## 5. Cenas ilustradas (você cria, se precisar)
 
-Se um motion `scene` precisar de ilustração que não existe em `remotion/src/scenes/` (existem `Grafico`, `Comparacao`, `Dinheiro`):
+Se um motion `scene` precisar de ilustração que não existe em `remotion/src/scenes/` (as que existem estão registradas em `index.ts`):
 - crie o componente seguindo o motion-guide (caixa 940×760, SVG desenhado em código, padrão de `Dinheiro.tsx`) e registre em `index.ts`;
 - se forem várias, use **um sub-agente por cena, em paralelo**;
 - valide com `cd remotion && npx tsc --noEmit` e um still da cena: `npx remotion still reel-demo out/x.png --frame=…` com props de teste, ou um corte já produzido.

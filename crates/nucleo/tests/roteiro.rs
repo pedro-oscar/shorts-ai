@@ -15,6 +15,10 @@ fn referencia() -> PathBuf {
         .join("../../.scratch/shorts-ai-mvp/referencia-kgfmahnbqx4")
 }
 
+fn template() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../assets/remotion")
+}
+
 fn json_de(caminho: &PathBuf) -> Value {
     serde_json::from_str(&fs::read_to_string(caminho).unwrap()).unwrap()
 }
@@ -80,14 +84,20 @@ fn os_cortes_do_kgfmahnbqx4_batem_com_a_saida_do_cli_python() {
     }
 }
 
+/// No template, cada cena registrada tem o arquivo com o nome dela, a convenção com que o
+/// cache do render liga a cena `X` de um motion a `src/scenes/X.tsx` (ADR 0003).
 #[test]
 fn o_registro_de_cenas_vem_do_index_do_remotion() {
-    let remotion = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../assets/remotion");
-    let cenas = cenas_registradas(&remotion);
-    let esperadas: BTreeSet<String> = ["Comparacao", "Dinheiro", "Grafico"]
-        .map(String::from)
-        .into();
-    assert_eq!(cenas, esperadas);
+    let remotion = template();
+    let arquivos: BTreeSet<String> = fs::read_dir(remotion.join("src/scenes"))
+        .unwrap()
+        .filter_map(|entrada| {
+            let nome = entrada.unwrap().file_name().into_string().unwrap();
+            nome.strip_suffix(".tsx").map(str::to_owned)
+        })
+        .collect();
+    assert!(arquivos.contains("Grafico"), "{arquivos:?}");
+    assert_eq!(cenas_registradas(&remotion), arquivos);
     assert!(cenas_registradas(&remotion.join("inexistente")).is_empty());
 }
 

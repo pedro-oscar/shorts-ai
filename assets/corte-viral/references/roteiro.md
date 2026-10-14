@@ -49,7 +49,7 @@
 | `estilo` | não | padrão para todos os cortes (accent, highlight, captionY, grain, captionGroupMs, uppercase, fadeOut) |
 | `correcoes` | não | conserta palavras que o Whisper errou **na legenda** (palavra inteira, sem diferenciar maiúsculas). Ex.: nomes próprios |
 | `cortes[].status` | não | `produzir` (padrão) ou `reserva` (fica listado, não renderiza) |
-| `cortes[].trechos` | sim | `[[ini, fim], ...]` em ordem de exibição. Podem vir fora de ordem (*cold open*). São ajustados sozinhos para não cortar palavra. **Duração total: ideal 35–60 s; até 90 s só quando a história precisar; acima de 90 s a validação falha.** O **último trecho deve terminar numa frase completa que fecha a ideia**. O produzir acrescenta até 0,75 s de respiro depois da última palavra, e o reel termina com saída suave (`fadeOut`, padrão 0,5 s). Se o corte terminar sem fim de frase, a validação avisa |
+| `cortes[].trechos` | sim | `[[ini, fim], ...]` em ordem de exibição. Podem vir fora de ordem (*cold open*). São ajustados sozinhos para não cortar palavra. **Duração total: alvo 60–90 s; acima de 90 s a validação falha.** O **último trecho deve terminar numa frase completa que fecha a ideia**. O produzir acrescenta até 0,75 s de respiro depois da última palavra, e o reel termina com saída suave (`fadeOut`, padrão 0,5 s). Se o corte terminar sem fim de frase, a validação avisa |
 | `cortes[].titulo` | não | vira a tarja de título nos primeiros 2,8 s, se não houver um motion `title` |
 | `cortes[].enfase` | não | palavras pintadas na cor `accent` na legenda |
 | `cortes[].correcoes`, `estilo` | não | sobrescrevem os globais só neste corte |

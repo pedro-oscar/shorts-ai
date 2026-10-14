@@ -19,7 +19,7 @@ O vídeo `{VIDEO}` já foi transcrito. O **idioma do vídeo** é `{IDIOMA}`. A t
    - `"fonte": "{VIDEO}"`;
    - para cada corte: `trechos` enxutos (sem enrolação, começando no gancho), `titulo`, `enfase`, `motions` sincronizados com `word` + `at`, `gancho`, `payoff`, `porque`, `nota`, `categoria` e `descricao`, o texto do post do reel;
    - **escreva em `{IDIOMA}`** os títulos, as correções, a `descricao` e o texto de capa e dos motions;
-   - duração ideal 35–60 s; **até 90 s só quando a história precisar**;
+   - duração **alvo 60–90 s**; acima de 90 s a validação falha;
    - o **último trecho termina numa frase completa** que fecha a ideia, sem corte seco no meio de raciocínio;
    - a posição dos motions é automática e nunca cobre o rosto: escolha só tipo, conteúdo e tempo. Textos curtos (título ≤ 5 palavras, keyword ≤ 2), nada nos últimos 0,8 s. Em plano fechado, prefira keyword/counter a cards;
    - `correcoes` globais para nomes próprios e termos que o Whisper errou.
