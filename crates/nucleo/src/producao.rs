@@ -3,6 +3,7 @@
 //! corte é renderizado desse pacote. Cada passo guarda o hash do que o gerou: refazer só
 //! recalcula o que mudou.
 
+use std::collections::BTreeMap;
 use std::ffi::OsStr;
 use std::fs;
 use std::io;
@@ -18,7 +19,7 @@ use crate::preparacao::NodePortatil;
 use crate::process::{self, Interrupted, Stream};
 use crate::revisao;
 use crate::rosto::Pin;
-use crate::roteiro::{Plano, ROTEIRO, validar_na_pasta};
+use crate::roteiro::{Plano, REGISTRO_DE_CENAS, ROTEIRO, cenas_registradas, validar_na_pasta};
 
 /// O script que empacota e renderiza; o núcleo o grava em `remotion/` antes de chamá-lo.
 const SCRIPT: &str = include_str!("../../../assets/remotion/render.mjs");
@@ -28,6 +29,8 @@ const PACOTE: &str = ".pacote";
 const HASH_DO_PACOTE: &str = ".pacote.hash";
 /// O que, além de `src/` e de `public/` (sem `clips/`), é código do Remotion do projeto.
 const ARQUIVOS_DE_CODIGO: [&str; 3] = ["package.json", "remotion.config.ts", "tsconfig.json"];
+/// Onde ficam as cenas (`<Nome>.tsx`) no Remotion do projeto.
+const CENAS: &str = "src/scenes";
 /// Os reels prontos e as prévias.
 pub(crate) const PUBLICAR: &str = "publicar";
 pub(crate) const PREVIAS: &str = "prévias";
@@ -147,9 +150,9 @@ impl Producao {
     ) -> Result<Vec<Reel>, ErroDaProducao> {
         let planos = planos(pedido.pasta)?;
         let remotion = pedido.pasta.join("remotion");
-        let codigo = hash_do_codigo(&remotion)?;
+        let hash_do_codigo = HashDoCodigo::ler(&remotion)?;
         let video = identidade(pedido.video)?;
-        self.empacotar(&remotion, &codigo, cancelar)?;
+        self.empacotar(&remotion, &hash_do_codigo.do_pacote, cancelar)?;
         let total = planos.len();
         let mut reels = Vec::new();
         for (indice, plano) in planos.iter().enumerate() {
@@ -163,7 +166,7 @@ impl Producao {
                 pedido,
                 plano,
                 &video,
-                &codigo,
+                &hash_do_codigo,
                 cancelar,
                 &mut parcial,
             )?);
@@ -245,7 +248,7 @@ impl Producao {
         pedido: &Pedido,
         plano: &Plano,
         video: &str,
-        codigo: &str,
+        hash_do_codigo: &HashDoCodigo,
         cancelar: &AtomicBool,
         progresso: &mut dyn FnMut(f64),
     ) -> Result<Reel, ErroDaProducao> {
@@ -291,12 +294,13 @@ impl Producao {
         let legendas =
             serde_json::to_string_pretty(&plano.legendas).expect("as legendas serializam");
         let motion = serde_json::to_string_pretty(&plano.motion).expect("o motion serializa");
+        let hash_do_codigo = hash_do_codigo.do_reel(plano);
         let hash_do_render = hash(&[
             hash_do_corte.as_bytes(),
             hash_do_rosto.as_bytes(),
             legendas.as_bytes(),
             motion.as_bytes(),
-            codigo.as_bytes(),
+            hash_do_codigo.as_bytes(),
             pedido.qualidade.nome().as_bytes(),
         ]);
         let pasta_final = match pedido.qualidade {
@@ -465,27 +469,90 @@ fn bytes_dos_trechos(trechos: &[(f64, f64)]) -> Vec<u8> {
 }
 
 /// O hash do código do Remotion do projeto: `src/`, `public/` (menos os dados dos reels em
-/// `clips/`) e os arquivos de configuração, mais o script de render.
-fn hash_do_codigo(remotion: &Path) -> io::Result<String> {
-    let mut arquivos = Vec::new();
-    juntar(&remotion.join("src"), Path::new("src"), &mut arquivos)?;
-    juntar(&remotion.join("public"), Path::new("public"), &mut arquivos)?;
-    arquivos.retain(|relativo| !relativo.starts_with("public/clips"));
-    for nome in ARQUIVOS_DE_CODIGO {
-        if remotion.join(nome).is_file() {
-            arquivos.push(PathBuf::from(nome));
+/// `clips/`) e os arquivos de configuração, mais o script de render. O pacote depende de tudo;
+/// o render de um reel, do código comum e só das cenas que ele cita.
+struct HashDoCodigo {
+    do_pacote: String,
+    /// Tudo menos o registro de cenas e os arquivos das cenas registradas.
+    comum: String,
+    /// O arquivo de cada cena registrada (`src/scenes/<Nome>.tsx`), pelo nome.
+    das_cenas: BTreeMap<String, String>,
+    /// Tudo o que há em `src/scenes/`, para o reel que cita uma cena sem arquivo.
+    da_pasta_de_cenas: String,
+}
+
+impl HashDoCodigo {
+    fn ler(remotion: &Path) -> io::Result<Self> {
+        let mut caminhos = Vec::new();
+        juntar(&remotion.join("src"), Path::new("src"), &mut caminhos)?;
+        juntar(&remotion.join("public"), Path::new("public"), &mut caminhos)?;
+        caminhos.retain(|relativo| !relativo.starts_with("public/clips"));
+        for nome in ARQUIVOS_DE_CODIGO {
+            if remotion.join(nome).is_file() {
+                caminhos.push(PathBuf::from(nome));
+            }
         }
+        caminhos.sort();
+        let mut arquivos = vec![(PathBuf::from(NOME_DO_SCRIPT), hex(&Sha256::digest(SCRIPT)))];
+        for relativo in caminhos {
+            let conteudo = hex(&Sha256::digest(fs::read(remotion.join(&relativo))?));
+            arquivos.push((relativo, conteudo));
+        }
+
+        let registradas = cenas_registradas(remotion);
+        let cena = |relativo: &Path| {
+            let nome = relativo
+                .strip_prefix(CENAS)
+                .ok()?
+                .to_str()?
+                .strip_suffix(".tsx")?;
+            registradas.contains(nome).then(|| nome.to_owned())
+        };
+        let mut comum = Vec::new();
+        let mut das_cenas = BTreeMap::new();
+        for arquivo @ (relativo, _) in &arquivos {
+            if let Some(nome) = cena(relativo) {
+                das_cenas.insert(nome, hash_dos_arquivos([arquivo]));
+            } else if relativo != Path::new(REGISTRO_DE_CENAS) {
+                comum.push(arquivo);
+            }
+        }
+        let da_pasta_de_cenas = hash_dos_arquivos(
+            arquivos
+                .iter()
+                .filter(|(relativo, _)| relativo.starts_with(CENAS)),
+        );
+        Ok(Self {
+            do_pacote: hash_dos_arquivos(&arquivos),
+            comum: hash_dos_arquivos(comum),
+            das_cenas,
+            da_pasta_de_cenas,
+        })
     }
-    arquivos.sort();
+
+    /// O hash do código de que o render de `plano` depende.
+    fn do_reel(&self, plano: &Plano) -> String {
+        let mut partes = vec![self.comum.as_bytes()];
+        for nome in plano.motion.cenas_citadas() {
+            match self.das_cenas.get(nome) {
+                Some(cena) => partes.push(cena.as_bytes()),
+                None => return hash(&[self.comum.as_bytes(), self.da_pasta_de_cenas.as_bytes()]),
+            }
+        }
+        hash(&partes)
+    }
+}
+
+/// O hash de uma lista de arquivos: o caminho relativo e o hash do conteúdo de cada um.
+fn hash_dos_arquivos<'a>(arquivos: impl IntoIterator<Item = &'a (PathBuf, String)>) -> String {
     let mut resumo = Sha256::new();
-    for relativo in arquivos {
+    for (relativo, conteudo) in arquivos {
         resumo.update(relativo.to_string_lossy().as_bytes());
         resumo.update([0]);
-        resumo.update(fs::read(remotion.join(&relativo))?);
+        resumo.update(conteudo.as_bytes());
         resumo.update([0]);
     }
-    resumo.update(SCRIPT.as_bytes());
-    Ok(hex(&resumo.finalize()))
+    hex(&resumo.finalize())
 }
 
 /// Acrescenta a `arquivos` os caminhos (relativos) de tudo o que há em `pasta`.

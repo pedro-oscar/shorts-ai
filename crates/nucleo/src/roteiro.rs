@@ -16,6 +16,8 @@ pub const TRANSCRICAO: &str = "edit/transcricao.json";
 
 /// Onde o projeto guarda o roteiro que o Claude escreve.
 pub const ROTEIRO: &str = "edit/roteiro.json";
+/// O registro de cenas no Remotion de um projeto.
+pub(crate) const REGISTRO_DE_CENAS: &str = "src/scenes/index.ts";
 
 /// A versão do contrato do roteiro que este núcleo entende.
 pub const VERSAO_DO_ROTEIRO: u32 = 1;
@@ -401,6 +403,17 @@ pub struct PlanoDeMotion {
     pub motions: Vec<Value>,
 }
 
+impl PlanoDeMotion {
+    /// Os nomes das cenas que os motions `scene` citam.
+    pub fn cenas_citadas(&self) -> BTreeSet<&str> {
+        self.motions
+            .iter()
+            .filter(|motion| motion["type"] == "scene")
+            .filter_map(|motion| motion["name"].as_str())
+            .collect()
+    }
+}
+
 /// Tudo o que um corte precisa, calculado sem renderizar nada.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Plano {
@@ -509,7 +522,7 @@ pub struct Contexto {
 
 /// As cenas registradas em `src/scenes/index.ts` de um Remotion: as chaves de `SCENES`.
 pub fn cenas_registradas(remotion: &Path) -> BTreeSet<String> {
-    let Ok(texto) = fs::read_to_string(remotion.join("src/scenes/index.ts")) else {
+    let Ok(texto) = fs::read_to_string(remotion.join(REGISTRO_DE_CENAS)) else {
         return BTreeSet::new();
     };
     let sem_comentarios: String = texto

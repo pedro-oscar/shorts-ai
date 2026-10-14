@@ -64,6 +64,9 @@ esac
 
 const LOUDNORM: &str = r#"{"input_i":"-20.0","input_tp":"-3.0","input_lra":"5.0","input_thresh":"-30.0","target_offset":"0.5"}"#;
 
+/// Um corte do roteiro: id, título, o trecho e as cenas que ele cita.
+type CorteComCenas<'a> = (&'a str, &'a str, (f64, f64), &'a [&'a str]);
+
 struct Cenario {
     tmp: tempfile::TempDir,
     producao: Producao,
@@ -126,10 +129,26 @@ impl Cenario {
     }
 
     fn roteiro(&self, cortes: &[(&str, &str, (f64, f64))]) {
+        let cortes: Vec<_> = cortes
+            .iter()
+            .map(|&(id, titulo, trecho)| (id, titulo, trecho, &[][..]))
+            .collect();
+        self.roteiro_com_cenas(&cortes);
+    }
+
+    /// O roteiro com um motion `scene` (card) de cada cena citada no corte.
+    fn roteiro_com_cenas(&self, cortes: &[CorteComCenas]) {
         let cortes: Vec<Value> = cortes
             .iter()
-            .map(|(id, titulo, (a, b))| {
-                json!({"id": id, "status": "produzir", "titulo": titulo, "trechos": [[a, b]]})
+            .map(|(id, titulo, (a, b), cenas)| {
+                let motions: Vec<Value> = cenas
+                    .iter()
+                    .enumerate()
+                    .map(|(i, nome)| {
+                        json!({"type": "scene", "name": nome, "at": a + 0.2 + i as f64, "dur": 0.8, "layout": "card"})
+                    })
+                    .collect();
+                json!({"id": id, "status": "produzir", "titulo": titulo, "trechos": [[a, b]], "motions": motions})
             })
             .collect();
         fs::write(
@@ -137,6 +156,45 @@ impl Cenario {
             json!({"versao": 1, "fonte": "original.mp4", "cortes": cortes}).to_string(),
         )
         .unwrap();
+    }
+
+    /// O registro de cenas do projeto (`src/scenes/index.ts`) com as cenas `nomes`.
+    fn registrar(&self, nomes: &[&str]) {
+        let imports: String = nomes
+            .iter()
+            .map(|nome| format!("import {{{nome}}} from './{nome}';\n"))
+            .collect();
+        fs::write(
+            self.pasta.join("remotion/src/scenes/index.ts"),
+            format!(
+                "{imports}export const SCENES = {{\n  {},\n}};\n",
+                nomes.join(",\n  ")
+            ),
+        )
+        .unwrap();
+    }
+
+    fn acrescentar_ao_registro(&self, texto: &str) {
+        let registro = self.pasta.join("remotion/src/scenes/index.ts");
+        let mut atual = fs::read_to_string(&registro).unwrap();
+        atual.push_str(texto);
+        fs::write(&registro, atual).unwrap();
+    }
+
+    /// Grava o arquivo de uma cena (`src/scenes/<nome>.tsx`).
+    fn cena(&self, nome: &str, codigo: &str) {
+        fs::write(
+            self.pasta.join(format!("remotion/src/scenes/{nome}.tsx")),
+            codigo,
+        )
+        .unwrap();
+    }
+
+    fn renders_de(&self, id: &str) -> usize {
+        self.renders()
+            .iter()
+            .filter(|c| c.contains(&format!("original-{id} ")))
+            .count()
     }
 
     fn bin(&self) -> PathBuf {
@@ -368,19 +426,167 @@ fn mudar_so_o_texto_de_um_motion_renderiza_sem_cortar_de_novo() {
 }
 
 #[test]
-fn mudar_o_codigo_do_remotion_do_projeto_empacota_e_renderiza_tudo_de_novo() {
+fn mudar_o_codigo_comum_do_remotion_do_projeto_empacota_e_renderiza_tudo_de_novo() {
     let cenario = Cenario::novo();
     cenario.produzir(Qualidade::Final).unwrap();
 
-    fs::write(
-        cenario.pasta.join("remotion/src/scenes/index.ts"),
-        "nova cena",
-    )
-    .unwrap();
+    fs::write(cenario.pasta.join("remotion/src/Root.tsx"), "outra raiz").unwrap();
     cenario.produzir(Qualidade::Final).unwrap();
 
     assert_eq!(cenario.pacotes(), 2);
     assert_eq!(cenario.renders().len(), 4);
+}
+
+#[test]
+fn uma_cena_nova_usada_so_por_um_reel_nao_renderiza_os_outros_de_novo() {
+    let cenario = Cenario::novo();
+    cenario.cena("Grafico", "grafico");
+    cenario.registrar(&["Grafico"]);
+    cenario.produzir(Qualidade::Final).unwrap();
+
+    cenario.cena("Versiculo", "versiculo");
+    cenario.registrar(&["Grafico", "Versiculo"]);
+    cenario.roteiro_com_cenas(&[
+        (
+            "c01",
+            "Negociar salário tem regra",
+            (0.0, 2.4),
+            &["Versiculo"],
+        ),
+        ("c02", "Dois / três: o que importa?", (2.5, 4.9), &[]),
+    ]);
+    cenario.produzir(Qualidade::Final).unwrap();
+
+    assert_eq!(cenario.renders_de("c01"), 2);
+    assert_eq!(cenario.renders_de("c02"), 1);
+    assert_eq!(cenario.pacotes(), 2);
+}
+
+#[test]
+fn corrigir_uma_cena_renderiza_de_novo_so_os_reels_que_a_citam() {
+    let cenario = Cenario::novo();
+    cenario.cena("Grafico", "grafico");
+    cenario.cena("Dinheiro", "dinheiro");
+    cenario.registrar(&["Grafico", "Dinheiro"]);
+    cenario.roteiro_com_cenas(&[
+        (
+            "c01",
+            "Negociar salário tem regra",
+            (0.0, 2.4),
+            &["Grafico"],
+        ),
+        (
+            "c02",
+            "Dois / três: o que importa?",
+            (2.5, 4.9),
+            &["Grafico", "Dinheiro"],
+        ),
+    ]);
+    cenario.produzir(Qualidade::Final).unwrap();
+
+    cenario.cena("Dinheiro", "dinheiro corrigido");
+    cenario.produzir(Qualidade::Final).unwrap();
+    assert_eq!(cenario.renders_de("c01"), 1);
+    assert_eq!(cenario.renders_de("c02"), 2);
+
+    cenario.cena("Grafico", "grafico corrigido");
+    cenario.produzir(Qualidade::Final).unwrap();
+    assert_eq!(cenario.renders_de("c01"), 2);
+    assert_eq!(cenario.renders_de("c02"), 3);
+}
+
+#[test]
+fn mudar_uma_cena_que_nenhum_reel_cita_empacota_sem_renderizar() {
+    let cenario = Cenario::novo();
+    cenario.cena("Grafico", "grafico");
+    cenario.registrar(&["Grafico"]);
+    cenario.produzir(Qualidade::Final).unwrap();
+
+    cenario.cena("Grafico", "grafico corrigido");
+    cenario.produzir(Qualidade::Final).unwrap();
+
+    assert_eq!(cenario.pacotes(), 2);
+    assert_eq!(cenario.renders().len(), 2);
+}
+
+#[test]
+fn mudar_so_o_registro_de_cenas_nao_renderiza_de_novo() {
+    let cenario = Cenario::novo();
+    cenario.cena("Grafico", "grafico");
+    cenario.registrar(&["Grafico"]);
+    cenario.roteiro_com_cenas(&[
+        (
+            "c01",
+            "Negociar salário tem regra",
+            (0.0, 2.4),
+            &["Grafico"],
+        ),
+        ("c02", "Dois / três: o que importa?", (2.5, 4.9), &[]),
+    ]);
+    cenario.produzir(Qualidade::Final).unwrap();
+
+    cenario.acrescentar_ao_registro("export const EXEMPLOS = {Grafico: {props: {}}};\n");
+    cenario.produzir(Qualidade::Final).unwrap();
+
+    assert_eq!(cenario.pacotes(), 2);
+    assert_eq!(cenario.renders().len(), 2);
+}
+
+#[test]
+fn um_arquivo_da_pasta_de_cenas_que_nao_e_cena_e_codigo_comum() {
+    let cenario = Cenario::novo();
+    cenario.cena("Grafico", "grafico");
+    cenario.registrar(&["Grafico"]);
+    fs::write(cenario.pasta.join("remotion/src/scenes/types.ts"), "tipos").unwrap();
+    cenario.produzir(Qualidade::Final).unwrap();
+
+    fs::write(
+        cenario.pasta.join("remotion/src/scenes/types.ts"),
+        "outros tipos",
+    )
+    .unwrap();
+    cenario.produzir(Qualidade::Final).unwrap();
+
+    assert_eq!(cenario.renders().len(), 4);
+}
+
+#[test]
+fn um_componente_da_pasta_de_cenas_que_nao_esta_no_registro_e_codigo_comum() {
+    let cenario = Cenario::novo();
+    cenario.cena("Grafico", "grafico");
+    cenario.cena("Fundo", "fundo");
+    cenario.registrar(&["Grafico"]);
+    cenario.produzir(Qualidade::Final).unwrap();
+
+    cenario.cena("Fundo", "outro fundo");
+    cenario.produzir(Qualidade::Final).unwrap();
+
+    assert_eq!(cenario.renders().len(), 4);
+}
+
+#[test]
+fn um_reel_que_cita_uma_cena_sem_arquivo_proprio_depende_de_todas_as_cenas() {
+    let cenario = Cenario::novo();
+    cenario.cena("Grafico", "grafico");
+    cenario.registrar(&["Grafico", "Fantasma"]);
+    cenario.roteiro_com_cenas(&[
+        (
+            "c01",
+            "Negociar salário tem regra",
+            (0.0, 2.4),
+            &["Fantasma"],
+        ),
+        ("c02", "Dois / três: o que importa?", (2.5, 4.9), &[]),
+    ]);
+    cenario.produzir(Qualidade::Final).unwrap();
+
+    cenario.acrescentar_ao_registro("export const EXEMPLOS = {};\n");
+    cenario.produzir(Qualidade::Final).unwrap();
+    cenario.cena("Grafico", "outro grafico");
+    cenario.produzir(Qualidade::Final).unwrap();
+
+    assert_eq!(cenario.renders_de("c01"), 3);
+    assert_eq!(cenario.renders_de("c02"), 1);
 }
 
 #[test]
