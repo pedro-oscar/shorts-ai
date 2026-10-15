@@ -219,7 +219,9 @@ impl Ytdlp {
 
     fn comando(&self) -> Command {
         let mut command = Command::new(&self.programa);
-        command.args(["--no-playlist", "--no-warnings"]);
+        // Sem `--encoding`, no Windows ele escreve no código de página do sistema (cp1252), e
+        // um caminho com acento chega aqui ilegível.
+        command.args(["--no-playlist", "--no-warnings", "--encoding", "utf-8"]);
         if let Some(node) = (self.node)() {
             command.arg("--js-runtimes");
             command.arg(format!("node:{}", node.display()));

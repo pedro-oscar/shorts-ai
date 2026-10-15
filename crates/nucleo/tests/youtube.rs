@@ -158,6 +158,7 @@ fn consultar_mostra_titulo_canal_e_duracao_e_atualiza_o_yt_dlp_uma_vez() {
     assert_eq!(chamadas.iter().filter(|c| *c == "-U").count(), 1);
     let consulta = chamadas.iter().find(|c| c.contains("--print")).unwrap();
     assert!(consulta.contains("--no-playlist"), "{consulta}");
+    assert!(consulta.contains("--encoding utf-8"), "{consulta}");
     assert!(
         consulta.contains("--js-runtimes node:/opt/node/bin/node"),
         "{consulta}"
@@ -266,6 +267,7 @@ fn a_importacao_baixa_o_video_e_o_projeto_guarda_a_confirmacao() {
         .find(|c| c.contains("--merge-output-format"))
         .unwrap();
     assert!(download.contains("--no-playlist"), "{download}");
+    assert!(download.contains("--encoding utf-8"), "{download}");
     assert!(download.contains("height<=1080"), "{download}");
     assert!(download.contains("ext=m4a"), "{download}");
     assert!(download.contains("merge-output-format mp4"), "{download}");

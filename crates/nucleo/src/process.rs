@@ -141,11 +141,40 @@ fn spawn_reader(
     stream: Stream,
     sender: mpsc::Sender<(Stream, String)>,
 ) -> thread::JoinHandle<()> {
+    // Lê até o fim, mesmo o que não for UTF-8 (o `yt-dlp` no Windows escreve em cp1252): parar
+    // antes fecharia o pipe, e a escrita seguinte do processo falharia (`Errno 22` no Windows).
     thread::spawn(move || {
-        for line in BufReader::new(source).lines().map_while(Result::ok) {
+        let mut reader = BufReader::new(source);
+        let mut bytes = Vec::new();
+        loop {
+            bytes.clear();
+            match reader.read_until(b'\n', &mut bytes) {
+                Ok(0) | Err(_) => break,
+                Ok(_) => {}
+            }
+            let line = String::from_utf8_lossy(&bytes);
+            let line = line.trim_end_matches(['\n', '\r']).to_owned();
             if sender.send((stream, line)).is_err() {
                 break;
             }
         }
     })
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn segue_lendo_depois_de_uma_linha_que_nao_e_utf8() {
+        // O yt-dlp no Windows escreve em cp1252: um caminho com "Ç" não é UTF-8. Se a leitura
+        // parasse ali, o pipe fecharia e a escrita seguinte do processo falharia.
+        let mut command = Command::new("sh");
+        command.args(["-c", r"printf 'antes\n\307\r\n'; sleep 0.2; echo depois"]);
+        let saida = run(command, &AtomicBool::new(false), &mut |_, _| {}).unwrap_or_else(|_| {
+            panic!("o sh não rodou");
+        });
+        assert!(saida.status.success(), "{:?}", saida.status);
+        assert_eq!(saida.stdout, ["antes", "\u{FFFD}", "depois"]);
+    }
 }
