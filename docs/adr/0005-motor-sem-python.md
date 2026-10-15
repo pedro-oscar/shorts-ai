@@ -43,5 +43,5 @@ Aceitamos o whisper.cpp assim.
 - **O contrato com o whisper.cpp:** o `-ojf` e a tabela do VAD que ele escreve no log. O log não é API: trocar de versão pede a suíte lenta com o motor real.
   - O `-ojf` grava o tempo dos tokens no áudio cortado pelo VAD.
   - O tempo do DTW não tem conversão nem na API.
-- **No Windows, o whisper-cli lê os argumentos na página de código do sistema;** o prompt com acentos vai num arquivo de resposta.
+- **No Windows, o whisper-cli lê os argumentos na página de código do sistema;** o prompt com acentos vai num arquivo de resposta, em UTF-8. Os caminhos ele confere na página de código, então os arquivos de trabalho vão por nome relativo à pasta em que ele roda (o projeto leva o título do vídeo). Os modelos só funcionam num caminho ASCII: a biblioteca os abre em UTF-8, e o cli os confere na página de código.
 - **No WSL, o Vulkan só enxerga a CPU (llvmpipe),** e a reserva de CPU com o large-v3 é muitas vezes mais lenta que o tempo real. O teste de referência no Linux precisa de outro caminho para a GPU.

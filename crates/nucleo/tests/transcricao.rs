@@ -132,13 +132,15 @@ mod orquestracao {
 
     use super::gravado;
 
-    /// O ffmpeg falso grava um arquivo no último argumento; o `sleep-forever` o trava.
+    /// O ffmpeg falso grava um arquivo no último argumento; o `sleep-forever` o trava, e a
+    /// marca `sem-audio` o faz sair sem gravar nada.
     const FFMPEG: &str = r#"#!/bin/sh
 dir="$(dirname "$0")"
 echo "$@" >> "$dir/ffmpeg.log"
 case "$*" in
 *sleep-forever*) exec sleep 30 ;;
 esac
+[ -f "$dir/sem-audio" ] && exit 0
 for ultimo; do :; done
 case "$ultimo" in *amostra*) [ -f "$dir/vazio" ] && { head -c 44 /dev/zero > "$ultimo"; exit 0; } ;; esac
 head -c 3200000 /dev/zero > "$ultimo"
@@ -147,16 +149,27 @@ head -c 3200000 /dev/zero > "$ultimo"
     /// O whisper-cli falso (o de Vulkan, `whisper-cli`, e o de CPU, `whisper-cli-cpu`) lê o
     /// arquivo de resposta, anota a chamada com o próprio nome, devolve a gravação do spike no
     /// `-of` e o log dela no stderr, com o progresso do `-pp`. A marca `falha` derruba os dois;
-    /// a `gpu-falha`, só o de Vulkan; a `trava` os prende até serem mortos.
+    /// a `gpu-falha`, só o de Vulkan; a `trava` os prende até serem mortos. Como o de verdade
+    /// no Windows, não acha o `-f` num caminho fora do ASCII e, aí, imprime a ajuda depois do
+    /// motivo.
     const WHISPER: &str = r#"#!/bin/sh
 dir="$(dirname "$0")"
 nome="$(basename "$0")"
 args="${1#@}"
 { printf '%s ' "$nome"; tr '\n' ' ' < "$args"; echo; } >> "$dir/whisper.log"
-saida="$(grep -A1 '^-of$' "$args" | tail -1)"
-case "$saida" in *sleep-forever*) exec sleep 30 ;; esac
+case "$PWD" in *sleep-forever*) exec sleep 30 ;; esac
 [ -f "$dir/trava" ] && exec sleep 30
 [ -f "$dir/falha" ] && { echo "falha de teste" >&2; exit 3; }
+audio="$(grep -A1 '^-f$' "$args" | tail -1)"
+if [ ! -f "$audio" ] || printf '%s' "$audio" | LC_ALL=C grep -q '[^ -~]'; then
+  echo "error: input file not found '$audio'" >&2
+  echo "error: no input files specified" >&2
+  printf '\nusage: whisper-cli [options] file0 file1 ...\n' >&2
+  echo "  -vo N,     --vad-samples-overlap         N [0.10   ] VAD samples overlap (seconds between segments)" >&2
+  echo >&2
+  exit 2
+fi
+saida="$(grep -A1 '^-of$' "$args" | tail -1)"
 if [ "$nome" = whisper-cli ] && [ -f "$dir/gpu-falha" ]; then
   echo "ggml_vulkan: device lost" >&2
   exit 1
@@ -507,6 +520,53 @@ echo "whisper_print_progress_callback: progress = 100%" >&2
         let chamadas = cenario.chamadas_do_whisper();
         assert_eq!(chamadas.len(), 2, "{chamadas:?}");
         assert!(chamadas[1].starts_with("whisper-cli-cpu "), "{chamadas:?}");
+    }
+
+    #[test]
+    fn quando_o_whisper_imprime_a_ajuda_o_erro_traz_o_motivo() {
+        let cenario = Cenario::novo();
+        cenario.marcar("sem-audio");
+
+        let erro = cenario
+            .transcrever(Some("pt"), &mut Vec::new())
+            .unwrap_err();
+
+        assert!(
+            matches!(
+                &erro,
+                ErroDaTranscricao::Falhou { programa: "whisper-cli", detalhe }
+                    if detalhe.starts_with("error: input file not found")
+            ),
+            "{erro:?}"
+        );
+    }
+
+    /// A pasta do projeto leva o título do vídeo, com qualquer caractere.
+    #[test]
+    fn um_projeto_com_acento_no_nome_e_transcrito() {
+        let cenario = Cenario::novo();
+        let edit = cenario
+            .tmp
+            .path()
+            .join("REVELAÇÃO E LÍNGUAS (2026-10-15)")
+            .join("edit");
+
+        cenario
+            .transcritor
+            .transcrever(
+                &Pedido {
+                    video: &cenario.video,
+                    pasta_de_saida: &edit,
+                    idioma: None,
+                    nomes_proprios: &[],
+                    faixa: None,
+                },
+                &AtomicBool::new(false),
+                &mut |_| {},
+            )
+            .unwrap();
+
+        assert!(edit.join("transcricao.json").exists());
     }
 
     #[test]

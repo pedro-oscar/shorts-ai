@@ -45,6 +45,11 @@ const WAV_BYTES_PER_SECOND: u64 = 32_000;
 const WAV_HEADER_BYTES: u64 = 44;
 /// De onde, no máximo, a detecção de idioma escuta.
 const LANGUAGE_DETECTION_MAX_START: u64 = 120;
+/// Os arquivos da pasta de trabalho que o whisper-cli lê e grava, pelo nome (`run_whisper`).
+const AUDIO: &str = "audio.wav";
+const AMOSTRA: &str = "amostra.wav";
+const TRANSCRICAO: &str = "transcricao";
+const DETECCAO: &str = "deteccao";
 
 const PROMPT_PT: &str =
     "Ahn, então, tipo... é, hum, né? Aí, tipo assim, eu acho que, hã, a gente... É isso.";
@@ -163,7 +168,7 @@ impl Transcritor {
         cancelar: &AtomicBool,
         progresso: &mut dyn FnMut(f64),
     ) -> Result<Transcricao, ErroDaTranscricao> {
-        let audio = work_dir.join("audio.wav");
+        let audio = work_dir.join(AUDIO);
         self.extract_audio(pedido.video, pedido.faixa, &audio, cancelar)?;
         // Se o Vulkan falha uma vez, o resto desta transcrição vai direto para a CPU.
         let mut cpu_only = false;
@@ -172,12 +177,11 @@ impl Transcritor {
             None => self.detectar_idioma(&audio, work_dir, cancelar, &mut cpu_only)?,
         };
 
-        let base = work_dir.join("transcricao");
         let mut args = vec![
             "-m".to_owned(),
             self.model.display().to_string(),
             "-f".to_owned(),
-            audio.display().to_string(),
+            AUDIO.to_owned(),
             "-l".to_owned(),
             idioma.clone(),
             "-t".to_owned(),
@@ -200,7 +204,7 @@ impl Transcritor {
             "400".to_owned(),
             "-ojf".to_owned(),
             "-of".to_owned(),
-            base.display().to_string(),
+            TRANSCRICAO.to_owned(),
             "-dtw".to_owned(),
             "large.v3".to_owned(),
             "-nfa".to_owned(),
@@ -208,7 +212,8 @@ impl Transcritor {
         ]);
         let stderr = self.whisper(
             &args,
-            &work_dir.join("whisper.txt"),
+            work_dir,
+            "whisper.txt",
             cancelar,
             &mut cpu_only,
             &mut |line| {
@@ -217,7 +222,7 @@ impl Transcritor {
                 }
             },
         )?;
-        let whisper = read_whisper_json(&base)?;
+        let whisper = read_whisper_json(&work_dir.join(TRANSCRICAO))?;
         let vad = vad_segments(&stderr);
         let idioma = whisper.result.language.unwrap_or(idioma);
         let mut palavras = palavras_do_whisper(&whisper.transcription, &vad);
@@ -271,7 +276,7 @@ impl Transcritor {
     ) -> Result<String, ErroDaTranscricao> {
         let size = fs::metadata(audio)?.len();
         let start = (size / WAV_BYTES_PER_SECOND / 3).min(LANGUAGE_DETECTION_MAX_START);
-        let sample = work_dir.join("amostra.wav");
+        let sample = work_dir.join(AMOSTRA);
         self.ffmpeg(
             vec![
                 "-y".into(),
@@ -293,28 +298,28 @@ impl Transcritor {
                 detalhe: "o trecho de detecção do idioma saiu sem áudio".to_owned(),
             });
         }
-        let base = work_dir.join("deteccao");
         let args = [
             "-m".to_owned(),
             self.model.display().to_string(),
             "-f".to_owned(),
-            sample.display().to_string(),
+            AMOSTRA.to_owned(),
             "-l".to_owned(),
             "auto".to_owned(),
             "-t".to_owned(),
             self.threads.to_string(),
             "-oj".to_owned(),
             "-of".to_owned(),
-            base.display().to_string(),
+            DETECCAO.to_owned(),
         ];
         self.whisper(
             &args,
-            &work_dir.join("deteccao.txt"),
+            work_dir,
+            "deteccao.txt",
             cancelar,
             cpu_only,
             &mut |_| {},
         )?;
-        read_whisper_json(&base)?
+        read_whisper_json(&work_dir.join(DETECCAO))?
             .result
             .language
             .ok_or_else(|| ErroDaTranscricao::SaidaIlegivel("sem idioma detectado".to_owned()))
@@ -326,23 +331,45 @@ impl Transcritor {
     fn whisper(
         &self,
         args: &[String],
-        response_file: &Path,
+        work_dir: &Path,
+        response_file: &str,
         cancel: &AtomicBool,
         cpu_only: &mut bool,
         on_stderr: &mut dyn FnMut(&str),
     ) -> Result<String, ErroDaTranscricao> {
         let Some(whisper_cpu) = &self.whisper_cpu else {
-            return run_whisper(&self.whisper, args, response_file, cancel, on_stderr);
+            return run_whisper(
+                &self.whisper,
+                args,
+                work_dir,
+                response_file,
+                cancel,
+                on_stderr,
+            );
         };
         if !*cpu_only {
-            match run_whisper(&self.whisper, args, response_file, cancel, on_stderr) {
+            match run_whisper(
+                &self.whisper,
+                args,
+                work_dir,
+                response_file,
+                cancel,
+                on_stderr,
+            ) {
                 Err(ErroDaTranscricao::Cancelado) => return Err(ErroDaTranscricao::Cancelado),
                 Err(_) => *cpu_only = true,
                 stderr => return stderr,
             }
         }
         let args = [args, &["-ng".to_owned()]].concat();
-        run_whisper(whisper_cpu, &args, response_file, cancel, on_stderr)
+        run_whisper(
+            whisper_cpu,
+            &args,
+            work_dir,
+            response_file,
+            cancel,
+            on_stderr,
+        )
     }
 
     fn ffmpeg(&self, args: Vec<OsString>, cancel: &AtomicBool) -> Result<(), ErroDaTranscricao> {
@@ -354,19 +381,25 @@ impl Transcritor {
     }
 }
 
-/// Um whisper-cli com os argumentos num arquivo de resposta: no Windows ele lê o argv na
-/// página de código do sistema, e o arquivo, em UTF-8, preserva os acentos do prompt e dos
-/// caminhos.
+/// Um whisper-cli com os argumentos num arquivo de resposta, rodando na pasta de trabalho. No
+/// Windows ele lê o argv na página de código do sistema, e o arquivo, em UTF-8, preserva os
+/// acentos do prompt. Os caminhos, porém, ele confere na página de código: um em UTF-8 com
+/// acento não é achado. Por isso os arquivos de trabalho vão pelo nome, relativo à pasta, e o
+/// título do vídeo no nome do projeto não chega ao whisper-cli. Os modelos, a biblioteca abre
+/// em UTF-8 e o cli confere na página de código, então só funcionam num caminho ASCII.
 fn run_whisper(
     program: &Path,
     args: &[String],
-    response_file: &Path,
+    work_dir: &Path,
+    response_file: &str,
     cancel: &AtomicBool,
     on_stderr: &mut dyn FnMut(&str),
 ) -> Result<String, ErroDaTranscricao> {
-    fs::write(response_file, args.join("\n"))?;
+    fs::write(work_dir.join(response_file), args.join("\n"))?;
     let mut command = Command::new(program);
-    command.arg(format!("@{}", response_file.display()));
+    command
+        .current_dir(work_dir)
+        .arg(format!("@{response_file}"));
     run_program("whisper-cli", command, cancel, &mut |stream, line| {
         if stream == Stream::Stderr {
             on_stderr(line);
@@ -399,9 +432,19 @@ fn run_program(
     } else {
         Err(ErroDaTranscricao::Falhou {
             programa: name,
-            detalhe: output.last_stderr_line().to_owned(),
+            detalhe: reason(&output).to_owned(),
         })
     }
+}
+
+/// Por que o programa falhou. O whisper-cli diz numa linha `error: …` e, quando não acha um
+/// arquivo, imprime a ajuda depois dela; sem essa linha, vale a última do stderr.
+fn reason(output: &process::Output) -> &str {
+    output
+        .stderr
+        .lines()
+        .find(|line| line.starts_with("error: "))
+        .unwrap_or_else(|| output.last_stderr_line())
 }
 
 /// Lê o JSON que o whisper-cli gravou em `<base>.json`.
