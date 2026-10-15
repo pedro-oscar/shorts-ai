@@ -2,10 +2,10 @@ import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useAppStore } from "../context";
 import { Screen, Topo } from "./common";
-import { VideoAusente } from "./Gerando";
+import { VideoAusente } from "./LinhaDeProducao";
 import { resumir } from "./formatos";
 
-/** O histórico: os lotes da Biblioteca e os vídeos de cada um. */
+/** O histórico: os lotes da Biblioteca e os vídeos de cada um, para abrir na Linha. */
 export function Lotes({
   onOpenSobre,
   onVoltar,
@@ -17,6 +17,7 @@ export function Lotes({
 }) {
   const { t, i18n } = useTranslation();
   const lotes = useAppStore((store) => store.lotes);
+  const loteAtual = useAppStore((store) => store.loteAtual);
   const projetos = useAppStore((store) => store.projetos);
   const tirarDoHistorico = useAppStore((store) => store.tirarDoHistorico);
   const carregarLotes = useAppStore((store) => store.carregarLotes);
@@ -30,18 +31,32 @@ export function Lotes({
   return (
     <>
       <Topo onOpenSobre={onOpenSobre} />
-      <Screen title={t("lotes.titulo")}>
-        <button type="button" onClick={onVoltar}>
-          {t("lotes.voltar")}
-        </button>
-        {lotes.length === 0 && <p>{t("lotes.vazio")}</p>}
-        <ul className="project-list">
+      <Screen larga title={t("lotes.titulo")}>
+        <div className="actions">
+          <button type="button" onClick={onVoltar}>
+            {t("lotes.voltar")}
+          </button>
+        </div>
+        {lotes.length === 0 && <p className="muted">{t("lotes.vazio")}</p>}
+        <ul className="lotes">
           {lotes.map((lote) => {
             const doLote = projetos.filter((p) => p.lote === lote.id);
             return (
-              <li key={lote.id} aria-label={lote.nome}>
-                <strong>{lote.nome}</strong>
-                <span>
+              <li
+                key={lote.id}
+                aria-label={lote.nome}
+                className={lote.id === loteAtual ? "aberto" : undefined}
+              >
+                <div>
+                  <strong>{lote.nome}</strong>
+                  {lote.aberto && (
+                    <>
+                      {" "}
+                      <span className="chip acento">{t("lotes.aberto")}</span>
+                    </>
+                  )}
+                </div>
+                <span className="detail">
                   {formato.format(new Date(lote.criadoEm))}
                   {` · ${t("lotes.projetos", { count: doLote.length })}`}
                 </span>
@@ -49,7 +64,7 @@ export function Lotes({
                   {doLote.map((projeto) => (
                     <li key={projeto.id}>
                       {projeto.titulo}
-                      {` · ${t(`gerando.estados.${resumir(projeto).estado}`)}`}
+                      {` · ${t(`linha.estados.${resumir(projeto).estado}`)}`}
                       {projeto.videoAusente && (
                         <VideoAusente projeto={projeto} />
                       )}
@@ -61,6 +76,7 @@ export function Lotes({
                       {` · ${t("lotes.naoEncontrado")} · `}
                       <button
                         type="button"
+                        className="discreto"
                         aria-label={t("lotes.tirarDe", { nome: id })}
                         onClick={() => {
                           void tirarDoHistorico(id);
@@ -71,15 +87,18 @@ export function Lotes({
                     </li>
                   ))}
                 </ul>
-                <button
-                  type="button"
-                  aria-label={t("lotes.abrirDe", { nome: lote.nome })}
-                  onClick={() => {
-                    onAbrir(lote.id);
-                  }}
-                >
-                  {t("lotes.abrir")}
-                </button>
+                <div className="actions">
+                  <button
+                    type="button"
+                    className={lote.id === loteAtual ? undefined : "primary"}
+                    aria-label={t("lotes.abrirDe", { nome: lote.nome })}
+                    onClick={() => {
+                      onAbrir(lote.id);
+                    }}
+                  >
+                    {t("lotes.abrir")}
+                  </button>
+                </div>
               </li>
             );
           })}

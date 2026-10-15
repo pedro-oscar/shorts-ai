@@ -106,7 +106,7 @@ export function Diagnostico({
               <dd>{discoEmTexto(t, retrato)}</dd>
             </dl>
             <h2>{t("diagnostico.dependencias")}</h2>
-            <ul aria-label={t("diagnostico.dependencias")}>
+            <ul className="marcada" aria-label={t("diagnostico.dependencias")}>
               {retrato.dependencias.map((dependencia) => (
                 <li key={dependencia.nome}>
                   {`${t(`diagnostico.nomes.${dependencia.nome}`)}: ${situacaoEmTexto(t, dependencia)}`}

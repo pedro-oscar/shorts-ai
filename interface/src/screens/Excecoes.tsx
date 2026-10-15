@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { Excecoes, IdiomaDoVideo, ProjetoResumo } from "../bindings";
 import { useAppStore } from "../context";
+import { Dialogo } from "./common";
 import {
   type CamposDasExcecoes,
   camposDas,
@@ -55,6 +56,59 @@ export function ResumoDasExcecoes({ excecoes }: { excecoes: Excecoes }) {
   );
 }
 
+/** Os campos Início e Fim da Faixa de um vídeo; `nome` distingue os vídeos na tela. */
+export function CamposDaFaixa({
+  nome,
+  inicio,
+  fim,
+  onChange,
+}: {
+  nome: string;
+  inicio: string;
+  fim: string;
+  onChange: (campo: "inicio" | "fim", texto: string) => void;
+}) {
+  const { t } = useTranslation();
+  const invalida = lerFaixa(inicio, fim) === "invalida";
+  return (
+    <fieldset>
+      <legend>{t("videos.faixa")}</legend>
+      <p className="detail">{t("videos.faixaDica")}</p>
+      <div className="campos duas">
+        <label className="campo">
+          <span>{t("videos.inicio")}</span>
+          <input
+            type="text"
+            placeholder="0:00"
+            aria-label={t("videos.faixaInicio", { nome })}
+            value={inicio}
+            onChange={(event) => {
+              onChange("inicio", event.target.value);
+            }}
+          />
+        </label>
+        <label className="campo">
+          <span>{t("videos.fim")}</span>
+          <input
+            type="text"
+            placeholder="—"
+            aria-label={t("videos.faixaFim", { nome })}
+            value={fim}
+            onChange={(event) => {
+              onChange("fim", event.target.value);
+            }}
+          />
+        </label>
+      </div>
+      {invalida && (
+        <p role="alert" className="error">
+          {t("videos.faixaInvalida", { nome })}
+        </p>
+      )}
+    </fieldset>
+  );
+}
+
 /** Os campos de Exceção que valem em qualquer lugar; `nome` distingue os vídeos na tela. */
 export function CamposDeExcecoes({
   nome,
@@ -72,27 +126,51 @@ export function CamposDeExcecoes({
     if (kits.length === 0) void carregarKits();
   }, [kits.length, carregarKits]);
   return (
-    <div className="exceptions">
-      <label>
-        {t("padroes.quantidade")}
-        <select
-          aria-label={t("excecoes.quantidade", { nome })}
-          value={campos.quantidade}
-          onChange={(event) => {
-            onChange({ quantidade: event.target.value });
-          }}
-        >
-          <option value="">{t("excecoes.padrao")}</option>
-          {QUANTIDADES.map((n) => (
-            <option key={n} value={n}>
-              {n}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label>
-        {t("padroes.pedido")}
+    <fieldset>
+      <legend>{t("excecoes.titulo")}</legend>
+      <p className="detail">{t("excecoes.dica")}</p>
+      <div className="campos duas">
+        <label className="campo">
+          <span>{t("padroes.quantidade")}</span>
+          <select
+            aria-label={t("excecoes.quantidade", { nome })}
+            value={campos.quantidade}
+            onChange={(event) => {
+              onChange({ quantidade: event.target.value });
+            }}
+          >
+            <option value="">{t("excecoes.padrao")}</option>
+            {QUANTIDADES.map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="campo">
+          <span>{t("padroes.idioma")}</span>
+          <select
+            aria-label={t("excecoes.idioma", { nome })}
+            value={campos.idioma}
+            onChange={(event) => {
+              onChange({
+                idioma: event.target.value as CamposDasExcecoes["idioma"],
+              });
+            }}
+          >
+            <option value="">{t("excecoes.padrao")}</option>
+            {IDIOMAS.map((idioma) => (
+              <option key={idioma} value={idioma}>
+                {t(`padroes.idiomas.${idioma}`)}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <label className="campo">
+        <span>{t("padroes.pedido")}</span>
         <textarea
+          rows={2}
           aria-label={t("excecoes.pedido", { nome })}
           value={campos.pedido}
           onChange={(event) => {
@@ -100,9 +178,10 @@ export function CamposDeExcecoes({
           }}
         />
       </label>
-      <label>
-        {t("padroes.nomesProprios")}
+      <label className="campo">
+        <span>{t("padroes.nomesProprios")}</span>
         <textarea
+          rows={2}
           aria-label={t("excecoes.nomes", { nome })}
           value={campos.nomes}
           onChange={(event) => {
@@ -110,27 +189,8 @@ export function CamposDeExcecoes({
           }}
         />
       </label>
-      <label>
-        {t("padroes.idioma")}
-        <select
-          aria-label={t("excecoes.idioma", { nome })}
-          value={campos.idioma}
-          onChange={(event) => {
-            onChange({
-              idioma: event.target.value as CamposDasExcecoes["idioma"],
-            });
-          }}
-        >
-          <option value="">{t("excecoes.padrao")}</option>
-          {IDIOMAS.map((idioma) => (
-            <option key={idioma} value={idioma}>
-              {t(`padroes.idiomas.${idioma}`)}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label>
-        {t("excecoes.kitRotulo")}
+      <label className="campo">
+        <span>{t("excecoes.kitRotulo")}</span>
         <select
           aria-label={t("excecoes.kit", { nome })}
           value={campos.kit}
@@ -146,7 +206,7 @@ export function CamposDeExcecoes({
           ))}
         </select>
       </label>
-      <label>
+      <label className="marcador">
         <input
           type="checkbox"
           aria-label={t("excecoes.semLogo", { nome })}
@@ -157,15 +217,53 @@ export function CamposDeExcecoes({
         />
         {t("excecoes.semLogoRotulo")}
       </label>
+    </fieldset>
+  );
+}
+
+/**
+ * As Exceções de um projeto que espera a vez: o resumo e a janela para mudá-las, que só
+ * grava ao Salvar.
+ */
+export function ExcecoesDoProjeto({ projeto }: { projeto: ProjetoResumo }) {
+  const { t } = useTranslation();
+  const [aberto, setAberto] = useState(false);
+  const nome = projeto.titulo;
+  return (
+    <div>
+      <ResumoDasExcecoes excecoes={projeto.excecoes} />
+      <button
+        type="button"
+        className="discreto"
+        aria-label={t("excecoes.abrirDe", { nome })}
+        aria-expanded={aberto}
+        onClick={() => {
+          setAberto(true);
+        }}
+      >
+        {t("excecoes.titulo")}
+      </button>
+      {aberto && (
+        <JanelaDasExcecoes
+          projeto={projeto}
+          onFechar={() => {
+            setAberto(false);
+          }}
+        />
+      )}
     </div>
   );
 }
 
-/** As Exceções de um projeto que espera a vez: o resumo e o formulário para mudá-las. */
-export function ExcecoesDoProjeto({ projeto }: { projeto: ProjetoResumo }) {
+function JanelaDasExcecoes({
+  projeto,
+  onFechar,
+}: {
+  projeto: ProjetoResumo;
+  onFechar: () => void;
+}) {
   const { t } = useTranslation();
   const definir = useAppStore((store) => store.definirExcecoes);
-  const [aberto, setAberto] = useState(false);
   const [campos, setCampos] = useState(() => camposDas(projeto.excecoes));
   const [inicio, setInicio] = useState(() =>
     projeto.excecoes.faixa
@@ -180,67 +278,45 @@ export function ExcecoesDoProjeto({ projeto }: { projeto: ProjetoResumo }) {
   const faixa = lerFaixa(inicio, fim);
   const nome = projeto.titulo;
   return (
-    <div>
-      <ResumoDasExcecoes excecoes={projeto.excecoes} />{" "}
-      <button
-        type="button"
-        aria-label={t("excecoes.abrirDe", { nome })}
-        aria-expanded={aberto}
-        onClick={() => {
-          setAberto(!aberto);
+    <Dialogo titulo={t("ajustes.titulo", { nome })} onFechar={onFechar}>
+      <form
+        className="campos"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (faixa === "invalida") return;
+          void definir(projeto.id, lerExcecoes(campos, faixa)).then(onFechar);
         }}
       >
-        {t("excecoes.titulo")}
-      </button>
-      {aberto && (
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (faixa === "invalida") return;
-            void definir(projeto.id, lerExcecoes(campos, faixa)).then(() => {
-              setAberto(false);
-            });
+        <CamposDaFaixa
+          nome={nome}
+          inicio={inicio}
+          fim={fim}
+          onChange={(campo, texto) => {
+            if (campo === "inicio") setInicio(texto);
+            else setFim(texto);
           }}
-        >
-          <CamposDeExcecoes
-            nome={nome}
-            campos={campos}
-            onChange={(mudancas) => {
-              setCampos({ ...campos, ...mudancas });
-            }}
-          />
-          <input
-            type="text"
-            placeholder="0:00"
-            aria-label={t("videos.faixaInicio", { nome })}
-            value={inicio}
-            onChange={(event) => {
-              setInicio(event.target.value);
-            }}
-          />
-          <input
-            type="text"
-            placeholder="—"
-            aria-label={t("videos.faixaFim", { nome })}
-            value={fim}
-            onChange={(event) => {
-              setFim(event.target.value);
-            }}
-          />
-          {faixa === "invalida" && (
-            <span role="alert" className="detail">
-              {t("videos.faixaInvalida", { nome })}
-            </span>
-          )}
+        />
+        <CamposDeExcecoes
+          nome={nome}
+          campos={campos}
+          onChange={(mudancas) => {
+            setCampos({ ...campos, ...mudancas });
+          }}
+        />
+        <div className="actions fim">
+          <button type="button" onClick={onFechar}>
+            {t("comum.cancelar")}
+          </button>
           <button
             type="submit"
+            className="primary"
             aria-label={t("excecoes.salvarDe", { nome })}
             disabled={faixa === "invalida"}
           >
             {t("excecoes.salvar")}
           </button>
-        </form>
-      )}
-    </div>
+        </div>
+      </form>
+    </Dialogo>
   );
 }

@@ -28,6 +28,7 @@ import type {
   VerificacaoDaLogo,
 } from "./bindings";
 import type { Nucleo } from "./nucleo";
+import { contaPronta } from "./screens/contaPronta";
 import {
   type CamposDasExcecoes,
   SEM_CAMPOS,
@@ -126,6 +127,11 @@ export interface AppState {
   erroAoAceitar: Erro | null;
   /** `null` até o núcleo verificar o Claude Code. */
   conta: EstadoDaConta | null;
+  /**
+   * A Conta já foi conferida nesta execução: estava pronta quando o núcleo a verificou, ou a
+   * pessoa seguiu dela. Até lá, a Conta abre sozinha.
+   */
+  contaConferida: boolean;
   /** O login está aberto no navegador e o app espera o status mudar. */
   entrando: boolean;
   /** O teste de resposta que roda depois do login. */
@@ -220,6 +226,8 @@ export interface AppStore extends AppState {
   preparar: () => Promise<void>;
   aceitarAviso: () => Promise<void>;
   verificarConta: () => Promise<void>;
+  /** A pessoa seguiu da Conta: ela não abre mais sozinha nesta execução. */
+  conferirConta: () => void;
   entrarNoClaudeCode: (modo: ModoDeLogin) => Promise<void>;
   instalarClaudeCode: () => Promise<void>;
   atualizarClaudeCode: () => Promise<void>;
@@ -267,6 +275,8 @@ export interface AppStore extends AppState {
   tentarDeNovo: (id: string) => Promise<void>;
   /** Anda com o projeto que espera a vez na fila. */
   moverNaFila: (id: string, movimento: Movimento) => Promise<void>;
+  /** Leva o projeto à posição `posicao` da fila do lote dele, um passo de cada vez. */
+  reordenarFila: (id: string, posicao: number) => Promise<void>;
   /** Tira da lista o projeto que nunca começou. */
   removerProjeto: (id: string) => Promise<void>;
   /** Exclui o projeto, já confirmado pela pessoa, e guarda o espaço liberado. */
@@ -529,6 +539,7 @@ export function createAppStore(nucleo: Nucleo) {
       aceite: null,
       erroAoAceitar: null,
       conta: null,
+      contaConferida: false,
       entrando: false,
       testeDoClaude: "pendente",
       erroDaConta: null,
@@ -746,7 +757,18 @@ export function createAppStore(nucleo: Nucleo) {
       },
 
       verificarConta: async () => {
-        set({ conta: await nucleo.verificarConta(), erroDaConta: null });
+        const conta = await nucleo.verificarConta();
+        set((current) => {
+          const proximo = { ...current, conta, erroDaConta: null };
+          return {
+            ...proximo,
+            contaConferida: current.contaConferida || contaPronta(proximo),
+          };
+        });
+      },
+
+      conferirConta: () => {
+        set({ contaConferida: true });
       },
 
       entrarNoClaudeCode: async (modo) => {
@@ -964,6 +986,31 @@ export function createAppStore(nucleo: Nucleo) {
 
       moverNaFila: (id, movimento) =>
         executarCiclo(nucleo.moverNaFila(id, movimento)),
+      reordenarFila: async (id, posicao) => {
+        // O núcleo só move um passo por vez; a ordem nova chega por evento a cada passo.
+        const filaDe = () => {
+          const lote = get().projetos.find((p) => p.id === id)?.lote;
+          return get()
+            .projetos.filter(
+              (projeto) =>
+                projeto.lote === lote &&
+                projeto.parada === null &&
+                projeto.etapas.every((item) => item.estado === "pendente"),
+            )
+            .map((projeto) => projeto.id);
+        };
+        const de = filaDe().indexOf(id);
+        if (de < 0 || de === posicao) return;
+        const movimento: Movimento = posicao < de ? "subir" : "descer";
+        for (let passo = 0; passo < Math.abs(posicao - de); passo++) {
+          const result = await nucleo.moverNaFila(id, movimento);
+          if (result.status === "error") {
+            set({ erroDoCiclo: result.error });
+            return;
+          }
+        }
+        set({ erroDoCiclo: null });
+      },
       removerProjeto: (id) => executarCiclo(nucleo.removerProjeto(id)),
       excluirProjeto: async (id) => {
         const titulo = get().projetos.find((p) => p.id === id)?.titulo ?? id;

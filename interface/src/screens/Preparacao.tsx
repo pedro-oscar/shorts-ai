@@ -39,13 +39,13 @@ export function Preparacao({ onOpenSobre }: { onOpenSobre: () => void }) {
       <Topo onOpenSobre={onOpenSobre} />
       <Screen title={t("preparacao.titulo")}>
         <p>{t("preparacao.introducao")}</p>
-        <ul className="file-list">
+        <ul className="pacotes">
           {preparacao.pacotes.map(({ pacote, presente, tamanhoEmMb }) => {
             const nome = t(`preparacao.pacotes.${pacote}`);
             const atual = andamento[pacote];
             return (
               <li key={pacote}>
-                <span className="file-name">{nome}</span>
+                <strong>{nome}</strong>
                 <span className="detail">
                   {t("preparacao.tamanho", {
                     tamanho: tamanho(tamanhoEmMb),

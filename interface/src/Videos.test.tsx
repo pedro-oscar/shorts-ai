@@ -4,6 +4,7 @@ import { expect, test } from "vitest";
 import { App } from "./App";
 import { ACCEPTED_AT, createFakeNucleo } from "./test/fakeNucleo";
 
+/** Sem lote nenhum, o app abre na folha de Vídeos. */
 async function renderVideos() {
   const fake = createFakeNucleo({
     aceite: { data: ACCEPTED_AT },
@@ -11,7 +12,6 @@ async function renderVideos() {
   });
   render(<App nucleo={fake.nucleo} />);
   const user = userEvent.setup();
-  await user.click(await screen.findByRole("button", { name: "Continuar" }));
   await screen.findByRole("heading", { name: "Vídeos" });
   return { ...fake, user };
 }
@@ -43,34 +43,32 @@ test("soltar arquivos na janela os põe na lista, sem repetir", async () => {
   expect(within(lista).getAllByRole("listitem")).toHaveLength(1);
 });
 
-test("Continuar fica desligado sem vídeos e a tela mostra a Biblioteca", async () => {
+test("Gerar fica desligado sem vídeos e a folha mostra a Biblioteca", async () => {
   await renderVideos();
 
-  expect(screen.getByRole("button", { name: "Continuar" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Gerar" })).toBeDisabled();
   screen.getByText(/Biblioteca: \/home\/ana\/Vídeos\/Shorts AI/);
 });
 
-test("Gerar cria o lote e Gerando mostra o projeto etapa a etapa", async () => {
+test("Gerar cria o lote e a Linha de produção mostra o projeto etapa a etapa", async () => {
   const { user, pick, calls, etapa } = await renderVideos();
   pick(["/v/aula.mp4"]);
   await user.click(screen.getByRole("button", { name: "Escolher arquivos" }));
   await screen.findByRole("list", { name: "Vídeos escolhidos" });
 
-  await user.click(screen.getByRole("button", { name: "Continuar" }));
   await user.click(await screen.findByRole("button", { name: /^Gerar até/ }));
 
-  await screen.findByRole("heading", { name: "Gerando" });
+  await screen.findByRole("heading", { name: "Linha de produção" });
   expect(calls.lotes).toEqual([["/v/aula.mp4"]]);
-  const projeto = screen.getByRole("listitem", { name: "aula" });
-  expect(projeto).toHaveTextContent("Na fila");
+  expect(cartao()).toHaveTextContent("Na fila");
 
   etapa("aula (2026-10-09)", "importacao", "emAndamento");
-  await within(projeto).findByText("Em andamento · etapa 1/5");
+  await screen.findByText("Em andamento · etapa 1/5");
 
   etapa("aula (2026-10-09)", "importacao", "concluida");
-  await within(projeto).findByText("Importação: concluída");
-  expect(projeto).toHaveTextContent("Transcrição: pendente");
-  expect(projeto).toHaveTextContent("etapa 2/5");
+  await screen.findByText("Importação: concluída");
+  expect(cartao()).toHaveTextContent("Transcrição: pendente");
+  expect(cartao()).toHaveTextContent("etapa 2/5");
 });
 
 async function gerarAula() {
@@ -80,18 +78,22 @@ async function gerarAula() {
     screen.getByRole("button", { name: "Escolher arquivos" }),
   );
   await screen.findByRole("list", { name: "Vídeos escolhidos" });
-  await fake.user.click(screen.getByRole("button", { name: "Continuar" }));
   await fake.user.click(
     await screen.findByRole("button", { name: /^Gerar até/ }),
   );
-  await screen.findByRole("heading", { name: "Gerando" });
-  return { ...fake, projeto: screen.getByRole("listitem", { name: "aula" }) };
+  await screen.findByRole("heading", { name: "Linha de produção" });
+  return fake;
 }
 
 const AULA = "aula (2026-10-09)";
 
+/** O cartão do projeto: muda de coluna a cada etapa, então é outro elemento a cada vez. */
+function cartao() {
+  return screen.getByRole("listitem", { name: "aula" });
+}
+
 test("a Transcrição mostra a porcentagem, e a barra anda junto", async () => {
-  const { etapa, emitir, projeto } = await gerarAula();
+  const { etapa, emitir } = await gerarAula();
   etapa(AULA, "importacao", "concluida");
   etapa(AULA, "transcricao", "emAndamento");
 
@@ -102,17 +104,17 @@ test("a Transcrição mostra a porcentagem, e a barra anda junto", async () => {
     percentual: 42,
   });
 
-  await within(projeto).findByText("Em andamento · etapa 2/5 · 42%");
+  await screen.findByText("Em andamento · etapa 2/5 · 42%");
   expect(
-    within(projeto).getByRole("progressbar", { name: "Progresso de aula" }),
+    within(cartao()).getByRole("progressbar", { name: "Progresso de aula" }),
   ).toHaveAttribute("value", "1.42");
 
   etapa(AULA, "transcricao", "concluida");
-  await within(projeto).findByText("Em andamento · etapa 3/5");
+  await screen.findByText("Em andamento · etapa 3/5");
 });
 
 test("o Roteiro mostra ao vivo as últimas ações do Claude e os tokens", async () => {
-  const { etapa, emitir, projeto } = await gerarAula();
+  const { etapa, emitir } = await gerarAula();
   etapa(AULA, "importacao", "concluida");
   etapa(AULA, "transcricao", "concluida");
   etapa(AULA, "roteiro", "emAndamento");
@@ -140,9 +142,7 @@ test("o Roteiro mostra ao vivo as últimas ações do Claude e os tokens", async
     cache: 1234567,
   });
 
-  const acoes = await within(projeto).findByRole("list", {
-    name: "Ações do Claude",
-  });
+  const acoes = await screen.findByRole("list", { name: "Ações do Claude" });
   expect(
     within(acoes)
       .getAllByRole("listitem")
@@ -154,58 +154,50 @@ test("o Roteiro mostra ao vivo as últimas ações do Claude e os tokens", async
     "→ TodoWrite",
     "→ Write /projeto/edit/roteiro.json",
   ]);
-  within(projeto).getByText(
+  within(cartao()).getByText(
     "Tokens da sessão: 12.345 de entrada e 1.234.567 de cache",
   );
 
   // A falha deixa as ações à vista; a etapa seguinte começa do zero.
   etapa(AULA, "roteiro", "falhou", "roteiro inválido");
-  await within(projeto).findByText("Falhou");
-  within(projeto).getByRole("list", { name: "Ações do Claude" });
+  await screen.findByText("Falhou");
+  within(cartao()).getByRole("list", { name: "Ações do Claude" });
   etapa(AULA, "roteiro", "emAndamento");
-  await within(projeto).findByText("Em andamento · etapa 3/5");
+  await screen.findByText("Em andamento · etapa 3/5");
   expect(
-    within(projeto).queryByRole("list", { name: "Ações do Claude" }),
+    within(cartao()).queryByRole("list", { name: "Ações do Claude" }),
   ).toBeNull();
-  expect(within(projeto).queryByText(/Tokens da sessão/)).toBeNull();
+  expect(within(cartao()).queryByText(/Tokens da sessão/)).toBeNull();
 });
 
 test("a falha da Importação mostra o motivo", async () => {
-  const { user, pick, etapa } = await renderVideos();
-  pick(["/v/aula.mp4"]);
-  await user.click(screen.getByRole("button", { name: "Escolher arquivos" }));
-  await screen.findByRole("list", { name: "Vídeos escolhidos" });
-  await user.click(screen.getByRole("button", { name: "Continuar" }));
-  await user.click(await screen.findByRole("button", { name: /^Gerar até/ }));
-  await screen.findByRole("heading", { name: "Gerando" });
+  const { etapa } = await gerarAula();
 
-  etapa("aula (2026-10-09)", "importacao", "falhou", "No such file");
+  etapa(AULA, "importacao", "falhou", "No such file");
 
   await screen.findByText("Falhou");
   expect(screen.getByRole("alert")).toHaveTextContent("No such file");
 });
 
-test("um lote recusado pelo núcleo mostra o erro e fica em Padrões", async () => {
+test("um lote recusado pelo núcleo mostra o erro e fica em Vídeos", async () => {
   const { user, pick, failBatch } = await renderVideos();
   failBatch({ codigo: "arquivoInvalido", caminho: "/v/aula.mp4" });
   pick(["/v/aula.mp4"]);
   await user.click(screen.getByRole("button", { name: "Escolher arquivos" }));
   await screen.findByRole("list", { name: "Vídeos escolhidos" });
 
-  await user.click(screen.getByRole("button", { name: "Continuar" }));
   await user.click(await screen.findByRole("button", { name: /^Gerar até/ }));
 
   expect(await screen.findByRole("alert")).toHaveTextContent(
     "/v/aula.mp4 não é um vídeo aceito",
   );
-  screen.getByRole("heading", { name: "Padrões" });
+  screen.getByRole("heading", { name: "Vídeos" });
 });
 
 async function colarLinks(
   fake: Awaited<ReturnType<typeof renderVideos>>,
   linhas: string[],
 ) {
-  await fake.user.click(screen.getByRole("tab", { name: "Link do YouTube" }));
   await fake.user.type(
     screen.getByRole("textbox", { name: /Links do YouTube/ }),
     linhas.join("\n"),
@@ -228,7 +220,7 @@ test("colar um link mostra título, canal e duração antes de baixar", async ()
   expect(fake.calls.consultas).toEqual(["https://youtu.be/KGfmaHnBQx4"]);
 });
 
-test("um endereço que não é do YouTube recebe uma mensagem clara e trava o Continuar", async () => {
+test("um endereço que não é do YouTube recebe uma mensagem clara e trava o Gerar", async () => {
   const fake = await renderVideos();
 
   await colarLinks(fake, ["https://vimeo.com/123"]);
@@ -237,7 +229,7 @@ test("um endereço que não é do YouTube recebe uma mensagem clara e trava o Co
   expect(alerta).toHaveTextContent(
     "https://vimeo.com/123 não é um link de vídeo do YouTube",
   );
-  expect(screen.getByRole("button", { name: "Continuar" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: /^Gerar/ })).toBeDisabled();
 
   await fake.user.click(
     screen.getByRole("button", { name: "Remover https://vimeo.com/123" }),
@@ -245,25 +237,22 @@ test("um endereço que não é do YouTube recebe uma mensagem clara e trava o Co
   expect(screen.queryByRole("alert")).toBeNull();
 });
 
-test("Continuar espera o direito de uso de cada link e Gerar envia a confirmação", async () => {
+test("Gerar espera o direito de uso de cada link e envia a confirmação", async () => {
   const fake = await renderVideos();
   await colarLinks(fake, ["https://youtu.be/KGfmaHnBQx4"]);
   await screen.findByText(/Vídeo KGfmaHnBQx4/);
-  const continuar = screen.getByRole("button", { name: "Continuar" });
-  expect(continuar).toBeDisabled();
+  const gerar = screen.getByRole("button", { name: /^Gerar até/ });
+  expect(gerar).toBeDisabled();
 
   await fake.user.click(
     screen.getByRole("checkbox", {
       name: "Tenho direito de uso de Vídeo KGfmaHnBQx4",
     }),
   );
-  expect(continuar).toBeEnabled();
-  await fake.user.click(continuar);
-  await fake.user.click(
-    await screen.findByRole("button", { name: /^Gerar até/ }),
-  );
+  expect(gerar).toBeEnabled();
+  await fake.user.click(gerar);
 
-  await screen.findByRole("heading", { name: "Gerando" });
+  await screen.findByRole("heading", { name: "Linha de produção" });
   expect(fake.calls.links).toEqual([
     [
       {
@@ -303,8 +292,22 @@ test("com vários links, 'Confirmo para todos' marca o direito de uso de cada um
     name: /^Tenho direito de uso de/,
   }))
     expect(checkbox).toBeChecked();
-  expect(screen.getByRole("button", { name: "Continuar" })).toBeEnabled();
+  expect(screen.getByRole("button", { name: /^Gerar até/ })).toBeEnabled();
 });
+
+/** Abre os Ajustes do vídeo, preenche a Faixa e fecha. */
+async function ajustarFaixa(
+  user: ReturnType<typeof userEvent.setup>,
+  nome: string,
+  inicio: string,
+  fim?: string,
+) {
+  await user.click(screen.getByRole("button", { name: `Ajustar ${nome}` }));
+  await user.type(screen.getByLabelText(`Início de ${nome} (m:ss)`), inicio);
+  if (fim !== undefined)
+    await user.type(screen.getByLabelText(`Fim de ${nome} (m:ss)`), fim);
+  await user.click(screen.getByRole("button", { name: "Pronto" }));
+}
 
 test("Início e Fim de um arquivo vão ao núcleo como faixa em segundos", async () => {
   const { user, pick, calls } = await renderVideos();
@@ -312,13 +315,11 @@ test("Início e Fim de um arquivo vão ao núcleo como faixa em segundos", async
   await user.click(screen.getByRole("button", { name: "Escolher arquivos" }));
   await screen.findByRole("list", { name: "Vídeos escolhidos" });
 
-  await user.type(screen.getByLabelText("Início de aula.mp4 (m:ss)"), "10:00");
-  await user.type(screen.getByLabelText("Fim de aula.mp4 (m:ss)"), "1:02:03");
-  await user.type(screen.getByLabelText("Início de live.mkv (m:ss)"), "90");
-  await user.click(screen.getByRole("button", { name: "Continuar" }));
+  await ajustarFaixa(user, "aula.mp4", "10:00", "1:02:03");
+  await ajustarFaixa(user, "live.mkv", "90");
   await user.click(await screen.findByRole("button", { name: /^Gerar até/ }));
 
-  await screen.findByRole("heading", { name: "Gerando" });
+  await screen.findByRole("heading", { name: "Linha de produção" });
   expect(calls.faixasDosArquivos).toEqual([
     [
       { inicio: 600, fim: 3723 },
@@ -332,42 +333,37 @@ test("a faixa de um link vai junto com ele", async () => {
   await colarLinks(fake, ["https://youtu.be/KGfmaHnBQx4"]);
   await screen.findByText(/Vídeo KGfmaHnBQx4/);
 
-  await fake.user.type(
-    screen.getByLabelText("Início de Vídeo KGfmaHnBQx4 (m:ss)"),
-    "5:00",
-  );
-  await fake.user.type(
-    screen.getByLabelText("Fim de Vídeo KGfmaHnBQx4 (m:ss)"),
-    "20:00",
-  );
+  await ajustarFaixa(fake.user, "Vídeo KGfmaHnBQx4", "5:00", "20:00");
   await fake.user.click(
     screen.getByRole("checkbox", {
       name: "Tenho direito de uso de Vídeo KGfmaHnBQx4",
     }),
   );
-  await fake.user.click(screen.getByRole("button", { name: "Continuar" }));
   await fake.user.click(
     await screen.findByRole("button", { name: /^Gerar até/ }),
   );
 
-  await screen.findByRole("heading", { name: "Gerando" });
+  await screen.findByRole("heading", { name: "Linha de produção" });
   expect(fake.calls.links[0]?.[0]?.faixa).toEqual({ inicio: 300, fim: 1200 });
 });
 
-test("uma faixa com o fim antes do início avisa e trava o Continuar", async () => {
+test("uma faixa com o fim antes do início avisa e trava o Gerar", async () => {
   const { user, pick } = await renderVideos();
   pick(["/v/aula.mp4"]);
   await user.click(screen.getByRole("button", { name: "Escolher arquivos" }));
   await screen.findByRole("list", { name: "Vídeos escolhidos" });
 
+  await user.click(screen.getByRole("button", { name: "Ajustar aula.mp4" }));
   await user.type(screen.getByLabelText("Início de aula.mp4 (m:ss)"), "5:00");
   await user.type(screen.getByLabelText("Fim de aula.mp4 (m:ss)"), "1:00");
 
   expect(await screen.findByRole("alert")).toHaveTextContent(
     "A faixa de aula.mp4 não vale",
   );
-  expect(screen.getByRole("button", { name: "Continuar" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: /^Gerar até/ })).toBeDisabled();
 
   await user.clear(screen.getByLabelText("Fim de aula.mp4 (m:ss)"));
-  expect(screen.getByRole("button", { name: "Continuar" })).toBeEnabled();
+  expect(screen.getByRole("button", { name: /^Gerar até/ })).toBeEnabled();
+  await user.click(screen.getByRole("button", { name: "Pronto" }));
+  expect(screen.queryByRole("alert")).toBeNull();
 });

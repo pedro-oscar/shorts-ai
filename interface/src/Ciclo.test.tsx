@@ -71,47 +71,62 @@ function renderApp(projetos: ProjetoResumo[]) {
   return { ...fake, user: userEvent.setup() };
 }
 
+/** Abre o menu ⋯ do cartão. */
+async function abrirMenu(
+  user: ReturnType<typeof userEvent.setup>,
+  cartao: HTMLElement,
+  nome: string,
+) {
+  await user.click(
+    within(cartao).getByRole("button", { name: `Mais ações de ${nome}` }),
+  );
+  return within(cartao).getByRole("menu");
+}
+
 test("Pausar e Cancelar valem para o projeto que anda; o estado muda pelos eventos", async () => {
   const app = renderApp([projeto("aula", 1)]);
-  const linha = await screen.findByRole("listitem", { name: "aula" });
+  const cartao = await screen.findByRole("listitem", { name: "aula" });
 
   await app.user.click(
-    within(linha).getByRole("button", { name: "Pausar aula" }),
+    within(cartao).getByRole("button", { name: "Pausar aula" }),
   );
   expect(app.calls.ciclo).toEqual(["pausar:aula"]);
   act(() => {
     app.emitir({ tipo: "paradaMudou", projeto: "aula", parada: "pausado" });
   });
 
-  expect(linha).toHaveTextContent("Pausado");
+  expect(cartao).toHaveTextContent("Pausado");
   expect(
-    within(linha).queryByRole("button", { name: "Pausar aula" }),
+    within(cartao).queryByRole("button", { name: "Pausar aula" }),
   ).toBeNull();
+  let menu = await abrirMenu(app.user, cartao, "aula");
   await app.user.click(
-    within(linha).getByRole("button", { name: "Cancelar aula" }),
+    within(menu).getByRole("menuitem", { name: "Cancelar aula" }),
   );
   expect(app.calls.ciclo).toEqual(["pausar:aula", "cancelar:aula"]);
   act(() => {
     app.emitir({ tipo: "paradaMudou", projeto: "aula", parada: "cancelado" });
   });
-  expect(linha).toHaveTextContent("Cancelado");
+  expect(cartao).toHaveTextContent("Cancelado");
+  menu = await abrirMenu(app.user, cartao, "aula");
   expect(
-    within(linha).queryByRole("button", { name: "Cancelar aula" }),
+    within(menu).queryByRole("menuitem", { name: "Cancelar aula" }),
   ).toBeNull();
+  await app.user.keyboard("{Escape}");
 
   await app.user.click(
-    within(linha).getByRole("button", { name: "Retomar aula" }),
+    within(cartao).getByRole("button", { name: "Retomar aula" }),
   );
   expect(app.calls.ciclo.at(-1)).toBe("retomar:aula");
   act(() => {
     app.emitir({ tipo: "paradaMudou", projeto: "aula", parada: null });
   });
-  expect(linha).toHaveTextContent("Em andamento");
+  expect(cartao).toHaveTextContent("Em andamento");
 });
 
 test("a cota que acaba deixa o projeto Aguardando cota, com Retomar agora e Cancelar", async () => {
   const app = renderApp([projeto("aula", 2)]);
-  const linha = await screen.findByRole("listitem", { name: "aula" });
+  const cartao = await screen.findByRole("listitem", { name: "aula" });
 
   act(() => {
     app.emitir({
@@ -121,43 +136,52 @@ test("a cota que acaba deixa o projeto Aguardando cota, com Retomar agora e Canc
     });
   });
 
-  expect(linha).toHaveTextContent("Aguardando cota");
+  expect(cartao).toHaveTextContent("Aguardando cota");
   expect(
-    within(linha).queryByRole("button", { name: "Pausar aula" }),
+    within(cartao).queryByRole("button", { name: "Pausar aula" }),
   ).toBeNull();
+  let menu = await abrirMenu(app.user, cartao, "aula");
   expect(
-    within(linha).queryByRole("button", { name: "Excluir aula" }),
+    within(menu).queryByRole("menuitem", { name: "Excluir aula" }),
   ).toBeNull();
+  await app.user.keyboard("{Escape}");
   await app.user.click(
-    within(linha).getByRole("button", { name: "Retomar aula agora" }),
+    within(cartao).getByRole("button", { name: "Retomar aula agora" }),
   );
   expect(app.calls.ciclo).toEqual(["retomar:aula"]);
   act(() => {
     app.emitir({ tipo: "paradaMudou", projeto: "aula", parada: null });
   });
-  expect(linha).toHaveTextContent("Em andamento");
+  expect(cartao).toHaveTextContent("Em andamento");
+  menu = await abrirMenu(app.user, cartao, "aula");
   await app.user.click(
-    within(linha).getByRole("button", { name: "Cancelar aula" }),
+    within(menu).getByRole("menuitem", { name: "Cancelar aula" }),
   );
   expect(app.calls.ciclo.at(-1)).toBe("cancelar:aula");
 });
 
-test("o projeto que falhou oferece Tentar de novo a partir da etapa que falhou", async () => {
+test("o projeto que falhou fica na coluna da etapa e oferece Tentar de novo a partir dela", async () => {
   const app = renderApp([projeto("aula", 2, {}, "roteiro")]);
-  const linha = await screen.findByRole("listitem", { name: "aula" });
+  const cartao = await screen.findByRole("listitem", { name: "aula" });
+  expect(
+    within(screen.getByRole("list", { name: "Roteiro" })).getByRole(
+      "listitem",
+      { name: "aula" },
+    ),
+  ).toBe(cartao);
 
   expect(
-    within(linha).queryByRole("button", { name: "Pausar aula" }),
+    within(cartao).queryByRole("button", { name: "Pausar aula" }),
   ).toBeNull();
   await app.user.click(
-    within(linha).getByRole("button", {
+    within(cartao).getByRole("button", {
       name: "Tentar de novo aula",
     }),
   );
 
   expect(app.calls.ciclo).toEqual(["tentarDeNovo:aula"]);
   expect(
-    within(linha).getByRole("button", { name: "Tentar de novo aula" }),
+    within(cartao).getByRole("button", { name: "Tentar de novo aula" }),
   ).toHaveTextContent("Tentar de novo a partir de Roteiro");
 });
 
@@ -166,7 +190,7 @@ test("ao reabrir com projetos pausados, a faixa Retomar lote os retoma", async (
     projeto("aula", 1, { parada: "pausado" }),
     projeto("live", 0, { parada: "pausado" }),
   ]);
-  await screen.findByRole("heading", { name: "Gerando" });
+  await screen.findByRole("heading", { name: "Linha de produção" });
   expect(screen.getByRole("listitem", { name: "aula" })).toHaveTextContent(
     "Pausado",
   );
@@ -178,7 +202,7 @@ test("ao reabrir com projetos pausados, a faixa Retomar lote os retoma", async (
 
 test("sem projeto pausado, não há faixa Retomar lote", async () => {
   renderApp([projeto("aula", 1)]);
-  await screen.findByRole("heading", { name: "Gerando" });
+  await screen.findByRole("heading", { name: "Linha de produção" });
 
   expect(screen.queryByRole("button", { name: "Retomar lote" })).toBeNull();
 });

@@ -87,56 +87,61 @@ function renderApp(lotes: LoteResumo[] = []) {
   return { ...fake, user: userEvent.setup() };
 }
 
+/** Os títulos dos cartões da coluna, na ordem. */
+function cartoes(coluna: string) {
+  return Array.from(
+    screen.getByRole("list", { name: coluna }).querySelectorAll(":scope > li"),
+  ).map((item) => item.getAttribute("aria-label"));
+}
+
 async function gerar(
   app: ReturnType<typeof renderApp>,
   caminhos: string[],
 ): Promise<void> {
   const { user, pick } = app;
-  await user.click(await screen.findByRole("button", { name: "Continuar" }));
+  await screen.findByRole("heading", { name: "Vídeos" });
   pick(caminhos);
   await user.click(
     await screen.findByRole("button", { name: "Escolher arquivos" }),
   );
   await screen.findByRole("list", { name: "Vídeos escolhidos" });
-  await user.click(screen.getByRole("button", { name: "Continuar" }));
   await user.click(await screen.findByRole("button", { name: /^Gerar até/ }));
-  await screen.findByRole("heading", { name: "Gerando" });
+  await screen.findByRole("heading", { name: "Linha de produção" });
 }
 
-test("com um lote aberto, o app abre direto em Gerando", async () => {
+test("com um lote aberto, o app abre direto na Linha de produção", async () => {
   renderApp([ABERTO, ANTIGO]);
 
-  await screen.findByRole("heading", { name: "Gerando" });
+  await screen.findByRole("heading", { name: "Linha de produção" });
   screen.getByRole("listitem", { name: "aula" });
   screen.getByRole("listitem", { name: "live" });
   // Só os projetos do lote aberto.
   expect(screen.queryByRole("listitem", { name: "pregacao" })).toBeNull();
 });
 
-test("sem lote aberto, o app abre em Conta", async () => {
+test("sem lote aberto, o app abre na Linha de produção com o lote mais novo", async () => {
   renderApp([ANTIGO]);
 
-  await screen.findByRole("heading", { name: "Conta" });
+  await screen.findByRole("heading", { name: "Linha de produção" });
+  screen.getByRole("listitem", { name: "pregacao" });
 });
 
-test("o lote vira uma linha por projeto, na ordem, com estado e etapa N/5", async () => {
+test("o lote vira um cartão por projeto, na ordem da Fila, com estado e etapa N/5", async () => {
   const app = renderApp();
   await gerar(app, ["/v/um.mp4", "/v/dois.mp4", "/v/tres.mp4"]);
 
-  const linhas = screen
-    .getAllByRole("listitem")
-    .filter((item) => item.matches("ul.project-list > li"));
-  expect(linhas.map((linha) => linha.getAttribute("aria-label"))).toEqual([
-    "um",
-    "dois",
-    "tres",
-  ]);
-  const um = screen.getByRole("listitem", { name: "um" });
-  expect(um).toHaveTextContent("Na fila");
+  expect(cartoes("Fila")).toEqual(["um", "dois", "tres"]);
+  expect(screen.getByRole("listitem", { name: "um" })).toHaveTextContent(
+    "Na fila",
+  );
 
   app.etapa("um (2026-10-09)", "importacao", "emAndamento");
-  await within(um).findByText("Em andamento · etapa 1/5");
+  // O cartão muda de coluna: é outro elemento.
+  await screen.findByText("Em andamento · etapa 1/5");
+  const um = screen.getByRole("listitem", { name: "um" });
+  expect(um).toHaveTextContent("Em andamento · etapa 1/5");
   expect(um).toHaveTextContent("Tempo 0:00");
+  expect(cartoes("Importação")).toEqual(["um"]);
   expect(screen.getByRole("listitem", { name: "dois" })).toHaveTextContent(
     "Na fila",
   );
@@ -150,64 +155,65 @@ test("um projeto que falha não impede os outros de andar", async () => {
   app.etapa("um (2026-10-09)", "importacao", "falhou", "No such file");
   app.etapa("dois (2026-10-09)", "importacao", "emAndamento");
 
-  const dois = screen.getByRole("listitem", { name: "dois" });
-  await within(dois).findByText("Em andamento · etapa 1/5");
+  await screen.findByText("Em andamento · etapa 1/5");
+  expect(screen.getByRole("listitem", { name: "dois" })).toHaveTextContent(
+    "Em andamento · etapa 1/5",
+  );
   expect(screen.getByRole("listitem", { name: "um" })).toHaveTextContent(
     "Falhou",
   );
 });
 
-test("+ Adicionar vídeo, com o lote rodando, põe o projeto no fim da fila", async () => {
+test("Adicionar vídeos, com o lote rodando, põe o projeto no fim da fila", async () => {
   const app = renderApp();
   await gerar(app, ["/v/um.mp4"]);
   app.etapa("um (2026-10-09)", "importacao", "emAndamento");
   const { user, pick, calls } = app;
 
-  await user.click(screen.getByRole("button", { name: "+ Adicionar vídeo" }));
+  await user.click(screen.getByRole("button", { name: "Adicionar vídeos" }));
+  await screen.findByText(
+    "Entram no fim da fila do lote Lote de 09/10 10:01, com os padrões dele.",
+  );
   pick(["/v/dois.mp4", "/v/um.mp4"]);
   await user.click(
     await screen.findByRole("button", { name: "Escolher arquivos" }),
   );
   await screen.findByRole("list", { name: "Vídeos escolhidos" });
-  await user.click(screen.getByRole("button", { name: "Continuar" }));
+  // Sem Padrões para editar: os vídeos entram com os do lote.
+  expect(screen.queryByRole("button", { name: "Editar padrões" })).toBeNull();
+  await user.click(
+    screen.getByRole("button", { name: "Colocar 2 vídeos na fila" }),
+  );
 
-  await screen.findByRole("heading", { name: "Gerando" });
-  // Vai direto para a fila do lote, sem passar pelos Padrões.
+  await screen.findByRole("heading", { name: "Linha de produção" });
   expect(calls.adicoes).toEqual([
     { lote: "2026-10-09T10-01-00", caminhos: ["/v/dois.mp4", "/v/um.mp4"] },
   ]);
   expect(calls.lotes).toHaveLength(1);
-  const linhas = screen
-    .getAllByRole("listitem")
-    .filter((item) => item.matches("ul.project-list > li"));
   // O mesmo vídeo de novo é outro projeto.
-  expect(linhas.map((linha) => linha.getAttribute("aria-label"))).toEqual([
-    "um",
-    "dois",
-    "um",
-  ]);
+  expect(cartoes("Fila")).toEqual(["dois", "um"]);
+  expect(cartoes("Importação")).toEqual(["um"]);
 });
 
-test("Voltar, ao adicionar vídeo, deixa o lote como estava", async () => {
+test("Fechar, ao adicionar vídeos, deixa o lote como estava", async () => {
   const app = renderApp([ABERTO]);
   const { user } = app;
-  await screen.findByRole("heading", { name: "Gerando" });
+  await screen.findByRole("heading", { name: "Linha de produção" });
 
-  await user.click(screen.getByRole("button", { name: "+ Adicionar vídeo" }));
-  await user.click(
-    await screen.findByRole("button", { name: "Voltar para Gerando" }),
-  );
+  await user.click(screen.getByRole("button", { name: "Adicionar vídeos" }));
+  await user.click(await screen.findByRole("button", { name: "Fechar" }));
 
-  await screen.findByRole("heading", { name: "Gerando" });
+  await screen.findByRole("heading", { name: "Linha de produção" });
   expect(app.calls.adicoes).toEqual([]);
 });
 
 test("o nome automático do lote pode ser editado", async () => {
   const app = renderApp([ABERTO]);
   const { user } = app;
-  await screen.findByRole("heading", { name: "Gerando" });
+  await screen.findByRole("heading", { name: "Linha de produção" });
   const campo = screen.getByRole("textbox", { name: "Nome do lote" });
   expect(campo).toHaveValue("Lote de 08/10 14:32");
+  expect(screen.queryByRole("button", { name: "Salvar nome" })).toBeNull();
 
   await user.clear(campo);
   await user.type(campo, "Pregações de outubro");
@@ -222,7 +228,7 @@ test("o nome automático do lote pode ser editado", async () => {
 
 test("o histórico lista os lotes e abre os projetos de cada um", async () => {
   const { user } = renderApp([ABERTO, ANTIGO]);
-  await screen.findByRole("heading", { name: "Gerando" });
+  await screen.findByRole("heading", { name: "Linha de produção" });
 
   await user.click(screen.getByRole("button", { name: "Lotes" }));
 
@@ -236,12 +242,12 @@ test("o histórico lista os lotes e abre os projetos de cada um", async () => {
     screen.getByRole("button", { name: `Abrir ${ANTIGO.nome}` }),
   );
 
-  await screen.findByRole("heading", { name: "Gerando" });
+  await screen.findByRole("heading", { name: "Linha de produção" });
   screen.getByRole("listitem", { name: "pregacao" });
   expect(screen.queryByRole("listitem", { name: "aula" })).toBeNull();
 });
 
-test("a galeria mostra só os reels dos projetos do lote aberto, agrupados por projeto", async () => {
+test("a Sala de revisão mostra só os reels dos projetos do lote aberto, agrupados por projeto", async () => {
   const concluido = lote(
     ABERTO.id,
     ABERTO.nome,
@@ -249,11 +255,11 @@ test("a galeria mostra só os reels dos projetos do lote aberto, agrupados por p
     true,
   );
   const { user } = renderApp([concluido, ANTIGO]);
-  await screen.findByRole("heading", { name: "Gerando" });
+  await screen.findByRole("heading", { name: "Linha de produção" });
 
-  await user.click(screen.getByRole("button", { name: "Ver reels" }));
+  await user.click(screen.getByRole("button", { name: "Sala de revisão" }));
 
-  await screen.findByRole("heading", { name: "Reels" });
+  await screen.findByRole("heading", { name: "Sala de revisão" });
   screen.getByText(`Lote: ${ABERTO.nome}`);
   screen.getByRole("region", { name: "aula" });
   screen.getByRole("region", { name: "live" });

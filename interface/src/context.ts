@@ -2,11 +2,12 @@ import { createContext, use } from "react";
 import { useStore } from "zustand";
 import type { AppStore, AppStoreApi } from "./store";
 
-/** Abre o histórico de lotes; `null` enquanto a pessoa não chegou aos passos. */
-export const AbrirLotesContext = createContext<(() => void) | null>(null);
+/** As telas a que o topo e as outras telas levam, depois do Aviso e da Preparação. */
+export type Tela =
+  "linha" | "videos" | "sala" | "lotes" | "configuracoes" | "kits" | "conta";
 
-/** Abre as Configurações; `null` enquanto a pessoa não chegou aos passos. */
-export const AbrirConfiguracoesContext = createContext<(() => void) | null>(
+/** Muda de tela; `null` enquanto a pessoa não chegou à Linha de produção. */
+export const NavegacaoContext = createContext<((tela: Tela) => void) | null>(
   null,
 );
 

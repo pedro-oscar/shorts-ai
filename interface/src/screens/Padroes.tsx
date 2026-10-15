@@ -1,38 +1,60 @@
+import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
-import type { IdiomaDoVideo, ModeloDoClaude } from "../bindings";
+import type { IdiomaDoVideo, ModeloDoClaude, Padroes } from "../bindings";
 import { useAppStore } from "../context";
-import { ErrorMessage, Screen, Topo } from "./common";
-import { EstimativaDoLote } from "./Estimativa";
-import { KitDeMarca } from "./KitDeMarca";
 
 const MODELOS: ModeloDoClaude[] = ["padrao", "opus", "sonnet"];
 const IDIOMAS: IdiomaDoVideo[] = ["automatico", "pt", "en"];
 const QUANTIDADES = Array.from({ length: 12 }, (_, i) => i + 1);
 const REVISOES = [0, 1, 2, 3];
 
-/** O passo Padrões: as opções que valem para todos os projetos do lote. */
-export function Padroes({
-  onOpenSobre,
-  onVoltar,
-  onGerado,
-}: {
-  onOpenSobre: () => void;
-  onVoltar: () => void;
-  onGerado: () => void;
-}) {
+/** Os padrões do lote em chips, para ler de relance na folha de Vídeos. */
+export function ResumoDosPadroes({ padroes }: { padroes: Padroes }) {
+  const { t } = useTranslation();
+  const chips = [
+    t("padroes.chipReels", {
+      reels: t("padroes.reels", { count: padroes.quantidadeDeReels }),
+    }),
+    padroes.previa ? t("padroes.chipPrevia") : t("padroes.chipSemPrevia"),
+    t("padroes.chipKit", { kit: padroes.kit ?? "" }),
+    t("padroes.chipRevisoes", { count: padroes.revisoes }),
+    t("padroes.chipIdioma", {
+      idioma: t(`padroes.idiomas.${padroes.idiomaDoVideo}`),
+    }),
+  ];
+  if (padroes.modelo !== "padrao")
+    chips.push(t(`padroes.modelos.${padroes.modelo}`));
+  const pedido = padroes.pedido.trim();
+  return (
+    <>
+      <ul className="chips" aria-label={t("padroes.doLote")}>
+        {chips.map((chip) => (
+          <li key={chip}>{chip}</li>
+        ))}
+      </ul>
+      {pedido !== "" && (
+        <p className="detail">{t("padroes.chipPedido", { pedido })}</p>
+      )}
+    </>
+  );
+}
+
+/** O formulário dos Padrões: as opções que valem para todos os projetos do lote. */
+export function PadroesDoLote({ onAbrirKits }: { onAbrirKits: () => void }) {
   const { t } = useTranslation();
   const padroes = useAppStore((store) => store.padroes);
   const definir = useAppStore((store) => store.definirPadroes);
-  const videos = useAppStore((store) => store.arquivos.length);
-  const erro = useAppStore((store) => store.erroDeArquivos);
-  const gerar = useAppStore((store) => store.gerar);
+  const kits = useAppStore((store) => store.kits);
+  const carregarKits = useAppStore((store) => store.carregarKits);
+  useEffect(() => {
+    void carregarKits();
+  }, [carregarKits]);
   return (
-    <>
-      <Topo onOpenSobre={onOpenSobre} />
-      <Screen title={t("padroes.titulo")}>
-        <p>{t("padroes.introducao")}</p>
-        <label>
-          {t("padroes.quantidade")}
+    <div className="padroes-form">
+      <p className="detail">{t("padroes.introducao")}</p>
+      <div className="campos duas">
+        <label className="campo">
+          <span>{t("padroes.quantidade")}</span>
           <select
             value={padroes.quantidadeDeReels}
             onChange={(event) => {
@@ -46,75 +68,102 @@ export function Padroes({
             ))}
           </select>
         </label>
-        <label>
-          <input
-            type="checkbox"
-            checked={padroes.previa}
+        <label className="campo">
+          <span>{t("padroes.kit")}</span>
+          <select
+            value={padroes.kit}
             onChange={(event) => {
-              definir({ previa: event.target.checked });
+              definir({ kit: event.target.value });
             }}
-          />
-          {t("padroes.previa")}
+          >
+            {kits.map((kit) => (
+              <option key={kit.nome} value={kit.nome}>
+                {kit.nome}
+              </option>
+            ))}
+          </select>
         </label>
-        <label>
-          {t("padroes.pedido")}
-          <textarea
-            value={padroes.pedido}
-            onChange={(event) => {
-              definir({ pedido: event.target.value });
-            }}
-          />
-        </label>
-        <p className="detail">{t("padroes.pedidoDica")}</p>
-        <KitDeMarca />
-        <details>
-          <summary>{t("padroes.maisOpcoes")}</summary>
-          <label>
-            {t("padroes.revisoes")}
-            <select
-              value={padroes.revisoes}
-              onChange={(event) => {
-                definir({ revisoes: Number(event.target.value) });
-              }}
-            >
-              {REVISOES.map((n) => (
-                <option key={n} value={n}>
-                  {n}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            {t("padroes.modelo")}
-            <select
-              value={padroes.modelo}
-              onChange={(event) => {
-                definir({ modelo: event.target.value as ModeloDoClaude });
-              }}
-            >
-              {MODELOS.map((modelo) => (
-                <option key={modelo} value={modelo}>
-                  {t(`padroes.modelos.${modelo}`)}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            {t("padroes.nomesProprios")}
+      </div>
+      <div className="actions">
+        <button type="button" className="discreto" onClick={onAbrirKits}>
+          {t("padroes.gerenciarKits")}
+        </button>
+      </div>
+      <label className="marcador">
+        <input
+          type="checkbox"
+          checked={padroes.previa}
+          onChange={(event) => {
+            definir({ previa: event.target.checked });
+          }}
+        />
+        {t("padroes.previa")}
+      </label>
+      <label className="campo">
+        <span>{t("padroes.pedido")}</span>
+        <textarea
+          rows={2}
+          placeholder={t("padroes.pedidoDica")}
+          value={padroes.pedido}
+          onChange={(event) => {
+            definir({ pedido: event.target.value });
+          }}
+        />
+      </label>
+      <details>
+        <summary>{t("padroes.maisOpcoes")}</summary>
+        <div className="campos">
+          <div className="campos duas">
+            <label className="campo">
+              <span>{t("padroes.revisoes")}</span>
+              <select
+                value={padroes.revisoes}
+                onChange={(event) => {
+                  definir({ revisoes: Number(event.target.value) });
+                }}
+              >
+                {REVISOES.map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="campo">
+              <span>{t("padroes.modelo")}</span>
+              <select
+                value={padroes.modelo}
+                onChange={(event) => {
+                  definir({ modelo: event.target.value as ModeloDoClaude });
+                }}
+              >
+                {MODELOS.map((modelo) => (
+                  <option key={modelo} value={modelo}>
+                    {t(`padroes.modelos.${modelo}`)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <label className="campo">
+            <span>{t("padroes.nomesProprios")}</span>
             <textarea
+              rows={2}
+              placeholder={t("padroes.nomesDica")}
               value={padroes.nomesProprios.join("\n")}
               onChange={(event) => {
                 definir({ nomesProprios: event.target.value.split("\n") });
               }}
             />
           </label>
-          <p className="detail">{t("padroes.nomesDica")}</p>
-          <label>
-            {t("padroes.idioma")}
+          <label className="campo">
+            <span>{t("padroes.idioma")}</span>
             <select
               value={padroes.idiomaDoVideo}
               onChange={(event) => {
-                definir({ idiomaDoVideo: event.target.value as IdiomaDoVideo });
+                definir({
+                  idiomaDoVideo: event.target.value as IdiomaDoVideo,
+                });
               }}
             >
               {IDIOMAS.map((idioma) => (
@@ -124,26 +173,8 @@ export function Padroes({
               ))}
             </select>
           </label>
-        </details>
-        <EstimativaDoLote />
-        {erro && <ErrorMessage erro={erro} />}
-        <button type="button" onClick={onVoltar}>
-          {t("padroes.voltar")}
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            void gerar().then((criou) => {
-              if (criou) onGerado();
-            });
-          }}
-        >
-          {t("padroes.gerar", {
-            reels: t("padroes.reels", { count: padroes.quantidadeDeReels }),
-            videos: t("padroes.videos", { count: videos }),
-          })}
-        </button>
-      </Screen>
-    </>
+        </div>
+      </details>
+    </div>
   );
 }

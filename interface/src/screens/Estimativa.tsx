@@ -6,8 +6,8 @@ import { formatarTempoEstimado } from "./formatos";
 import { useDinheiro } from "./useDinheiro";
 
 /**
- * A estimativa do lote que o passo Padrões mostra antes de gerar: a faixa de custo por vídeo e
- * do lote, as sessões do Claude e o tempo nesta máquina.
+ * A estimativa do lote que a folha de Vídeos mostra antes de gerar: a faixa de custo do lote
+ * e por vídeo, as sessões do Claude e o tempo nesta máquina.
  */
 export function EstimativaDoLote() {
   const { t } = useTranslation();
@@ -31,40 +31,34 @@ export function EstimativaDoLote() {
       ate: dinheiro(ate * fator),
     });
   return (
-    <section aria-label={t("estimativa.titulo")}>
-      <h3>{t("estimativa.titulo")}</h3>
-      <p className="detail">
-        {estimativa.inicial
-          ? t("estimativa.inicial")
-          : t("estimativa.calibrada", { count: estimativa.execucoes })}
-      </p>
-      <ul className="detail">
-        <li>
-          {t("estimativa.porVideo", {
+    <section className="estimativa" aria-label={t("estimativa.titulo")}>
+      <strong>
+        {t("estimativa.lote", {
+          faixa: faixa(estimativa.lote.deUsd ?? 0, estimativa.lote.ateUsd ?? 0),
+        })}
+      </strong>
+      <span>
+        {[
+          t("estimativa.porVideo", {
             faixa: faixa(
               estimativa.porVideo.deUsd ?? 0,
               estimativa.porVideo.ateUsd ?? 0,
             ),
-          })}
-        </li>
-        <li>
-          {t("estimativa.lote", {
-            faixa: faixa(
-              estimativa.lote.deUsd ?? 0,
-              estimativa.lote.ateUsd ?? 0,
-            ),
-          })}
-        </li>
-        <li>{t("estimativa.sessoes", { count: estimativa.sessoes })}</li>
-        <li>
-          {t("estimativa.tempo", {
+          }),
+          t("estimativa.sessoes", { count: estimativa.sessoes }),
+          t("estimativa.tempo", {
             de: formatarTempoEstimado(estimativa.tempo.deS ?? 0),
             ate: formatarTempoEstimado(estimativa.tempo.ateS ?? 0),
-          })}
-        </li>
-      </ul>
+          }),
+        ].join(" · ")}
+      </span>
+      <span className="detail">
+        {estimativa.inicial
+          ? t("estimativa.inicial")
+          : t("estimativa.calibrada", { count: estimativa.execucoes })}
+      </span>
       {estimativa.semPreco && (
-        <p className="detail">{t("estimativa.semPreco")}</p>
+        <span className="detail">{t("estimativa.semPreco")}</span>
       )}
     </section>
   );

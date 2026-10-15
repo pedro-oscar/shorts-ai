@@ -56,8 +56,8 @@ const LIVE = "live (2026-10-09)";
 
 type Fake = ReturnType<typeof createFakeNucleo>;
 
-/** Gera um lote com os vídeos, conclui a Produção de cada projeto e abre o passo Reels. */
-async function abrirReels(
+/** Gera um lote com os vídeos, conclui a Produção de cada projeto e abre a Sala de revisão. */
+async function abrirSala(
   preparar: (fake: Fake) => void = () => undefined,
   videos = ["/v/aula.mp4"],
 ) {
@@ -66,23 +66,24 @@ async function abrirReels(
   preparar(fake);
   render(<App nucleo={fake.nucleo} />);
   const user = userEvent.setup();
-  await user.click(await screen.findByRole("button", { name: "Continuar" }));
+  await screen.findByRole("heading", { name: "Vídeos" });
   fake.pick(videos);
   await user.click(screen.getByRole("button", { name: "Escolher arquivos" }));
   await screen.findByRole("list", { name: "Vídeos escolhidos" });
-  await user.click(screen.getByRole("button", { name: "Continuar" }));
   await user.click(await screen.findByRole("button", { name: /^Gerar até/ }));
-  await screen.findByRole("heading", { name: "Gerando" });
-  expect(screen.queryByRole("button", { name: "Ver reels" })).toBeNull();
+  await screen.findByRole("heading", { name: "Linha de produção" });
+  expect(screen.queryByRole("button", { name: "Sala de revisão" })).toBeNull();
   for (const id of [AULA, LIVE].slice(0, videos.length))
     fake.etapa(id, "producao", "concluida");
-  await user.click(await screen.findByRole("button", { name: "Ver reels" }));
-  await screen.findByRole("heading", { name: "Reels" });
+  await user.click(
+    await screen.findByRole("button", { name: "Sala de revisão" }),
+  );
+  await screen.findByRole("heading", { name: "Sala de revisão" });
   return { ...fake, user };
 }
 
-test("cada reel mostra as informações do roteiro, o selo de prévia e o player", async () => {
-  await abrirReels();
+test("o primeiro reel abre em detalhe, com as informações do roteiro, o selo de prévia e o player", async () => {
+  const { user } = await abrirSala();
 
   const primeiro = await screen.findByRole("article", {
     name: "Negociar salário tem regra",
@@ -97,13 +98,21 @@ test("cada reel mostra as informações do roteiro, o selo de prévia e o player
   expect(primeiro.querySelector("video")?.getAttribute("src")).toBe(
     `asset:///Biblioteca/${AULA}/publicar/prévias/c01 - Negociar salário tem regra.mp4`,
   );
+  expect(
+    screen.getByRole("button", { name: "Negociar salário tem regra" }),
+  ).toHaveAttribute("aria-pressed", "true");
 
-  const segundo = screen.getByRole("article", { name: "Final pronta" });
+  await user.click(screen.getByRole("button", { name: "Final pronta" }));
+
+  const segundo = await screen.findByRole("article", { name: "Final pronta" });
   expect(within(segundo).queryByText("Prévia")).toBeNull();
+  expect(
+    screen.queryByRole("article", { name: "Negociar salário tem regra" }),
+  ).toBeNull();
 });
 
-test("as reservas aparecem esmaecidas, com título, nota e motivo, sem player", async () => {
-  await abrirReels();
+test("as reservas aparecem na tira, com título, nota e motivo, sem player", async () => {
+  await abrirSala();
 
   const reservas = await screen.findByRole("list", { name: "Reservas" });
   const reserva = within(reservas).getByRole("listitem");
@@ -114,7 +123,7 @@ test("as reservas aparecem esmaecidas, com título, nota e motivo, sem player", 
 });
 
 test("Copiar descrição põe o texto do post na área de transferência", async () => {
-  const { user } = await abrirReels();
+  const { user } = await abrirSala();
   await screen.findByRole("article", { name: "Negociar salário tem regra" });
 
   await user.click(
@@ -126,6 +135,8 @@ test("Copiar descrição põe o texto do post na área de transferência", async
   expect(await navigator.clipboard.readText()).toBe(
     "Descrição do post #salário",
   );
+  await user.click(screen.getByRole("button", { name: "Final pronta" }));
+  await screen.findByRole("article", { name: "Final pronta" });
   expect(
     screen.queryByRole("button", {
       name: "Copiar descrição de Final pronta",
@@ -134,8 +145,8 @@ test("Copiar descrição põe o texto do post na área de transferência", async
 });
 
 test("Abrir pasta, roteiro e logs pedem ao núcleo para abrir o projeto", async () => {
-  const { user, calls } = await abrirReels();
-  await screen.findByRole("article", { name: "Final pronta" });
+  const { user, calls } = await abrirSala();
+  await screen.findByRole("article", { name: "Negociar salário tem regra" });
 
   await user.click(screen.getByRole("button", { name: "Abrir pasta" }));
   await user.click(screen.getByRole("button", { name: "Abrir roteiro" }));
@@ -149,7 +160,7 @@ test("Abrir pasta, roteiro e logs pedem ao núcleo para abrir o projeto", async 
 });
 
 test("o erro de leitura aparece no projeto que falhou, e os outros seguem com os reels", async () => {
-  await abrirReels(
+  await abrirSala(
     (fake) => {
       fake.falharLeitura(LIVE, {
         codigo: "projetoNaoLido",
@@ -166,13 +177,13 @@ test("o erro de leitura aparece no projeto que falhou, e os outros seguem com os
   );
   const aula = screen.getByRole("region", { name: "aula" });
   expect(
-    await within(aula).findByRole("article", { name: "Final pronta" }),
+    await within(aula).findByRole("button", { name: "Final pronta" }),
   ).toBeVisible();
   expect(within(aula).queryByRole("alert")).toBeNull();
 });
 
 test("projeto cuja pasta sumiu aparece como não encontrado, sem nada para abrir", async () => {
-  await abrirReels((fake) => {
+  await abrirSala((fake) => {
     fake.falharLeitura(AULA, { codigo: "projetoNaoEncontrado", id: AULA });
   });
 
@@ -187,11 +198,12 @@ test("projeto cuja pasta sumiu aparece como não encontrado, sem nada para abrir
     within(aula).queryByRole("button", { name: "Abrir roteiro" }),
   ).toBeNull();
   expect(within(aula).queryByRole("button", { name: "Abrir logs" })).toBeNull();
+  screen.getByText("Escolha um reel na lista para vê-lo aqui.");
 });
 
 test("se o sistema não abre, o erro aparece no projeto", async () => {
   const roteiro = `/Biblioteca/${AULA}/edit/roteiro.json`;
-  const { user } = await abrirReels((fake) => {
+  const { user } = await abrirSala((fake) => {
     fake.falharAbertura({
       codigo: "naoAbriu",
       caminho: roteiro,
@@ -199,7 +211,7 @@ test("se o sistema não abre, o erro aparece no projeto", async () => {
     });
   });
   const aula = screen.getByRole("region", { name: "aula" });
-  await within(aula).findByRole("article", { name: "Final pronta" });
+  await within(aula).findByRole("button", { name: "Final pronta" });
 
   await user.click(within(aula).getByRole("button", { name: "Abrir roteiro" }));
 
@@ -218,7 +230,7 @@ async function recusarDireto(titulo: string) {
 }
 
 test("onde o app não toca o reel, Assistir o abre no player do sistema", async () => {
-  const { user, calls } = await abrirReels();
+  const { user, calls } = await abrirSala();
   const reel = await recusarDireto("Negociar salário tem regra");
   expect(reel.querySelector("video")).toBeNull();
   expect(reel).toHaveTextContent("Este sistema não toca o reel aqui.");
@@ -230,7 +242,8 @@ test("onde o app não toca o reel, Assistir o abre no player do sistema", async 
   );
 
   expect(calls.abertos).toEqual([{ id: AULA, alvo: { reel: "c01" } }]);
-  const outro = screen.getByRole("article", { name: "Final pronta" });
+  await user.click(screen.getByRole("button", { name: "Final pronta" }));
+  const outro = await screen.findByRole("article", { name: "Final pronta" });
   expect(outro.querySelector("video")).not.toBeNull();
 });
 
@@ -238,11 +251,9 @@ const [PREVIA, PRONTA] = DADOS.reels as [ReelDoProjeto, ReelDoProjeto];
 const FINAL = `/Biblioteca/${AULA}/publicar/c01 - Negociar salário tem regra.mp4`;
 
 test("Gerar versão final pede o render do projeto, mostra o andamento e depois a versão final", async () => {
-  const { user, calls, emitir, definirDados } = await abrirReels();
+  const { user, calls, emitir, definirDados } = await abrirSala();
   const aula = screen.getByRole("region", { name: "aula" });
-  await within(aula).findByRole("article", {
-    name: "Negociar salário tem regra",
-  });
+  await screen.findByRole("article", { name: "Negociar salário tem regra" });
 
   await user.click(
     within(aula).getByRole("button", {
@@ -276,7 +287,7 @@ test("Gerar versão final pede o render do projeto, mostra o andamento e depois 
     falha: null,
   });
 
-  const primeiro = await within(aula).findByRole("article", {
+  const primeiro = await screen.findByRole("article", {
     name: "Negociar salário tem regra",
   });
   await vi.waitFor(() => {
@@ -291,7 +302,7 @@ test("Gerar versão final pede o render do projeto, mostra o andamento e depois 
 });
 
 test("Gerar versão final do lote pede todos os projetos que ainda têm prévia", async () => {
-  const { user, calls } = await abrirReels(
+  const { user, calls } = await abrirSala(
     (fake) => {
       fake.definirDados(LIVE, { ...DADOS, reels: [PRONTA] });
     },
@@ -310,11 +321,9 @@ test("Gerar versão final do lote pede todos os projetos que ainda têm prévia"
 });
 
 test("a falha do render aparece no projeto e deixa pedir de novo", async () => {
-  const { emitir } = await abrirReels();
+  const { emitir } = await abrirSala();
   const aula = screen.getByRole("region", { name: "aula" });
-  await within(aula).findByRole("article", {
-    name: "Negociar salário tem regra",
-  });
+  await screen.findByRole("article", { name: "Negociar salário tem regra" });
 
   emitir({
     tipo: "versaoFinalMudou",

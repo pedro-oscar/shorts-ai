@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { App } from "./App";
@@ -13,6 +13,7 @@ async function abrirPadroes(videos = ["/v/aula.mp4"]) {
   return { ...fake, user };
 }
 
+/** Escolhe os vídeos na folha e abre a edição dos Padrões do lote. */
 async function abrirPadroesComFake(videos = ["/v/aula.mp4"]) {
   const fake = createFakeNucleo({
     aceite: { data: ACCEPTED_AT },
@@ -24,12 +25,12 @@ async function abrirPadroesComFake(videos = ["/v/aula.mp4"]) {
   });
   render(<App nucleo={fake.nucleo} />);
   const user = userEvent.setup();
-  await user.click(await screen.findByRole("button", { name: "Continuar" }));
+  await screen.findByRole("heading", { name: "Vídeos" });
   fake.pick(videos);
   await user.click(screen.getByRole("button", { name: "Escolher arquivos" }));
   await screen.findByRole("list", { name: "Vídeos escolhidos" });
-  await user.click(screen.getByRole("button", { name: "Continuar" }));
-  await screen.findByRole("heading", { name: "Padrões" });
+  await user.click(screen.getByRole("button", { name: "Editar padrões" }));
+  await screen.findByLabelText("Até quantos reels");
   return { fake, user };
 }
 
@@ -67,7 +68,7 @@ test("as opções escolhidas seguem para o núcleo ao gerar", async () => {
     screen.getByRole("button", { name: "Gerar até 3 reels de 1 vídeo" }),
   );
 
-  await screen.findByRole("heading", { name: "Gerando" });
+  await screen.findByRole("heading", { name: "Linha de produção" });
   expect(calls.padroes).toEqual([
     {
       quantidadeDeReels: 3,
@@ -82,19 +83,29 @@ test("as opções escolhidas seguem para o núcleo ao gerar", async () => {
   ]);
 });
 
-test("Voltar leva a Vídeos sem perder a lista nem as escolhas", async () => {
+test("Fechar padrões volta ao resumo em chips, sem perder as escolhas", async () => {
   const { user } = await abrirPadroes();
   await user.selectOptions(screen.getByLabelText("Até quantos reels"), "4");
 
-  await user.click(screen.getByRole("button", { name: "Voltar" }));
-  await screen.findByRole("heading", { name: "Vídeos" });
-  await screen.findByRole("list", { name: "Vídeos escolhidos" });
-  await user.click(screen.getByRole("button", { name: "Continuar" }));
+  await user.click(screen.getByRole("button", { name: "Fechar padrões" }));
 
+  const chips = screen.getByRole("list", { name: "Padrões do lote" });
+  expect(
+    within(chips)
+      .getAllByRole("listitem")
+      .map((chip) => chip.textContent),
+  ).toEqual([
+    "Até 4 reels",
+    "Prévia primeiro",
+    "Kit Padrão",
+    "1 revisão",
+    "Idioma Automático",
+  ]);
+  await user.click(screen.getByRole("button", { name: "Editar padrões" }));
   expect(await screen.findByLabelText("Até quantos reels")).toHaveValue("4");
 });
 
-test("a estimativa mostra o custo no plano por vídeo e do lote, as sessões e o tempo", async () => {
+test("a estimativa mostra o custo no plano do lote e por vídeo, as sessões e o tempo", async () => {
   await abrirPadroes(["/v/aula.mp4", "/v/live.mkv"]);
 
   const estimativa = await screen.findByRole("region", { name: "Estimativa" });
@@ -147,149 +158,28 @@ test("a estimativa calibrada diz de quantas execuções vem", async () => {
   expect(screen.queryByText(/Estimativa inicial/)).toBeNull();
 });
 
-test("o kit de marca mostra as cores e as fontes do Padrão e a Amostra", async () => {
-  await abrirPadroes();
-
-  expect(await screen.findByLabelText("Fonte da legenda")).toHaveValue(
-    "Montserrat",
-  );
-  expect(screen.getByLabelText("Cor de destaque")).toHaveValue("#ff2d2d");
-  expect(screen.getByLabelText("Cor da palavra falada")).toHaveValue("#ffe600");
-  expect(screen.getByLabelText("Fonte dos títulos").children).toHaveLength(8);
-  expect(screen.getByTestId("amostra-do-kit")).toBeInTheDocument();
-});
-
-test("a Amostra acompanha as fontes escolhidas", async () => {
-  const { user } = await abrirPadroes();
+test("o kit do lote se escolhe entre os kits salvos", async () => {
+  const { fake, user } = await abrirPadroesComFake();
+  await fake.nucleo.salvarKit({
+    nome: "Canal",
+    corDeDestaque: "#00AAFF",
+    corDaPalavra: "#FFFFFF",
+    fonteDaLegenda: "Inter",
+    fonteDosTitulos: "Anton",
+    logo: null,
+  });
+  // A lista de kits é relida ao abrir os Padrões de novo.
+  await user.click(screen.getByRole("button", { name: "Fechar padrões" }));
+  await user.click(screen.getByRole("button", { name: "Editar padrões" }));
 
   await user.selectOptions(
-    await screen.findByLabelText("Fonte dos títulos"),
-    "Anton",
+    await screen.findByLabelText("Kit de marca"),
+    "Canal",
   );
-
-  expect(screen.getByText("O erro que quebra empresas")).toHaveStyle({
-    fontFamily: '"Anton", sans-serif',
-  });
-  expect(screen.getByText(/Ninguém te/)).toHaveStyle({
-    fontFamily: '"Montserrat", sans-serif',
-  });
-});
-
-test("o kit só vale depois de salvo com nome, e o lote o usa", async () => {
-  const { user, calls } = await abrirPadroes();
-  await user.selectOptions(
-    await screen.findByLabelText("Fonte da legenda"),
-    "Bebas Neue",
-  );
-  const salvar = screen.getByRole("button", { name: "Salvar como kit" });
-  expect(salvar).toBeDisabled();
-
-  await user.type(screen.getByLabelText("Nome do kit"), "Canal");
-  await user.click(salvar);
-
-  expect(calls.kitsSalvos).toEqual([
-    {
-      nome: "Canal",
-      corDeDestaque: "#FF2D2D",
-      corDaPalavra: "#FFE600",
-      fonteDaLegenda: "Bebas Neue",
-      fonteDosTitulos: "Montserrat",
-      logo: null,
-    },
-  ]);
-  await waitFor(() => {
-    expect(screen.getByLabelText("Kit")).toHaveValue("Canal");
-  });
   await user.click(
     screen.getByRole("button", { name: "Gerar até 6 reels de 1 vídeo" }),
   );
-  await screen.findByRole("heading", { name: "Gerando" });
-  expect(calls.padroes[0]?.kit).toBe("Canal");
-});
 
-test("o kit Padrão não tem como apagar, e apagar outro volta ao Padrão", async () => {
-  const { user, calls } = await abrirPadroes();
-  await screen.findByLabelText("Fonte da legenda");
-  expect(
-    screen.queryByRole("button", { name: /Apagar o kit/ }),
-  ).not.toBeInTheDocument();
-  await user.type(screen.getByLabelText("Nome do kit"), "Canal");
-  await user.click(screen.getByRole("button", { name: "Salvar como kit" }));
-
-  await user.click(
-    await screen.findByRole("button", { name: "Apagar o kit Canal" }),
-  );
-
-  expect(calls.kitsApagados).toEqual(["Canal"]);
-  await waitFor(() => {
-    expect(screen.getByLabelText("Kit")).toHaveValue("Padrão");
-  });
-});
-
-test("a logo escolhida aparece na Amostra e entra no kit salvo", async () => {
-  const fake = await abrirPadroes();
-  const { user, calls } = fake;
-  fake.escolherLogo("/m/logo.png");
-
-  await user.click(
-    await screen.findByRole("button", { name: "Escolher logo" }),
-  );
-  await user.selectOptions(
-    screen.getByLabelText("Posição da logo"),
-    "inferiorEsquerdo",
-  );
-  await user.selectOptions(
-    screen.getByLabelText("Quando a logo aparece"),
-    "fim",
-  );
-
-  const logo = await screen.findByTestId("logo-da-amostra");
-  expect(logo).toHaveStyle({ bottom: "8%", left: "6%", width: "14%" });
-  expect(logo).toHaveStyle({ opacity: "0.8" });
-  expect(screen.getByLabelText("Largura da logo (14%)")).toHaveValue("14");
-  expect(screen.getByLabelText("Opacidade da logo (80%)")).toHaveValue("80");
-  expect(screen.queryByRole("alert")).toBeNull();
-  await user.type(screen.getByLabelText("Nome do kit"), "Canal");
-  await user.click(screen.getByRole("button", { name: "Salvar como kit" }));
-  expect(calls.kitsSalvos[0]?.logo).toEqual({
-    arquivo: "/m/logo.png",
-    posicao: "inferiorEsquerdo",
-    largura: 14,
-    opacidade: 80,
-    quando: "fim",
-    proporcao: 1,
-  });
-});
-
-test("um PNG sem transparência recebe um aviso claro", async () => {
-  const fake = await abrirPadroes();
-  fake.escolherLogo("/m/logo.png", {
-    comTransparencia: false,
-    proporcao: 1,
-    previa: "data:image/png;base64,AAAA",
-  });
-
-  await fake.user.click(
-    await screen.findByRole("button", { name: "Escolher logo" }),
-  );
-
-  expect(await screen.findByRole("alert")).toHaveTextContent(
-    "Este PNG não tem transparência",
-  );
-});
-
-test("cancelar o seletor ou tirar a logo deixa o kit sem logo", async () => {
-  const fake = await abrirPadroes();
-  const { user } = fake;
-  const escolher = await screen.findByRole("button", { name: "Escolher logo" });
-
-  await user.click(escolher);
-  expect(screen.queryByTestId("logo-da-amostra")).toBeNull();
-  fake.escolherLogo("/m/logo.png");
-  await user.click(escolher);
-  await screen.findByTestId("logo-da-amostra");
-  await user.click(screen.getByRole("button", { name: "Tirar logo" }));
-
-  expect(screen.queryByTestId("logo-da-amostra")).toBeNull();
-  expect(screen.queryByLabelText("Posição da logo")).toBeNull();
+  await screen.findByRole("heading", { name: "Linha de produção" });
+  expect(fake.calls.padroes[0]?.kit).toBe("Canal");
 });

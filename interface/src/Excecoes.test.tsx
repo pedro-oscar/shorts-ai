@@ -16,24 +16,27 @@ const INICIAL = {
   plano: { nivel: "max5x", periodo: "mensal", precoDeApi: false },
 } as const;
 
-async function abrirVideos() {
-  const fake = createFakeNucleo(INICIAL);
+async function abrirVideos(fake = createFakeNucleo(INICIAL)) {
   render(<App nucleo={fake.nucleo} />);
   const user = userEvent.setup();
-  await user.click(await screen.findByRole("button", { name: "Continuar" }));
+  await screen.findByRole("heading", { name: "Vídeos" });
   fake.pick(["/v/aula.mp4", "/v/live.mkv"]);
   await user.click(screen.getByRole("button", { name: "Escolher arquivos" }));
-  await screen.findByRole("list", { name: "Vídeos escolhidos" });
-  return { ...fake, user };
+  const lista = await screen.findByRole("list", { name: "Vídeos escolhidos" });
+  const [aula, live] = within(lista).getAllByRole("listitem") as [
+    HTMLElement,
+    HTMLElement,
+  ];
+  return { ...fake, user, aula, live };
 }
 
-test("os vídeos usam os padrões do lote até a pessoa abrir as Exceções", async () => {
-  const { user, calls } = await abrirVideos();
-  const aula = screen.getAllByRole("listitem")[0] as HTMLElement;
-  const live = screen.getAllByRole("listitem")[1] as HTMLElement;
+test("os vídeos usam os padrões do lote até a pessoa abrir os Ajustes", async () => {
+  const { user, calls, aula, live } = await abrirVideos();
   expect(aula).toHaveTextContent("usa os padrões do lote");
 
-  await user.click(within(aula).getByText("Exceções"));
+  await user.click(
+    within(aula).getByRole("button", { name: "Ajustar aula.mp4" }),
+  );
   await user.selectOptions(
     within(aula).getByLabelText("Até quantos reels em aula.mp4"),
     "2",
@@ -46,6 +49,7 @@ test("os vídeos usam os padrões do lote até a pessoa abrir as Exceções", as
     within(aula).getByLabelText("Idioma de aula.mp4"),
     "Inglês",
   );
+  await user.click(within(aula).getByRole("button", { name: "Pronto" }));
 
   const chips = within(aula).getByRole("list", { name: "Exceções definidas" });
   expect(
@@ -55,10 +59,9 @@ test("os vídeos usam os padrões do lote até a pessoa abrir as Exceções", as
   ).toEqual(["até 2 reels", "pedido próprio", "idioma: Inglês"]);
   expect(live).toHaveTextContent("usa os padrões do lote");
 
-  await user.click(screen.getByRole("button", { name: "Continuar" }));
   await user.click(screen.getByRole("button", { name: /^Gerar/ }));
 
-  await screen.findByRole("heading", { name: "Gerando" });
+  await screen.findByRole("heading", { name: "Linha de produção" });
   expect(calls.excecoesDosArquivos).toEqual([
     [
       {
@@ -108,20 +111,24 @@ function projeto(
   };
 }
 
-test("o projeto na fila muda as Exceções; o que já começou só mostra o resumo", async () => {
-  const lote: LoteResumo = {
+function loteCom(projetos: ProjetoResumo[]): LoteResumo {
+  return {
     id: "lote",
     nome: "Lote",
     criadoEm: "2026-10-08T14:32:00Z",
     padroes: PADROES_INICIAIS,
-    projetos: [
-      projeto("rodando", 1, { excecoes: { pedido: "x" } }),
-      projeto("novo", 0),
-    ],
+    projetos,
     ausentes: [],
     aberto: true,
     custo: SEM_CUSTO,
   };
+}
+
+test("o projeto na fila muda as Exceções; o que já começou só mostra o resumo", async () => {
+  const lote = loteCom([
+    projeto("rodando", 1, { excecoes: { pedido: "x" } }),
+    projeto("novo", 0),
+  ]);
   const fake = createFakeNucleo(INICIAL, LOGADO, [lote]);
   render(<App nucleo={fake.nucleo} />);
   const user = userEvent.setup();
@@ -163,6 +170,7 @@ test("o projeto na fila muda as Exceções; o que já começou só mostra o resu
   });
   expect(chips).toHaveTextContent("até 3 reels");
   expect(chips).toHaveTextContent("faixa 1:00–—");
+  expect(within(novo).queryByRole("dialog")).toBeNull();
 });
 
 const CANAL = {
@@ -177,30 +185,28 @@ const CANAL = {
 test('a pessoa escolhe outro kit ou liga "Sem logo" só num vídeo do lote', async () => {
   const fake = createFakeNucleo(INICIAL);
   await fake.nucleo.salvarKit(CANAL);
-  render(<App nucleo={fake.nucleo} />);
-  const user = userEvent.setup();
-  await user.click(await screen.findByRole("button", { name: "Continuar" }));
-  fake.pick(["/v/aula.mp4", "/v/live.mkv"]);
-  await user.click(screen.getByRole("button", { name: "Escolher arquivos" }));
-  await screen.findByRole("list", { name: "Vídeos escolhidos" });
-  const aula = screen.getAllByRole("listitem")[0] as HTMLElement;
-  const live = screen.getAllByRole("listitem")[1] as HTMLElement;
+  const { user, aula, live } = await abrirVideos(fake);
 
-  await user.click(within(aula).getByText("Exceções"));
+  await user.click(
+    within(aula).getByRole("button", { name: "Ajustar aula.mp4" }),
+  );
   await user.selectOptions(
     within(aula).getByLabelText("Kit de aula.mp4"),
     "Canal",
   );
-  await user.click(within(live).getByText("Exceções"));
+  await user.click(within(aula).getByRole("button", { name: "Pronto" }));
+  await user.click(
+    within(live).getByRole("button", { name: "Ajustar live.mkv" }),
+  );
   await user.click(within(live).getByLabelText("Sem logo em live.mkv"));
+  await user.click(within(live).getByRole("button", { name: "Pronto" }));
 
   expect(aula).toHaveTextContent("kit: Canal");
   expect(live).toHaveTextContent("sem logo");
 
-  await user.click(screen.getByRole("button", { name: "Continuar" }));
   await user.click(screen.getByRole("button", { name: /^Gerar/ }));
 
-  await screen.findByRole("heading", { name: "Gerando" });
+  await screen.findByRole("heading", { name: "Linha de produção" });
   const [excecoes] = fake.calls.excecoesDosArquivos;
   expect(excecoes?.map((e) => [e.kit, e.semLogo])).toEqual([
     ["Canal", false],
@@ -209,17 +215,9 @@ test('a pessoa escolhe outro kit ou liga "Sem logo" só num vídeo do lote', asy
 });
 
 test('o projeto na fila grava o kit e o "Sem logo" escolhidos nas Exceções', async () => {
-  const lote: LoteResumo = {
-    id: "lote",
-    nome: "Lote",
-    criadoEm: "2026-10-08T14:32:00Z",
-    padroes: PADROES_INICIAIS,
-    projetos: [projeto("novo", 0)],
-    ausentes: [],
-    aberto: true,
-    custo: SEM_CUSTO,
-  };
-  const fake = createFakeNucleo(INICIAL, LOGADO, [lote]);
+  const fake = createFakeNucleo(INICIAL, LOGADO, [
+    loteCom([projeto("novo", 0)]),
+  ]);
   await fake.nucleo.salvarKit(CANAL);
   render(<App nucleo={fake.nucleo} />);
   const user = userEvent.setup();

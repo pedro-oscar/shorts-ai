@@ -1,7 +1,7 @@
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { act } from "react";
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import type { LoteResumo, ProjetoResumo } from "./bindings";
 import { App } from "./App";
 import { PADROES_INICIAIS } from "./store";
@@ -65,14 +65,26 @@ function renderApp(projetos: ProjetoResumo[], ausentes: string[] = []) {
   return { ...fake, user: userEvent.setup() };
 }
 
-function titulos() {
-  return screen
-    .getAllByRole("listitem")
-    .filter((item) => item.getAttribute("aria-label"))
-    .map((item) => item.getAttribute("aria-label"));
+/** Os títulos dos cartões da coluna, na ordem. */
+function cartoes(coluna: string) {
+  return Array.from(
+    screen.getByRole("list", { name: coluna }).querySelectorAll(":scope > li"),
+  ).map((item) => item.getAttribute("aria-label"));
 }
 
-test("Subir, Descer e Passar na frente valem na fila, e a ordem nova chega por evento", async () => {
+/** Abre o menu ⋯ do cartão. */
+async function abrirMenu(
+  user: ReturnType<typeof userEvent.setup>,
+  cartao: HTMLElement,
+  nome: string,
+) {
+  await user.click(
+    within(cartao).getByRole("button", { name: `Mais ações de ${nome}` }),
+  );
+  return within(cartao).getByRole("menu");
+}
+
+test("Subir, Descer e Passar na frente valem na Fila, e a ordem nova chega por evento", async () => {
   const app = renderApp([
     projeto("rodando", 1),
     projeto("a", 0),
@@ -80,15 +92,21 @@ test("Subir, Descer e Passar na frente valem na fila, e a ordem nova chega por e
   ]);
   const a = await screen.findByRole("listitem", { name: "a" });
   const b = screen.getByRole("listitem", { name: "b" });
+  expect(cartoes("Fila")).toEqual(["a", "b"]);
+  expect(cartoes("Transcrição")).toEqual(["rodando"]);
 
-  expect(within(a).getByRole("button", { name: "Subir a" })).toBeDisabled();
-  expect(within(b).getByRole("button", { name: "Descer b" })).toBeDisabled();
+  let menu = await abrirMenu(app.user, a, "a");
   expect(
-    screen.getByRole("listitem", { name: "rodando" }),
-  ).not.toHaveTextContent("Passar");
+    within(menu).getByRole("menuitem", { name: "Subir a" }),
+  ).toBeDisabled();
+  await app.user.keyboard("{Escape}");
+  menu = await abrirMenu(app.user, b, "b");
+  expect(
+    within(menu).getByRole("menuitem", { name: "Descer b" }),
+  ).toBeDisabled();
 
   await app.user.click(
-    within(b).getByRole("button", { name: "Passar b na frente" }),
+    within(menu).getByRole("menuitem", { name: "Passar b na frente" }),
   );
   expect(app.calls.ciclo).toEqual(["mover:passarNaFrente:b"]);
   act(() => {
@@ -99,21 +117,47 @@ test("Subir, Descer e Passar na frente valem na fila, e a ordem nova chega por e
     });
   });
 
-  expect(titulos()).toEqual(["rodando", "b", "a"]);
+  expect(cartoes("Fila")).toEqual(["b", "a"]);
+  menu = await abrirMenu(
+    app.user,
+    screen.getByRole("listitem", { name: "rodando" }),
+    "rodando",
+  );
+  expect(within(menu).queryByRole("menuitem", { name: /Passar/ })).toBeNull();
+});
+
+test("arrastar um cartão da Fila para outra posição move o projeto passo a passo", async () => {
+  const app = renderApp([projeto("a", 0), projeto("b", 0), projeto("c", 0)]);
+  const a = await screen.findByRole("listitem", { name: "a" });
+  const c = screen.getByRole("listitem", { name: "c" });
+  expect(a).toHaveAttribute("draggable", "true");
+
+  fireEvent.dragStart(a);
+  fireEvent.dragOver(c);
+  fireEvent.drop(c);
+
+  // De 1º para 3º: dois passos para baixo.
+  await vi.waitFor(() => {
+    expect(app.calls.ciclo).toEqual(["mover:descer:a", "mover:descer:a"]);
+  });
 });
 
 test("Remover só aparece para o projeto que nunca começou e o tira da lista", async () => {
   const app = renderApp([projeto("rodando", 1), projeto("novo", 0)]);
   const novo = await screen.findByRole("listitem", { name: "novo" });
+  let menu = await abrirMenu(
+    app.user,
+    screen.getByRole("listitem", { name: "rodando" }),
+    "rodando",
+  );
   expect(
-    within(screen.getByRole("listitem", { name: "rodando" })).queryByRole(
-      "button",
-      { name: "Remover rodando" },
-    ),
+    within(menu).queryByRole("menuitem", { name: "Remover rodando" }),
   ).toBeNull();
+  await app.user.keyboard("{Escape}");
 
+  menu = await abrirMenu(app.user, novo, "novo");
   await app.user.click(
-    within(novo).getByRole("button", { name: "Remover novo" }),
+    within(menu).getByRole("menuitem", { name: "Remover novo" }),
   );
   expect(app.calls.ciclo).toEqual(["remover:novo"]);
   act(() => {
@@ -125,22 +169,22 @@ test("Remover só aparece para o projeto que nunca começou e o tira da lista", 
 
 test("Excluir projeto pede confirmação e mostra o espaço liberado", async () => {
   const app = renderApp([projeto("pronto", 5)]);
-  const linha = await screen.findByRole("listitem", { name: "pronto" });
+  const cartao = await screen.findByRole("listitem", { name: "pronto" });
 
+  let menu = await abrirMenu(app.user, cartao, "pronto");
   await app.user.click(
-    within(linha).getByRole("button", { name: "Excluir pronto" }),
+    within(menu).getByRole("menuitem", { name: "Excluir pronto" }),
   );
   expect(app.calls.ciclo).toEqual([]);
-  await app.user.click(within(linha).getByRole("button", { name: "Manter" }));
-  expect(
-    within(linha).getByRole("button", { name: "Excluir pronto" }),
-  ).toBeVisible();
+  await app.user.click(within(cartao).getByRole("button", { name: "Manter" }));
+  expect(within(cartao).queryByRole("alertdialog")).toBeNull();
 
+  menu = await abrirMenu(app.user, cartao, "pronto");
   await app.user.click(
-    within(linha).getByRole("button", { name: "Excluir pronto" }),
+    within(menu).getByRole("menuitem", { name: "Excluir pronto" }),
   );
   await app.user.click(
-    within(linha).getByRole("button", {
+    within(cartao).getByRole("button", {
       name: "Confirmar a exclusão de pronto",
     }),
   );
@@ -156,21 +200,21 @@ test("Excluir projeto pede confirmação e mostra o espaço liberado", async () 
 
 test("o vídeo original que sumiu pode ser localizado de novo", async () => {
   const app = renderApp([projeto("aula", 1, { videoAusente: true })]);
-  const linha = await screen.findByRole("listitem", { name: "aula" });
-  expect(linha).toHaveTextContent("vídeo original não encontrado");
+  const cartao = await screen.findByRole("listitem", { name: "aula" });
+  expect(cartao).toHaveTextContent("vídeo original não encontrado");
   app.pick(["/outro/aula.mp4"]);
 
   await app.user.click(
-    within(linha).getByRole("button", { name: "Localizar o vídeo de aula" }),
+    within(cartao).getByRole("button", { name: "Localizar o vídeo de aula" }),
   );
 
   expect(app.calls.ciclo).toEqual(["localizar:/outro/aula.mp4:aula"]);
-  expect(linha).not.toHaveTextContent("vídeo original não encontrado");
+  expect(cartao).not.toHaveTextContent("vídeo original não encontrado");
 });
 
 test("no histórico, o projeto cuja pasta sumiu aparece como não encontrado e sai de lá", async () => {
   const app = renderApp([projeto("aula", 5)], ["live (2026-10-08)"]);
-  await screen.findByRole("heading", { name: "Gerando" });
+  await screen.findByRole("heading", { name: "Linha de produção" });
   await app.user.click(screen.getByRole("button", { name: "Lotes" }));
 
   const lista = await screen.findByRole("list", {
@@ -184,4 +228,16 @@ test("no histórico, o projeto cuja pasta sumiu aparece como não encontrado e s
   );
 
   expect(app.calls.ciclo).toEqual(["tirarDoHistorico:live (2026-10-08)"]);
+});
+
+test("as vagas dizem quem usa a GPU, o Claude e o render", async () => {
+  const app = renderApp([projeto("aula", 2), projeto("live", 0)]);
+  const vagas = await screen.findByRole("contentinfo", { name: "Vagas" });
+  expect(vagas).toHaveTextContent("1 na fila");
+
+  app.etapa("aula", "roteiro", "emAndamento");
+
+  await within(vagas).findByText("Roteiro de aula");
+  expect(vagas).toHaveTextContent(/GPU\s*livre/);
+  expect(vagas).toHaveTextContent(/Render\s*livre/);
 });

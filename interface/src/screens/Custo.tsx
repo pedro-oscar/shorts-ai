@@ -38,7 +38,7 @@ export function ResumoDoCusto({
   if (fator === null) {
     const chave = plano?.precoDeApi ? "custo.cobranca" : "custo.estimado";
     return (
-      <p className="detail" aria-label={rotulo}>
+      <p className="detail custo" aria-label={rotulo}>
         {t(chave, { valor: dinheiro(api) })}
         {porReel(1)}
         {marcas}
@@ -50,7 +50,7 @@ export function ResumoDoCusto({
     ate: dinheiro(api * fator * (1 + INCERTEZA_DO_MULTIPLICADOR)),
   });
   return (
-    <div className="detail" role="group" aria-label={rotulo}>
+    <div className="detail custo" role="group" aria-label={rotulo}>
       <p>
         <strong title={faixa}>
           {t("custo.noPlano", { valor: dinheiro(api * fator) })}
@@ -80,7 +80,7 @@ function Sessao({ sessao }: { sessao: CustoDaSessao }) {
   const etapa =
     sessao.etapa === "revisao"
       ? t("custo.revisao", { n: sessao.ordem })
-      : t(`gerando.etapas.${sessao.etapa}`);
+      : t(`linha.etapas.${sessao.etapa}`);
   return (
     <li>
       <strong>{etapa}</strong>{" "}

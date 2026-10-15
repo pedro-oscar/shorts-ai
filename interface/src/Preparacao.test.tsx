@@ -37,7 +37,7 @@ test("avisa quando há menos de 20 GB livres", async () => {
   expect((await screen.findByRole("alert")).textContent).toContain("20 GB");
 });
 
-test("baixar mostra o andamento de cada pacote e segue para a Conta quando nada falta", async () => {
+test("baixar mostra o andamento de cada pacote e segue adiante quando nada falta", async () => {
   const { user, calls } = await renderPreparacao([
     ["nodePortatil", "modeloDeTranscricao"],
   ]);
@@ -45,7 +45,8 @@ test("baixar mostra o andamento de cada pacote e segue para a Conta quando nada 
   await user.click(screen.getByRole("button", { name: "Baixar o que falta" }));
 
   expect(calls.preparar).toBe(1);
-  await screen.findByRole("heading", { name: "Conta" });
+  // Com a conta pronta e sem lote, o app segue direto para os Vídeos.
+  await screen.findByRole("heading", { name: "Vídeos" });
 });
 
 test("a falha de um pacote aparece e os outros ficam prontos; tentar de novo baixa só o que falta", async () => {
@@ -62,6 +63,6 @@ test("a falha de um pacote aparece e os outros ficam prontos; tentar de novo bai
 
   consertarPacote("modeloDeTranscricao");
   await user.click(screen.getByRole("button", { name: "Tentar de novo" }));
-  await screen.findByRole("heading", { name: "Conta" });
+  await screen.findByRole("heading", { name: "Vídeos" });
   expect(calls.preparar).toBe(2);
 });

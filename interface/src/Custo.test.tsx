@@ -1,6 +1,7 @@
 import { act, render, screen, within } from "@testing-library/react";
 import { expect, test } from "vitest";
 import type {
+  EstadoDaConta,
   EstadoInicial,
   LoteResumo,
   ProjetoResumo,
@@ -90,6 +91,7 @@ function projeto(custo: ResumoDeCusto): ProjetoResumo {
 function renderApp(
   custo: ResumoDeCusto,
   inicial: Partial<EstadoInicial> = INICIAL,
+  conta: EstadoDaConta = LOGADO,
 ) {
   const item = projeto(custo);
   const lote: LoteResumo = {
@@ -102,12 +104,12 @@ function renderApp(
     aberto: true,
     custo,
   };
-  const fake = createFakeNucleo(inicial, LOGADO, [lote]);
+  const fake = createFakeNucleo(inicial, conta, [lote]);
   render(<App nucleo={fake.nucleo} />);
   return { ...fake, lote };
 }
 
-test("o Gerando mostra o custo do lote e do projeto como estimado, com o rateio e o preço a conferir", async () => {
+test("a Linha de produção mostra o custo do lote e do projeto como estimado, com o rateio e o preço a conferir", async () => {
   renderApp(CUSTO);
   const linha = await screen.findByRole("listitem", { name: "aula" });
 
@@ -193,10 +195,18 @@ test("quem tem assinatura vê o custo efetivo em destaque, com a faixa e o preç
 });
 
 test("a cobrança anual abate a mensalidade do custo efetivo", async () => {
-  renderApp(API, {
-    ...INICIAL,
-    plano: planoCompleto({ nivel: "pro", periodo: "anual", precoDeApi: false }),
-  });
+  renderApp(
+    API,
+    {
+      ...INICIAL,
+      plano: planoCompleto({
+        nivel: "pro",
+        periodo: "anual",
+        precoDeApi: false,
+      }),
+    },
+    { ...LOGADO, plano: "pro" },
+  );
 
   const lote = await screen.findByRole("group", {
     name: "Custo estimado do lote",
@@ -205,10 +215,18 @@ test("a cobrança anual abate a mensalidade do custo efetivo", async () => {
 });
 
 test("no Console o preço de API aparece como cobrança", async () => {
-  renderApp(API, {
-    ...INICIAL,
-    plano: planoCompleto({ nivel: "console", periodo: null, precoDeApi: true }),
-  });
+  renderApp(
+    API,
+    {
+      ...INICIAL,
+      plano: planoCompleto({
+        nivel: "console",
+        periodo: null,
+        precoDeApi: true,
+      }),
+    },
+    { ...LOGADO, metodo: "console", plano: null, cobranca: "porUso" },
+  );
 
   const lote = await screen.findByLabelText("Custo estimado do lote");
   expect(lote).toHaveTextContent("Cobrança estimada: US$ 3,60");

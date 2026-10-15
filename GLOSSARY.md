@@ -116,9 +116,29 @@ _Evitar_: revisão, revisar, correção
 
 ### Interface
 
-**Passo**:
-Uma tela do assistente: Conta, Vídeos, Padrões, Gerando e Reels.
-_Evitar_: etapa (essa é do pipeline)
+**Linha de produção**:
+A tela principal do app: o lote atual num quadro com uma coluna por etapa (a Fila, as cinco etapas e Pronto), em que cada projeto é um cartão que anda pelas colunas.
+_Evitar_: Gerando, kanban, quadro (sozinho), passo
+
+**Cartão**:
+Um projeto na Linha de produção, com o estado, o progresso, o que o Claude faz e a ação principal do momento; o resto fica no menu ⋯.
+_Evitar_: linha, item
+
+**Folha de Vídeos**:
+O painel que abre sobre a Linha de produção para escolher os vídeos e os Padrões de um lote novo, ou acrescentar vídeos ao lote que roda.
+_Evitar_: passo Vídeos, modal, wizard
+
+**Ajustes**:
+A janela de um vídeo da folha, ou de um projeto que espera a vez, com a Faixa e as Exceções dele.
+_Evitar_: opções do vídeo, configurações do vídeo
+
+**Sala de revisão**:
+A tela em que os reels do lote se assistem e se escolhem: a tira de reels e reservas à esquerda, o reel escolhido no centro, o roteiro e a descrição ao lado.
+_Evitar_: Reels (como tela), galeria
+
+**Tela**:
+Uma das telas do app: Aviso, Preparação, Conta, Linha de produção, Folha de Vídeos, Sala de revisão, Lotes, Configurações, Kits de marca e Sobre.
+_Evitar_: passo, etapa (essa é do pipeline)
 
 **Amostra**:
 O quadro de exemplo que mostra como o kit vai ficar num reel antes de gerar.

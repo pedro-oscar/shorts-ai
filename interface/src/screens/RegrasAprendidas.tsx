@@ -52,8 +52,8 @@ export function RegrasAprendidas() {
     <>
       <h2>{t("regras.titulo")}</h2>
       <p className="muted">{t("regras.dica")}</p>
-      {regras?.length === 0 && <p>{t("regras.vazio")}</p>}
-      <ul>
+      {regras?.length === 0 && <p className="muted">{t("regras.vazio")}</p>}
+      <ul className="regras">
         {regras?.map((regra) => (
           <LinhaDaRegra
             key={[regra.indice, regra.texto].join(":")}

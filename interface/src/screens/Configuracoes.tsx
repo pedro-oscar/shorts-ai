@@ -10,14 +10,31 @@ import { RegrasAprendidas } from "./RegrasAprendidas";
 import { ErrorMessage, Screen, Topo } from "./common";
 
 const IDIOMAS: IdiomaDaInterface[] = ["pt-BR", "en"];
+const SECOES = [
+  "biblioteca",
+  "idioma",
+  "conta",
+  "moeda",
+  "kits",
+  "regras",
+  "diagnostico",
+  "sobre",
+] as const;
 
-/** A engrenagem do topo: a Biblioteca, o idioma da interface, as regras aprendidas, o Diagnóstico e o Sobre. */
+/**
+ * A engrenagem do topo: a Biblioteca, o idioma, a conta e o plano, a moeda, os kits de
+ * marca, as regras aprendidas, o Diagnóstico e o Sobre, com um índice ao lado.
+ */
 export function Configuracoes({
   onOpenSobre,
   onVoltar,
+  onAbrirKits,
+  onAbrirConta,
 }: {
   onOpenSobre: () => void;
   onVoltar: () => void;
+  onAbrirKits: () => void;
+  onAbrirConta: () => void;
 }) {
   const { t } = useTranslation();
   const biblioteca = useAppStore((store) => store.biblioteca);
@@ -45,64 +62,114 @@ export function Configuracoes({
   return (
     <>
       <Topo onOpenSobre={onOpenSobre} />
-      <Screen title={t("configuracoes.titulo")}>
+      <Screen larga title={t("configuracoes.titulo")}>
         {erro && <ErrorMessage erro={erro} />}
-
-        <h2>{t("configuracoes.bibliotecaTitulo")}</h2>
-        <p>{t("configuracoes.bibliotecaAtual", { caminho: biblioteca })}</p>
-        <p className="muted">{t("configuracoes.bibliotecaDica")}</p>
-        <button type="button" onClick={() => void trocarBiblioteca()}>
-          {t("configuracoes.trocarBiblioteca")}
-        </button>
-
-        <h2>{t("configuracoes.idiomaTitulo")}</h2>
-        <label>
-          {t("configuracoes.idioma")}
-          <select
-            value={idioma}
-            onChange={(event) => {
-              void definirIdioma(event.target.value as IdiomaDaInterface);
-            }}
-          >
-            {IDIOMAS.map((opcao) => (
-              <option key={opcao} value={opcao}>
-                {t(`configuracoes.idiomas.${opcao}`)}
-              </option>
+        <div className="configuracoes">
+          <nav className="indice" aria-label={t("configuracoes.indice")}>
+            {SECOES.map((secao) => (
+              <a key={secao} href={`#configuracoes-${secao}`}>
+                {t(`configuracoes.secoes.${secao}`)}
+              </a>
             ))}
-          </select>
-        </label>
+            <button type="button" onClick={onVoltar}>
+              {t("configuracoes.voltar")}
+            </button>
+          </nav>
+          <div className="secoes">
+            <section className="cartao" id="configuracoes-biblioteca">
+              <h2>{t("configuracoes.bibliotecaTitulo")}</h2>
+              <p>
+                {t("configuracoes.bibliotecaAtual", { caminho: biblioteca })}
+              </p>
+              <p className="muted">{t("configuracoes.bibliotecaDica")}</p>
+              <div className="actions">
+                <button type="button" onClick={() => void trocarBiblioteca()}>
+                  {t("configuracoes.trocarBiblioteca")}
+                </button>
+              </div>
+            </section>
 
-        <h2>{t("configuracoes.contaTitulo")}</h2>
-        {conta?.tipo === "logado" ? (
-          <>
-            <PlanoDaConta plano={conta.plano} />
-            <MultiplicadorDoPlano />
-          </>
-        ) : (
-          <p className="muted">{t("configuracoes.semConta")}</p>
-        )}
+            <section className="cartao" id="configuracoes-idioma">
+              <h2>{t("configuracoes.idiomaTitulo")}</h2>
+              <label className="campo">
+                <span>{t("configuracoes.idioma")}</span>
+                <select
+                  value={idioma}
+                  onChange={(event) => {
+                    void definirIdioma(event.target.value as IdiomaDaInterface);
+                  }}
+                >
+                  {IDIOMAS.map((opcao) => (
+                    <option key={opcao} value={opcao}>
+                      {t(`configuracoes.idiomas.${opcao}`)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </section>
 
-        <Moeda />
+            <section className="cartao" id="configuracoes-conta">
+              <h2>{t("configuracoes.contaTitulo")}</h2>
+              {conta?.tipo === "logado" ? (
+                <>
+                  <p>
+                    {t("conta.logado", { conta: conta.email ?? conta.metodo })}
+                  </p>
+                  <PlanoDaConta plano={conta.plano} />
+                  <MultiplicadorDoPlano />
+                </>
+              ) : (
+                <p className="muted">{t("configuracoes.semConta")}</p>
+              )}
+              <div className="actions">
+                <button type="button" onClick={onAbrirConta}>
+                  {t("configuracoes.abrirConta")}
+                </button>
+              </div>
+            </section>
 
-        <RegrasAprendidas />
+            <section className="cartao" id="configuracoes-moeda">
+              <Moeda />
+            </section>
 
-        <h2>{t("configuracoes.diagnosticoTitulo")}</h2>
-        <button
-          type="button"
-          onClick={() => {
-            setDiagnostico(true);
-          }}
-        >
-          {t("configuracoes.abrirDiagnostico")}
-        </button>
+            <section className="cartao" id="configuracoes-kits">
+              <h2>{t("configuracoes.kitsTitulo")}</h2>
+              <p className="muted">{t("configuracoes.kitsDica")}</p>
+              <div className="actions">
+                <button type="button" onClick={onAbrirKits}>
+                  {t("configuracoes.abrirKits")}
+                </button>
+              </div>
+            </section>
 
-        <div className="actions">
-          <button type="button" onClick={onOpenSobre}>
-            {t("configuracoes.abrirSobre")}
-          </button>
-          <button type="button" onClick={onVoltar}>
-            {t("configuracoes.voltar")}
-          </button>
+            <section className="cartao" id="configuracoes-regras">
+              <RegrasAprendidas />
+            </section>
+
+            <section className="cartao" id="configuracoes-diagnostico">
+              <h2>{t("configuracoes.diagnosticoTitulo")}</h2>
+              <p className="muted">{t("configuracoes.diagnosticoDica")}</p>
+              <div className="actions">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDiagnostico(true);
+                  }}
+                >
+                  {t("configuracoes.abrirDiagnostico")}
+                </button>
+              </div>
+            </section>
+
+            <section className="cartao" id="configuracoes-sobre">
+              <h2>{t("configuracoes.sobreTitulo")}</h2>
+              <div className="actions">
+                <button type="button" onClick={onOpenSobre}>
+                  {t("configuracoes.abrirSobre")}
+                </button>
+              </div>
+            </section>
+          </div>
         </div>
       </Screen>
     </>

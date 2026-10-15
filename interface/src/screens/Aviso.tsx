@@ -39,7 +39,7 @@ export function Aviso({
           {t("aviso.concordo")}
         </label>
         {erro && <ErrorMessage erro={erro} />}
-        <div className="actions">
+        <div className="actions fim">
           <button type="button" onClick={() => void sair()}>
             {t("aviso.sair")}
           </button>

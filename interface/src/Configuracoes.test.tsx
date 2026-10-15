@@ -1,12 +1,13 @@
 import { render, screen, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
-import type { LoteResumo } from "./bindings";
+import type { EstadoDaConta, LoteResumo } from "./bindings";
 import { App } from "./App";
 import { PADROES_INICIAIS } from "./store";
 import {
   ACCEPTED_AT,
   DIAGNOSTICO_PADRAO,
+  LOGADO,
   SEM_CUSTO,
   createFakeNucleo,
   planoCompleto,
@@ -232,11 +233,17 @@ test("sem regras, as Configurações dizem que não há nenhuma", async () => {
   await screen.findByText("Nenhuma regra ainda.");
 });
 
-async function abrirComPlano(plano: Parameters<typeof planoCompleto>[0]) {
-  const fake = createFakeNucleo({
-    aceite: { data: ACCEPTED_AT },
-    plano: planoCompleto(plano),
-  });
+async function abrirComPlano(
+  plano: Parameters<typeof planoCompleto>[0],
+  conta: EstadoDaConta = LOGADO,
+) {
+  const fake = createFakeNucleo(
+    {
+      aceite: { data: ACCEPTED_AT },
+      plano: planoCompleto(plano),
+    },
+    conta,
+  );
   render(<App nucleo={fake.nucleo} />);
   const user = userEvent.setup();
   await user.click(
@@ -273,7 +280,10 @@ test("o multiplicador do plano é editável e volta ao padrão", async () => {
 });
 
 test("no Console não há multiplicador a editar", async () => {
-  await abrirComPlano({ nivel: "console", periodo: null, precoDeApi: true });
+  await abrirComPlano(
+    { nivel: "console", periodo: null, precoDeApi: true },
+    { ...LOGADO, metodo: "console", plano: null, cobranca: "porUso" },
+  );
 
   await screen.findByRole("heading", { name: "Conta e plano" });
   expect(screen.queryByLabelText("Valor do multiplicador")).toBeNull();

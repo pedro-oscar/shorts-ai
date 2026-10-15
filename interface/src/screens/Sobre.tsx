@@ -30,12 +30,12 @@ export function Sobre({ onBack }: { onBack: () => void }) {
       <p>{t("sobre.licenca")}</p>
 
       <h2>{t("sobre.terceirosTitulo")}</h2>
-      <ul>
+      <ul className="marcada">
         <li>{t("sobre.remotion")}</li>
         <li>{t("sobre.montserrat")}</li>
       </ul>
 
-      <div className="actions">
+      <div className="actions fim">
         <button type="button" onClick={onBack}>
           {t("sobre.voltar")}
         </button>
