@@ -17,7 +17,9 @@ if (modo === 'pacote') {
   });
 } else if (modo === 'render') {
   const [pacote, chave, dados, saida, escala] = args;
-  fs.cpSync(dados, path.join(pacote, 'public', 'clips', chave), {recursive: true});
+  // Não o fs.cpSync: no Windows, o recursivo derruba o Node 22 (0xc0000409, sem mensagem)
+  // quando o caminho tem acento, e a pasta do projeto leva o título do vídeo.
+  await fs.promises.cp(dados, path.join(pacote, 'public', 'clips', chave), {recursive: true});
   const inputProps = {clipId: chave};
   const composition = await selectComposition({serveUrl: pacote, id: 'reel', inputProps});
   let ultimo = -1;
