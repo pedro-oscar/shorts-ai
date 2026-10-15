@@ -1,5 +1,6 @@
 //! Links do YouTube: o endereço aceito e o `yt-dlp` que consulta e baixa o vídeo.
 
+use std::fs;
 use std::path::{MAIN_SEPARATOR, Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::AtomicBool;
@@ -14,6 +15,9 @@ use crate::projeto::Faixa;
 
 /// O nome do vídeo baixado em `bruto/`; o título fica no projeto, fora do caminho.
 pub(crate) const NOME_DO_ARQUIVO: &str = "video.mp4";
+
+/// A saída do `yt-dlp` que falhou, em `bruto/`, com o traceback que a última linha não traz.
+pub(crate) const NOME_DO_LOG: &str = "yt-dlp.log";
 
 /// H.264 até 1080p mais áudio m4a, ou um MP4 já pronto com esses mesmos limites.
 const FORMATO: &str =
@@ -181,7 +185,20 @@ impl Ytdlp {
         })
         .map_err(|error| self.nao_rodou(&error))?;
         if !saida.status.success() {
-            return Err(saida.last_stderr_line().to_owned());
+            // A última linha diz pouco (um `OSError` do Python, por exemplo); a saída inteira
+            // fica ao lado do vídeo, para quem for investigar.
+            let log = pasta.join(NOME_DO_LOG);
+            let gravou = fs::write(
+                &log,
+                format!("{}\n{}", saida.stdout.join("\n"), saida.stderr),
+            )
+            .is_ok();
+            let motivo = saida.last_stderr_line();
+            return Err(if gravou {
+                format!("{motivo} (saída completa em {})", log.display())
+            } else {
+                motivo.to_owned()
+            });
         }
         if destino.is_file() {
             Ok(destino)

@@ -306,7 +306,16 @@ fn download_que_falha_para_a_importacao_com_o_motivo_do_yt_dlp() {
     let (estado, _) = cenario.esperar_importacao(&projeto.id);
 
     assert_eq!(estado, EstadoDaEtapa::Falhou);
-    assert_eq!(cenario.projeto_json(&projeto.id)["falha"], "ERROR: 403");
+    // A saída inteira fica em bruto/, e a falha diz onde.
+    let log = cenario
+        .biblioteca()
+        .join(&projeto.id)
+        .join("bruto/yt-dlp.log");
+    assert_eq!(
+        cenario.projeto_json(&projeto.id)["falha"],
+        format!("ERROR: 403 (saída completa em {})", log.display())
+    );
+    assert!(fs::read_to_string(&log).unwrap().contains("ERROR: 403"));
 }
 
 #[test]
