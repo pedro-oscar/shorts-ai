@@ -267,10 +267,20 @@ async function montar(receita, { alvo, saida, cache }) {
 
 /** O alvo do `rustc` desta máquina, o mesmo que o Tauri usa no nome dos sidecars. */
 function alvoDoRustc() {
-  const { stdout, status } = spawnSync("rustc", ["-vV"], { encoding: "utf8" });
+  const { stdout, stderr, status, error } = spawnSync("rustc", ["-vV"], {
+    encoding: "utf8",
+  });
   const alvo = /^host: (.+)$/m.exec(stdout)?.[1];
-  if (status !== 0 || !alvo) throw new Error("rustc -vV não disse o alvo");
-  return alvo;
+  if (status === 0 && alvo) return alvo;
+  // Sem o rustc no PATH, ou com a toolchain do rust-toolchain.toml por instalar, o motivo
+  // está no que o comando respondeu.
+  const motivo = error
+    ? error.message
+    : [stdout, stderr].filter(Boolean).join("\n").trim();
+  throw new Error(
+    `rustc -vV não disse o alvo${motivo ? `:\n${motivo}` : ""}\n` +
+      "Confira se o rustc está no PATH deste terminal e rode `rustup show` para instalar a toolchain do rust-toolchain.toml.",
+  );
 }
 
 async function main() {
