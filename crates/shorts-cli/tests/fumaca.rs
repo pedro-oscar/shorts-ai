@@ -118,6 +118,27 @@ fn validar_aponta_a_prop_que_a_cena_nao_aceita() {
 }
 
 #[test]
+fn validar_aponta_o_campo_que_o_motion_nao_aceita() {
+    let pasta = projeto();
+    let roteiro = r#"{"cortes": [
+        {"id": "c01", "trechos": [[0.0, 1.9]],
+         "motions": [{"type": "keyword", "at": 1.0, "texto": "Olá"}]}
+    ]}"#;
+
+    let (codigo, texto) = validar(&pasta, roteiro);
+
+    assert_eq!(codigo, Some(1), "{texto}");
+    assert!(
+        texto.contains("✗ erro: motion #1 (keyword): o campo \"texto\" não existe"),
+        "{texto}"
+    );
+    assert!(
+        texto.contains("✗ erro: motion #1 (keyword) precisa de \"text\""),
+        "{texto}"
+    );
+}
+
+#[test]
 fn validar_sem_transcricao_e_erro() {
     let pasta = projeto();
     std::fs::remove_file(pasta.path().join("edit/transcricao.json")).unwrap();

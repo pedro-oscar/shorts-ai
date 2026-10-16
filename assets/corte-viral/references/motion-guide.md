@@ -17,6 +17,8 @@ Consequências para o roteiro:
 
 ## motion.json
 
+O núcleo gera o `motion.json` a partir do roteiro, com `start` e `end` já no tempo do corte. No roteiro, o tempo vem de `at` ou `word` e de `dur` ou `ate` (`roteiro.md`), e `start`/`end` são erro.
+
 ```json
 {
   "style": {"accent": "#FF2D2D", "highlight": "#FFE600", "captionY": 0.66, "grain": true, "captionGroupMs": 900, "uppercase": true, "fadeOut": 0.5},

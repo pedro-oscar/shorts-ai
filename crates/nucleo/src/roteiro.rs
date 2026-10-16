@@ -53,9 +53,60 @@ const LEGENDA_MINIMA: f64 = 0.12;
 /// O motion de uma palavra entra um pouco antes dela.
 const ANTECEDENCIA_DA_PALAVRA: f64 = 0.1;
 
-const TIPOS_DE_MOTION: [&str; 7] = [
-    "title", "keyword", "counter", "zoom", "shake", "scene", "flash",
+/// Um tipo de motion e os campos que ele aceita no roteiro além das âncoras de tempo, como o
+/// tipo `Motion` do template (`src/types.ts`) os declara. O template ignora qualquer outro.
+#[derive(Debug)]
+pub struct TipoDeMotion {
+    pub nome: &'static str,
+    pub campos: &'static [&'static str],
+    /// Sem eles o template desenha errado: um `counter` sem `from` mostra "NaN".
+    pub obrigatorios: &'static [&'static str],
+}
+
+/// As âncoras de tempo, que o núcleo consome: valem para todo tipo.
+const ANCORAS: [&str; 4] = ["at", "word", "dur", "ate"];
+
+pub static TIPOS_DE_MOTION: [TipoDeMotion; 7] = [
+    TipoDeMotion {
+        nome: "title",
+        campos: &["text", "color"],
+        obrigatorios: &["text"],
+    },
+    TipoDeMotion {
+        nome: "keyword",
+        campos: &["text", "color", "position"],
+        obrigatorios: &["text"],
+    },
+    TipoDeMotion {
+        nome: "counter",
+        campos: &["from", "to", "prefix", "suffix", "decimals", "label"],
+        obrigatorios: &["from", "to"],
+    },
+    TipoDeMotion {
+        nome: "zoom",
+        campos: &["scale"],
+        obrigatorios: &[],
+    },
+    TipoDeMotion {
+        nome: "shake",
+        campos: &["intensity"],
+        obrigatorios: &[],
+    },
+    TipoDeMotion {
+        nome: "scene",
+        campos: &["name", "layout", "props"],
+        obrigatorios: &["name"],
+    },
+    TipoDeMotion {
+        nome: "flash",
+        campos: &["color"],
+        obrigatorios: &[],
+    },
 ];
+
+fn tipo_de_motion(nome: &str) -> Option<&'static TipoDeMotion> {
+    TIPOS_DE_MOTION.iter().find(|tipo| tipo.nome == nome)
+}
 
 /// A duração padrão de cada tipo de motion, em segundos.
 fn duracao_padrao(tipo: &str) -> f64 {
@@ -268,6 +319,21 @@ pub enum Problema {
         prop: String,
         aceitas: Vec<String>,
     },
+    CampoDesconhecido {
+        numero: usize,
+        tipo: String,
+        campo: String,
+    },
+    PropForaDeProps {
+        numero: usize,
+        cena: String,
+        prop: String,
+    },
+    CampoObrigatorioAusente {
+        numero: usize,
+        tipo: String,
+        campo: String,
+    },
     FonteForaDoCatalogo {
         fonte: String,
     },
@@ -376,6 +442,33 @@ impl Problema {
                     "motion #{numero}: a cena \"{cena}\" não aceita a prop \"{prop}\" (aceita: {aceitas})"
                 )
             }
+            Self::CampoDesconhecido {
+                numero,
+                tipo,
+                campo,
+            } if campo == "start" || campo == "end" => format!(
+                "motion #{numero} ({tipo}): o campo \"{campo}\" não existe no roteiro; o tempo vem de at ou word e de dur ou ate"
+            ),
+            Self::CampoDesconhecido {
+                numero,
+                tipo,
+                campo,
+            } => {
+                let campos = tipo_de_motion(tipo).map_or(&[][..], |tipo| tipo.campos);
+                let aceitos = ANCORAS.iter().chain(campos).copied();
+                let aceitos = aceitos.collect::<Vec<_>>().join(", ");
+                format!(
+                    "motion #{numero} ({tipo}): o campo \"{campo}\" não existe (aceita: {aceitos})"
+                )
+            }
+            Self::PropForaDeProps { numero, cena, prop } => format!(
+                "motion #{numero}: \"{prop}\" é prop da cena \"{cena}\" e vai dentro de \"props\""
+            ),
+            Self::CampoObrigatorioAusente {
+                numero,
+                tipo,
+                campo,
+            } => format!("motion #{numero} ({tipo}) precisa de \"{campo}\""),
             Self::FonteForaDoCatalogo { fonte } => {
                 format!("a fonte \"{fonte}\" não está no catálogo")
             }
@@ -1037,19 +1130,18 @@ fn mapear_motions(
     }
     for (i, motion) in corte.motions.iter().enumerate() {
         let numero = i + 1;
-        if !TIPOS_DE_MOTION.contains(&motion.tipo.as_str()) {
+        let Some(tipo) = tipo_de_motion(&motion.tipo) else {
             erros.push(Problema::TipoDeMotionInvalido {
                 numero,
                 tipo: motion.tipo.clone(),
             });
             continue;
-        }
-        if motion.tipo == "scene" {
-            let nome = motion
-                .extras
-                .get("name")
-                .and_then(Value::as_str)
-                .unwrap_or("");
+        };
+        erros.extend(conferir_campos(motion, tipo, numero, contexto));
+        if motion.tipo == "scene"
+            && let Some(nome) = motion.extras.get("name")
+        {
+            let nome = nome.as_str().unwrap_or("");
             let Some(aceitas) = contexto.cenas.get(nome) else {
                 erros.push(Problema::CenaNaoRegistrada { nome: nome.into() });
                 continue;
@@ -1112,6 +1204,48 @@ fn mapear_motions(
         motions: saida,
         saida: saida_do_reel,
     }
+}
+
+/// Os campos que o tipo do motion não aceita e os obrigatórios que faltam. Num `scene`, a prop da
+/// cena escrita fora de `props` tem um problema próprio.
+fn conferir_campos(
+    motion: &Motion,
+    tipo: &TipoDeMotion,
+    numero: usize,
+    contexto: &Contexto,
+) -> Vec<Problema> {
+    let props_da_cena = motion
+        .extras
+        .get("name")
+        .and_then(Value::as_str)
+        .filter(|_| tipo.nome == "scene")
+        .and_then(|cena| Some((cena, contexto.cenas.get(cena)?.as_ref()?)));
+    let desconhecidos = motion
+        .extras
+        .keys()
+        .filter(|campo| !tipo.campos.contains(&campo.as_str()))
+        .map(|campo| match props_da_cena {
+            Some((cena, props)) if props.contains(campo) => Problema::PropForaDeProps {
+                numero,
+                cena: cena.into(),
+                prop: campo.clone(),
+            },
+            _ => Problema::CampoDesconhecido {
+                numero,
+                tipo: tipo.nome.into(),
+                campo: campo.clone(),
+            },
+        });
+    let ausentes = tipo
+        .obrigatorios
+        .iter()
+        .filter(|campo| !motion.extras.contains_key(**campo))
+        .map(|campo| Problema::CampoObrigatorioAusente {
+            numero,
+            tipo: tipo.nome.into(),
+            campo: (*campo).into(),
+        });
+    desconhecidos.chain(ausentes).collect()
 }
 
 /// O instante em que o motion começa, no tempo do corte, ou `None` (com o erro registrado).

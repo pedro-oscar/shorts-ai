@@ -65,7 +65,7 @@ Cada motion tem `type` e uma âncora de tempo:
 
 Duração: `"dur"` (segundos) ou `"ate"` (tempo na fonte). Padrões: title 2,6 · keyword 1,6 · counter 2,4 · zoom 1,4 · shake 1,0 · scene 3,5.
 
-Tipos e propriedades: `title {text}`, `keyword {text}`, `counter {from, to, prefix, suffix, decimals, label}`, `zoom {scale}`, `shake {intensity}`, `scene {name, layout: card|full, props}`, `flash {at, color}`. Regras de uso: `motion-guide.md`.
+Tipos e propriedades: `title {text, color}`, `keyword {text, color}`, `counter {from, to, prefix, suffix, decimals, label}`, `zoom {scale}`, `shake {intensity}`, `scene {name, layout: card|full, props}`, `flash {at, color}`. São obrigatórios o `text` do `title` e do `keyword`, o `from` e o `to` do `counter` e o `name` da `scene`. Um campo fora dessa lista é erro, porque o Remotion o ignoraria: `start`/`end` são do `motion.json`, e as props de uma cena vão dentro de `props`. Regras de uso: `motion-guide.md`.
 
 `scene.name` precisa estar registrado em `remotion/src/scenes/index.ts`, e `scene.props` só leva as props que a linha da cena em `SCENES` lista; com outro nome, a prop é erro, porque a cena a ignoraria e desenharia o padrão. Se não houver uma cena adequada, o Claude a cria antes (ver motion-guide).
 

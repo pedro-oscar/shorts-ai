@@ -6,7 +6,8 @@ use std::fs;
 use std::path::PathBuf;
 
 use nucleo::roteiro::{
-    Contexto, Gravidade, Problema, Saida, Transcricao, Validacao, cenas_registradas, validar,
+    Contexto, Gravidade, Problema, Saida, TIPOS_DE_MOTION, Transcricao, Validacao,
+    cenas_registradas, validar,
 };
 use serde_json::{Value, json};
 
@@ -132,6 +133,62 @@ fn so_as_entradas_com_cena_declaram_as_props() {
             ("Outra".to_string(), None),
         ])
     );
+}
+
+/// Os campos de cada membro da união `Motion` do template (`src/types.ts`), menos `type`, com
+/// `true` nos obrigatórios. `start` e `end` vêm do `Span`, fora dos membros.
+fn campos_do_motion_do_template() -> BTreeMap<String, BTreeMap<String, bool>> {
+    let texto = fs::read_to_string(template().join("src/types.ts")).unwrap();
+    let inicio = texto.find("export type Motion =").unwrap();
+    let uniao = &texto[inicio..];
+    let uniao = &uniao[..uniao.find(";\n\n").unwrap()];
+    let mut tipos = BTreeMap::new();
+    for membro in uniao.split('{').skip(1) {
+        let corpo = membro.split('}').next().unwrap();
+        let mut campos = BTreeMap::new();
+        let mut tipo = None;
+        for declaracao in corpo.split(';').map(str::trim).filter(|d| !d.is_empty()) {
+            let (nome, valor) = declaracao.split_once(':').unwrap();
+            if nome == "type" {
+                tipo = Some(valor.trim().trim_matches('\'').to_string());
+            } else {
+                let opcional = nome.strip_suffix('?');
+                campos.insert(opcional.unwrap_or(nome).to_string(), opcional.is_none());
+            }
+        }
+        tipos.insert(tipo.unwrap(), campos);
+    }
+    tipos
+}
+
+/// O núcleo confere os campos com a tabela dele; ela segue o template. O `at` do `flash` no
+/// `motion.json` é o núcleo que escreve, a partir das âncoras do roteiro.
+#[test]
+fn os_campos_de_cada_motion_sao_os_do_tipo_motion_do_template() {
+    let mut esperado = campos_do_motion_do_template();
+    esperado.get_mut("flash").unwrap().remove("at");
+    let tabela: BTreeMap<String, BTreeMap<String, bool>> = TIPOS_DE_MOTION
+        .iter()
+        .map(|tipo| {
+            let campos = tipo
+                .campos
+                .iter()
+                .map(|campo| (campo.to_string(), tipo.obrigatorios.contains(campo)))
+                .collect();
+            (tipo.nome.to_string(), campos)
+        })
+        .collect();
+    assert_eq!(esperado.len(), 7, "{esperado:?}");
+    assert_eq!(tabela, esperado);
+    for tipo in &TIPOS_DE_MOTION {
+        for obrigatorio in tipo.obrigatorios {
+            assert!(
+                tipo.campos.contains(obrigatorio),
+                "{}: {obrigatorio}",
+                tipo.nome
+            );
+        }
+    }
 }
 
 // ---------------------------------------------------------------- regras
@@ -450,7 +507,7 @@ fn motions_usam_at_word_duracoes_padrao_e_o_fim_limitado() {
             {"type": "shake", "at": 12.5, "dur": 1.0},
             {"type": "flash", "at": 13.0},
             {"type": "scene", "name": "Grafico", "at": 18.0},
-            {"type": "counter", "at": "0:19", "to": 3},
+            {"type": "counter", "at": "0:19", "from": 0, "to": 3},
         ],
     });
     let roteiro = json!({"estilo": {"accent": "#FFF", "grain": 1}, "cortes": [corte]});
@@ -475,7 +532,7 @@ fn motions_usam_at_word_duracoes_padrao_e_o_fim_limitado() {
                 {"type": "shake", "start": 2.62, "end": 3.62},
                 {"type": "flash", "at": 3.12},
                 {"type": "scene", "name": "Grafico", "start": 8.12, "end": 9.82},
-                {"type": "counter", "to": 3, "start": 9.12, "end": 9.82},
+                {"type": "counter", "from": 0, "to": 3, "start": 9.12, "end": 9.82},
             ],
             "saida": {"fimFala": 9.62, "congelar": 0.56},
         })
@@ -539,7 +596,7 @@ fn at_fora_dos_trechos_e_word_nao_encontrada_sao_erros() {
     let validacao = validar_motions(json!([
         {"type": "zoom", "at": 25.0},
         {"type": "zoom", "at": 12.0, "ate": 28.0},
-        {"type": "keyword", "word": "inexistente", "at": 12.0},
+        {"type": "keyword", "word": "inexistente", "at": 12.0, "text": "K"},
     ]));
     assert_eq!(
         erros(&validacao),
@@ -611,6 +668,99 @@ fn prop_que_a_cena_do_template_nao_aceita_e_erro() {
     );
 }
 
+/// O template ignora o campo que o tipo do motion não declara.
+#[test]
+fn campo_que_o_tipo_do_motion_nao_aceita_e_erro() {
+    let validacao = validar_motions(json!([
+        {"type": "keyword", "at": 11.0, "text": "K", "texto": "K"},
+        {"type": "zoom", "at": 14.0, "start": 4.0, "end": 5.0},
+    ]));
+
+    let campo = |numero, tipo: &str, campo: &str| Problema::CampoDesconhecido {
+        numero,
+        tipo: tipo.into(),
+        campo: campo.into(),
+    };
+    let erros = erros(&validacao);
+    assert_eq!(
+        erros,
+        [
+            &campo(1, "keyword", "texto"),
+            &campo(2, "zoom", "end"),
+            &campo(2, "zoom", "start"),
+        ]
+    );
+    assert_eq!(
+        erros[0].frase(),
+        "motion #1 (keyword): o campo \"texto\" não existe (aceita: at, word, dur, ate, text, color, position)"
+    );
+    assert_eq!(
+        erros[2].frase(),
+        "motion #2 (zoom): o campo \"start\" não existe no roteiro; o tempo vem de at ou word e de dur ou ate"
+    );
+}
+
+/// Fora de `props`, a prop não chega à cena, que desenha o padrão.
+#[test]
+fn prop_da_cena_fora_de_props_e_erro() {
+    let contexto = Contexto {
+        cenas: cenas_registradas(&template()),
+        ..Contexto::default()
+    };
+    let corte = json!({"id": "c01", "trechos": [[10.0, 20.0]], "motions": [
+        {"type": "scene", "name": "Checklist", "at": 11.0, "items": [], "cor": "#fff"},
+    ]});
+
+    let validacao = validar(&roteiro_com(corte), Some(&transcricao()), &contexto);
+
+    let erros = erros(&validacao);
+    assert_eq!(
+        erros,
+        [
+            &Problema::CampoDesconhecido {
+                numero: 1,
+                tipo: "scene".into(),
+                campo: "cor".into(),
+            },
+            &Problema::PropForaDeProps {
+                numero: 1,
+                cena: "Checklist".into(),
+                prop: "items".into(),
+            },
+        ]
+    );
+    assert_eq!(
+        erros[1].frase(),
+        "motion #1: \"items\" é prop da cena \"Checklist\" e vai dentro de \"props\""
+    );
+}
+
+/// Sem `from`, o contador do template mostra "NaN"; sem `text`, o keyword sai vazio.
+#[test]
+fn campo_obrigatorio_ausente_e_erro() {
+    let validacao = validar_motions(json!([
+        {"type": "counter", "at": 11.0, "to": 3},
+        {"type": "keyword", "at": 14.0},
+        {"type": "scene", "at": 17.0},
+    ]));
+
+    let ausente = |numero, tipo: &str, campo: &str| Problema::CampoObrigatorioAusente {
+        numero,
+        tipo: tipo.into(),
+        campo: campo.into(),
+    };
+    let erros = erros(&validacao);
+    assert_eq!(
+        erros,
+        [
+            &ausente(1, "counter", "from"),
+            &ausente(2, "keyword", "text"),
+            &ausente(3, "scene", "name"),
+        ]
+    );
+    assert_eq!(erros[0].frase(), "motion #1 (counter) precisa de \"from\"");
+}
+
 #[test]
 fn cena_sem_props_no_registro_nao_tem_as_props_conferidas() {
     let validacao = validar_motions(json!([
@@ -623,7 +773,7 @@ fn cena_sem_props_no_registro_nao_tem_as_props_conferidas() {
 fn word_a_mais_de_4_s_do_at_e_motions_sobrepostas_sao_avisos() {
     let validacao = validar_motions(json!([
         {"type": "keyword", "word": "p12", "at": 11.0, "text": "A"},
-        {"type": "counter", "at": 16.0, "to": 1},
+        {"type": "counter", "at": 16.0, "from": 0, "to": 1},
         {"type": "keyword", "at": 16.5, "text": "B"},
     ]));
     assert!(!validacao.tem_erros());
