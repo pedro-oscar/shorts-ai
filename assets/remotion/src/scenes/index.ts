@@ -1,20 +1,39 @@
 import type React from 'react';
 import {Avestruz} from './Avestruz';
+import {Bateria} from './Bateria';
 import {Blindado} from './Blindado';
+import {CaboDeGuerra} from './CaboDeGuerra';
+import {Caminho} from './Caminho';
 import {Checklist} from './Checklist';
+import {Clones} from './Clones';
 import {Comparacao} from './Comparacao';
 import {Dinheiro} from './Dinheiro';
+import {Escudo} from './Escudo';
+import {Estomago} from './Estomago';
 import {Etapas} from './Etapas';
+import {FalaSemFim} from './FalaSemFim';
+import {Fluxo} from './Fluxo';
 import {FogoComFogo} from './FogoComFogo';
 import {Geracoes} from './Geracoes';
 import {Grafico} from './Grafico';
+import {IdeiaApagando} from './IdeiaApagando';
 import {Lampada} from './Lampada';
 import {Marionete} from './Marionete';
+import {Medidor} from './Medidor';
+import {Niveis} from './Niveis';
 import {OracaoCorrigida} from './OracaoCorrigida';
+import {OracaoOuvida} from './OracaoOuvida';
+import {PainelLateral} from './PainelLateral';
+import {ParedeDeCodigo} from './ParedeDeCodigo';
+import {PastaApagada} from './PastaApagada';
 import {PromptRiscado} from './PromptRiscado';
+import {ReuniaoCansada} from './ReuniaoCansada';
+import {SimNao} from './SimNao';
+import {TerraAbrindo} from './TerraAbrindo';
 import {TokensZerando} from './TokensZerando';
 import {Transmissao} from './Transmissao';
 import {Venda} from './Venda';
+import {Vinheta} from './Vinheta';
 
 /**
  * Registro de cenas usadas em motion.json ({"type": "scene", "name": "<chave>"}).
@@ -40,6 +59,25 @@ export const SCENES: Record<string, React.FC<any>> = {
   Geracoes,
   OracaoCorrigida,
   Avestruz,
+  SimNao,
+  Fluxo,
+  Medidor,
+  Niveis,
+  Escudo,
+  Caminho,
+  IdeiaApagando,
+  Vinheta,
+  Bateria,
+  Clones,
+  ParedeDeCodigo,
+  PastaApagada,
+  FalaSemFim,
+  ReuniaoCansada,
+  CaboDeGuerra,
+  Estomago,
+  OracaoOuvida,
+  PainelLateral,
+  TerraAbrindo,
 };
 
 /** Props de exemplo (e duração em segundos) usadas só na pré-visualização "cena-<Nome>". */
@@ -121,4 +159,88 @@ export const EXEMPLOS: Record<string, {props: Record<string, unknown>; dur?: num
     dur: 6.2,
   },
   Avestruz: {props: {label: 'Cabeça na areia', enterrarAt: 0.3, sombraAt: 2.0, labelAt: 0.9}, dur: 4.6},
+  SimNao: {
+    props: {
+      title: 'Onde funciona',
+      itens: [
+        {label: 'Terminal', ok: true, emoji: '💻'},
+        {label: 'App do Claude', ok: true, emoji: '📱'},
+        {label: 'VS Code', ok: false, emoji: '🧩'},
+      ],
+    },
+    dur: 4,
+  },
+  Fluxo: {
+    props: {
+      title: 'Automação',
+      etapas: [
+        {emoji: '📩', label: 'Lead'},
+        {emoji: '🔎', label: 'Pesquisa'},
+        {emoji: '🗂️', label: 'CRM'},
+        {emoji: '💬', label: 'WhatsApp'},
+      ],
+      quebraEm: 2,
+    },
+    dur: 4,
+  },
+  Medidor: {
+    props: {title: 'Modos de permissão', niveis: ['Ask', 'Plan', 'Edits', 'Auto', 'Bypass'], alerta: 'Sem freio'},
+    dur: 4,
+  },
+  Niveis: {
+    props: {
+      titulo: '',
+      niveis: [
+        {label: 'Conclusão', sub: 'sempre', emoji: '🎯', at: 0.2},
+        {label: 'Sustentação', sub: 'se precisar', emoji: '🧱', at: 1.6},
+        {label: 'Detalhes', sub: 'se pedirem', emoji: '🔍', at: 3.0},
+      ],
+    },
+    dur: 4.5,
+  },
+  Escudo: {props: {label: 'Blindado'}, dur: 3.5},
+  Caminho: {
+    props: {titulo: '', torto: {rotulo: 'Júnior', texto: 'Todo o caminho'}, reto: {rotulo: 'Executivo', texto: 'Onde chegou'}, retoAt: 2.4},
+    dur: 5,
+  },
+  IdeiaApagando: {
+    props: {
+      frases: ['Eu acho que talvez…', 'É só minha percepção', 'Posso estar errada'],
+      frasesAt: 1.2,
+      intervalo: 0.7,
+      apagarAt: 3.6,
+      label: 'Sem força',
+      labelAt: 3.8,
+    },
+    dur: 5,
+  },
+  Vinheta: {props: {rotulo: 'Motivo 1', texto: 'Querem demonstrar conhecimento', destaque: ['conhecimento'], intervalo: 0.3}, dur: 3},
+  Bateria: {props: {label: 'Seus tokens', de: 100, ate: 0, emoji: '🤖'}, dur: 3.5},
+  Clones: {props: {label: 'Tudo igual', n: 9, tipo: 'site'}, dur: 3.5},
+  ParedeDeCodigo: {props: {label: 'Zen Mode', linhas: 14, resumo: 'Criando o site…'}, dur: 4},
+  PastaApagada: {props: {label: 'Apagou!', nome: 'meu-projeto'}, dur: 3.4},
+  FalaSemFim: {
+    props: {
+      falas: [
+        {texto: 'Continua…', at: 0.1},
+        {texto: 'E também…', at: 1.2},
+        {texto: 'Só complementando…', at: 2.2},
+        {texto: 'Mais um ponto…', at: 3.4},
+        {texto: 'Tem mais uma coisa…', at: 4.4},
+      ],
+      relogio: {de: 40, ate: 160},
+      label: '',
+      labelAt: 5.2,
+    },
+    dur: 6,
+  },
+  ReuniaoCansada: {props: {pessoas: 3, cansarAt: 1.2, label: 'Perdeu a atenção', labelAt: 3.6}, dur: 5},
+  CaboDeGuerra: {props: {label: 'Quem ganha?', labelAt: 0.2, esquerda: '', direita: '', vencedor: 'O diabo', vencedorAt: 3.0}, dur: 4.2},
+  Estomago: {props: {label: 'Mágoa', labelAt: 6.4, caroco: '', dorAt: 1.8}, dur: 8},
+  OracaoOuvida: {props: {label: 'Ouvidas!', labelAt: 2.6, subirAt: 1.4, aceitarAt: 2.6}, dur: 6},
+  PainelLateral: {
+    props: {title: 'Aprenda enquanto cria', dicas: ['React: monta a tela', 'Tailwind: o estilo', 'Vite: roda o site']},
+    dur: 4.5,
+  },
+  TerraAbrindo: {props: {label: 'Abriu a terra', labelAt: 0.3, abrirAt: 1.2, cairAt: 3.5}, dur: 8},
 };
