@@ -84,4 +84,4 @@ Quando o usuário mandar prints (Pinterest, outros reels), extraia:
 - densidade de palavras → `captionGroupMs` (menor = menos palavras por página);
 - tipo de ilustração (flat, 3D, colagem, recorte de papel, neon).
 
-Registre a decisão em `aprendizados.md` na seção Estilo. Se pedirem algo que o template não faz (outra fonte, legenda com fundo em caixa, emoji na legenda), altere o template do projeto e anote.
+Registre a decisão na seção Estilo do arquivo de aprendizados que o prompt indica, fora da skill. Se pedirem algo que o template não faz (outra fonte, legenda com fundo em caixa, emoji na legenda), altere o template do projeto e anote.

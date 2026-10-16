@@ -778,6 +778,56 @@ fn a_skill_vai_para_os_dados_do_app_e_os_aprendizados_ficam_numa_pasta_gravavel(
     );
 }
 
+/// Os aprendizados saem da skill, que é somente leitura: quem segue a skill ao pé da letra tem
+/// de ir ao arquivo que o prompt passa por `{APRENDIZADOS}`, e não a um que não existe.
+#[test]
+fn a_skill_so_cita_o_arquivo_de_aprendizados_pelo_caminho_que_o_prompt_passa() {
+    let tmp = tempfile::tempdir().unwrap();
+    let skill = preparar_skill(&raiz().join("assets"), &tmp.path().join("dados"))
+        .unwrap()
+        .skill;
+
+    for prompt in ["prompts/roteirizar.md", "prompts/revisar.md"] {
+        let texto = fs::read_to_string(skill.join(prompt)).unwrap();
+        assert!(
+            texto.contains("{APRENDIZADOS}/aprendizados.md"),
+            "{prompt} não passa o arquivo de aprendizados"
+        );
+    }
+    let arquivos = arquivos_md(&skill);
+    assert!(arquivos.contains(&skill.join("SKILL.md")));
+    let infratores: Vec<_> = arquivos
+        .iter()
+        .filter(|arquivo| {
+            let texto = fs::read_to_string(arquivo).unwrap();
+            let citacoes_pelo_marcador = if arquivo.starts_with(skill.join("prompts")) {
+                texto.matches("{APRENDIZADOS}/aprendizados.md").count()
+            } else {
+                0
+            };
+            texto.matches("aprendizados.md").count() != citacoes_pelo_marcador
+        })
+        .map(|arquivo| arquivo.strip_prefix(&skill).unwrap())
+        .collect();
+    assert!(
+        infratores.is_empty(),
+        "citam o aprendizados.md fora de {{APRENDIZADOS}}/aprendizados.md: {infratores:?}"
+    );
+}
+
+fn arquivos_md(pasta: &Path) -> Vec<PathBuf> {
+    let mut arquivos = Vec::new();
+    for entrada in fs::read_dir(pasta).unwrap() {
+        let caminho = entrada.unwrap().path();
+        if caminho.is_dir() {
+            arquivos.extend(arquivos_md(&caminho));
+        } else if caminho.extension().is_some_and(|ext| ext == "md") {
+            arquivos.push(caminho);
+        }
+    }
+    arquivos
+}
+
 mod na_fila {
     use std::sync::Mutex;
     use std::sync::mpsc;

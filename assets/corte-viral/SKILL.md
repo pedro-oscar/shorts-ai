@@ -44,7 +44,7 @@ Rode `./ae verificar`; deve terminar em "Tudo pronto". Se faltar algo:
 - `remotion/`: copie `<skill>/template/` e rode `npm install`;
 - venv: `uv venv <skill>/.venv`, depois `uv pip install --python <py> -r <skill>/scripts/requirements.txt` e o `requirements-gpu.txt`.
 
-Leia `references/aprendizados.md`: são regras aprovadas pelo usuário e valem mais que este arquivo.
+Leia o arquivo de aprendizados que o prompt indica: são regras aprovadas pelo usuário e valem mais que este arquivo. Ele fica fora da skill, que é somente leitura.
 
 ## 1. Fonte
 
@@ -141,7 +141,7 @@ Quando o usuário disser que rodou, ou pedir revisão:
 
 ## 8. Aprendizado
 
-Quando o usuário aprovar, reprovar ou corrigir algo que deve valer para os próximos vídeos (estilo, ritmo, tipo de corte, erro recorrente), acrescente uma linha datada em `references/aprendizados.md`, sem pedir permissão.
+Quando o usuário aprovar, reprovar ou corrigir algo que deve valer para os próximos vídeos (estilo, ritmo, tipo de corte, erro recorrente), acrescente uma linha datada, na seção certa, no arquivo de aprendizados que o prompt indica, sem pedir permissão. Nada se grava na skill.
 
 ## Problemas conhecidos
 
