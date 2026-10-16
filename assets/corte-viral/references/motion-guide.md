@@ -59,15 +59,15 @@ Tempos em segundos na linha do tempo **do corte** (a mesma de `captions.json`, q
 
 ## Cenas ilustradas (o lugar das imagens do Higgsfield)
 
-Toda cena é um componente em `remotion/src/scenes/<Nome>.tsx` desenhado para a caixa **940×760** (`SCENE_BOX`). O `SceneFrame` posiciona como `card` ou amplia como `full`. Registre em `scenes/index.ts`: o componente em `SCENES` e props de exemplo em `EXEMPLOS`. Pré-visualize com `shorts-cli cena <Nome> <segundos> [card|full]`, que gera um PNG em `remotion/out/`.
+Toda cena é um componente em `remotion/src/scenes/<Nome>.tsx` desenhado para a caixa **940×760** (`SCENE_BOX`). O `SceneFrame` posiciona como `card` ou amplia como `full`. Registre em `scenes/index.ts`: em `SCENES`, `Nome: cena(Nome, {prop: true, …})`, com uma chave para cada prop do componente (o `shorts-cli tsc` acusa a que falta ou sobra); em `EXEMPLOS`, props de exemplo. Pré-visualize com `shorts-cli cena <Nome> <segundos> [card|full]`, que gera um PNG em `remotion/out/`.
 
-Antes de criar uma cena, veja as que já existem em `scenes/index.ts`: o projeto acumula cenas de vídeos anteriores, e reaproveitar é melhor que duplicar.
+Antes de criar uma cena, veja as que já existem em `scenes/index.ts`: o projeto acumula cenas de vídeos anteriores, e reaproveitar é melhor que duplicar. A linha de cada cena em `SCENES` lista as props que ela aceita. O `shorts-cli validar` acusa no roteiro uma prop fora da lista, que a cena ignoraria, desenhando o padrão.
 
 Para criar uma cena nova, como o exemplo do `Dinheiro.tsx`:
 - Ilustração em **SVG desenhado no código**: formas simples, contorno grosso, 2–4 cores, sombra elíptica embaixo. Emojis do sistema servem para ícones rápidos.
 - Animação só com `spring`/`interpolate` de `remotion` sobre `useCurrentFrame()`. Nada de CSS transition ou `Math.random()`; use seeds determinísticas.
 - Entrada escalonada (cada elemento 3–6 frames depois do anterior); easing nunca linear.
-- Props com padrão, para não quebrar se faltar algo no motion.json.
+- Props tipadas no componente (`React.FC<SceneProps & {…}>`) e com padrão, para não quebrar se faltar algo no motion.json.
 - Recebe `accent` e `highlight`; use as cores do estilo.
 - Imagens externas só se o usuário fornecer, em `public/`, com `staticFile()`.
 

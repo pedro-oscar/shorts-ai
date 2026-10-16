@@ -25,11 +25,11 @@ O vídeo `{VIDEO}` já foi transcrito. O **idioma do vídeo** é `{IDIOMA}`. A t
    - `correcoes` globais para nomes próprios e termos que o Whisper errou.
 3. Se algum motion `scene` precisar de ilustração que não existe em `remotion/src/scenes/`, crie a cena:
    - padrão de `Dinheiro.tsx`, caixa 940×760, SVG em código;
-   - registre em `SCENES` e coloque props de exemplo em `EXEMPLOS`, ambos no `index.ts`.
+   - registre no `index.ts`: em `SCENES`, `Nome: cena(Nome, {prop: true, …})`, uma chave para cada prop do componente; em `EXEMPLOS`, props de exemplo.
    - Se forem várias, use um sub-agente por cena, em paralelo; sub-agentes não rodam comandos, então quem valida é você.
    - Rode `shorts-cli tsc` até passar e confira cada cena nova com `shorts-cli cena <Nome> <segundos> card` (gera um PNG em `remotion/out/`; abra e olhe).
    - Não crie arquivos de pré-visualização avulsos.
-4. Rode `shorts-cli validar {ROTEIRO}` e corrija até não haver erros nem avisos relevantes. **Você só termina com o roteiro válido.**
+4. Rode `shorts-cli validar {ROTEIRO}` e corrija até não haver erros nem avisos relevantes. Ele aponta a prop que a cena não aceita; as aceitas estão na linha da cena em `SCENES`. **Você só termina com o roteiro válido.**
 
 Se o pedido do usuário (abaixo) expressar uma **preferência geral**, que vale para os próximos vídeos, registre-a com data em `{APRENDIZADOS}/aprendizados.md`.
 

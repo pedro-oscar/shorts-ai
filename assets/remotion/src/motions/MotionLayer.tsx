@@ -61,7 +61,7 @@ export const MotionLayer: React.FC<{
             );
             break;
           case 'scene': {
-            const Scene = SCENES[m.name];
+            const Scene = SCENES[m.name]?.componente;
             el = (
               <SceneFrame layout={p.layout ?? 'card'} p={p}>
                 {Scene ? (

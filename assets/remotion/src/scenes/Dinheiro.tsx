@@ -6,6 +6,7 @@ import type {SceneProps} from './types';
 /**
  * Exemplo de ILUSTRAÇÃO desenhada em SVG (o papel que as imagens do Higgsfield faziam no vídeo):
  * notas de dinheiro caindo e empilhando, com um rótulo. Use como modelo para novas cenas.
+ * As props ficam no tipo do componente: é com ele que o tsc confere a lista do `cena()` em index.ts.
  */
 export const Dinheiro: React.FC<SceneProps & {label?: string; notas?: number}> = ({label = '', notas = 9, accent}) => {
   const frame = useCurrentFrame();

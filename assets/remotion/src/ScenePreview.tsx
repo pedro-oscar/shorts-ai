@@ -9,7 +9,7 @@ export type ScenePreviewProps = {name: string; layout: 'card' | 'full'};
 /** Pré-visualização de uma cena com as props de EXEMPLOS, no layout pedido, sobre um fundo neutro. */
 export const ScenePreview: React.FC<ScenePreviewProps> = ({name, layout}) => {
   const {durationInFrames} = useVideoConfig();
-  const Scene = SCENES[name];
+  const Scene = SCENES[name]?.componente;
   const style = resolveStyle(undefined);
   return (
     <AbsoluteFill style={{background: 'linear-gradient(180deg, #5b6170 0%, #2b2f38 100%)'}}>

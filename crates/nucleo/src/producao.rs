@@ -506,7 +506,7 @@ impl HashDoCodigo {
                 .ok()?
                 .to_str()?
                 .strip_suffix(".tsx")?;
-            registradas.contains(nome).then(|| nome.to_owned())
+            registradas.contains_key(nome).then(|| nome.to_owned())
         };
         let mut comum = Vec::new();
         let mut das_cenas = BTreeMap::new();

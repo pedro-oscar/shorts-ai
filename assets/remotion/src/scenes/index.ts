@@ -1,4 +1,3 @@
-import type React from 'react';
 import {Avestruz} from './Avestruz';
 import {Bateria} from './Bateria';
 import {Blindado} from './Blindado';
@@ -34,50 +33,52 @@ import {TokensZerando} from './TokensZerando';
 import {Transmissao} from './Transmissao';
 import {Venda} from './Venda';
 import {Vinheta} from './Vinheta';
+import {cena, type Cena} from './types';
 
 /**
- * Registro de cenas usadas em motion.json ({"type": "scene", "name": "<chave>"}).
- * Cena nova = arquivo novo nesta pasta + uma linha em SCENES + um exemplo em EXEMPLOS.
+ * Registro de cenas usadas em motion.json ({"type": "scene", "name": "<chave>", "props": {...}}).
+ * Cena nova = arquivo novo nesta pasta + uma linha em SCENES, com as props que ela aceita
+ * (`Nome: cena(Nome, {prop: true, ...})`, ver `cena` em types.ts) + um exemplo em EXEMPLOS.
+ * O `validar` lê este registro: aponta a cena que não está aqui e a prop que ela não aceita.
  * Cada cena registrada vira a composição "cena-<Nome>" para pré-visualizar:
- *   ./ae cena <Nome> <segundos> [card|full]
+ *   shorts-cli cena <Nome> <segundos> [card|full]
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export const SCENES: Record<string, React.FC<any>> = {
-  Grafico,
-  Comparacao,
-  Dinheiro,
-  Etapas,
-  Checklist,
-  PromptRiscado,
-  Lampada,
-  Venda,
-  Marionete,
-  FogoComFogo,
-  TokensZerando,
-  Blindado,
-  Transmissao,
-  Geracoes,
-  OracaoCorrigida,
-  Avestruz,
-  SimNao,
-  Fluxo,
-  Medidor,
-  Niveis,
-  Escudo,
-  Caminho,
-  IdeiaApagando,
-  Vinheta,
-  Bateria,
-  Clones,
-  ParedeDeCodigo,
-  PastaApagada,
-  FalaSemFim,
-  ReuniaoCansada,
-  CaboDeGuerra,
-  Estomago,
-  OracaoOuvida,
-  PainelLateral,
-  TerraAbrindo,
+export const SCENES: Record<string, Cena> = {
+  Grafico: cena(Grafico, {title: true, bars: true, prefix: true, suffix: true}),
+  Comparacao: cena(Comparacao, {title: true, left: true, right: true}),
+  Dinheiro: cena(Dinheiro, {label: true, notas: true}),
+  Etapas: cena(Etapas, {title: true, steps: true}),
+  Checklist: cena(Checklist, {title: true, items: true}),
+  PromptRiscado: cena(PromptRiscado, {titulo: true, linhas: true, label: true, labelAt: true}),
+  Lampada: cena(Lampada, {balao: true, balaoAt: true, acenderAt: true, label: true, labelAt: true}),
+  Venda: cena(Venda, {label: true, vendarAt: true, labelAt: true}),
+  Marionete: cena(Marionete, {label: true, fiosAt: true, labelAt: true}),
+  FogoComFogo: cena(FogoComFogo, {label: true, jogarAt: true, labelAt: true, balde: true}),
+  TokensZerando: cena(TokensZerando, {titulo: true, inicio: true, drenarAt: true, zerarAt: true, label: true, labelAt: true}),
+  Blindado: cena(Blindado, {label: true, carimbo: true, lupaAt: true, bloqueioAt: true, labelAt: true}),
+  Transmissao: cena(Transmissao, {titulo: true, pessoas: true, comigoAt: true, destaque: true, comigo: true}),
+  Geracoes: cena(Geracoes, {titulo: true, inicio: true, fim: true, marcos: true, voce: true, voceAt: true}),
+  OracaoCorrigida: cena(OracaoCorrigida, {titulo: true, errado: true, certo: true, riscarAt: true, corrigirAt: true}),
+  Avestruz: cena(Avestruz, {label: true, enterrarAt: true, sombraAt: true, labelAt: true}),
+  SimNao: cena(SimNao, {title: true, itens: true, intervalo: true}),
+  Fluxo: cena(Fluxo, {title: true, etapas: true, quebraEm: true}),
+  Medidor: cena(Medidor, {title: true, niveis: true, ate: true, passo: true, alerta: true}),
+  Niveis: cena(Niveis, {titulo: true, niveis: true}),
+  Escudo: cena(Escudo, {label: true, icone: true, atacantes: true}),
+  Caminho: cena(Caminho, {titulo: true, torto: true, reto: true, retoAt: true}),
+  IdeiaApagando: cena(IdeiaApagando, {frases: true, frasesAt: true, intervalo: true, apagarAt: true, label: true, labelAt: true}),
+  Vinheta: cena(Vinheta, {texto: true, rotulo: true, destaque: true, intervalo: true}),
+  Bateria: cena(Bateria, {label: true, de: true, ate: true, emoji: true}),
+  Clones: cena(Clones, {label: true, n: true, tipo: true}),
+  ParedeDeCodigo: cena(ParedeDeCodigo, {label: true, linhas: true, resumo: true}),
+  PastaApagada: cena(PastaApagada, {label: true, nome: true}),
+  FalaSemFim: cena(FalaSemFim, {falas: true, relogio: true, label: true, labelAt: true}),
+  ReuniaoCansada: cena(ReuniaoCansada, {pessoas: true, cansarAt: true, label: true, labelAt: true}),
+  CaboDeGuerra: cena(CaboDeGuerra, {esquerda: true, direita: true, label: true, labelAt: true, vencedor: true, vencedorAt: true}),
+  Estomago: cena(Estomago, {label: true, labelAt: true, caroco: true, dorAt: true}),
+  OracaoOuvida: cena(OracaoOuvida, {label: true, labelAt: true, subirAt: true, aceitarAt: true}),
+  PainelLateral: cena(PainelLateral, {title: true, dicas: true}),
+  TerraAbrindo: cena(TerraAbrindo, {label: true, labelAt: true, abrirAt: true, cairAt: true}),
 };
 
 /** Props de exemplo (e duração em segundos) usadas só na pré-visualização "cena-<Nome>". */

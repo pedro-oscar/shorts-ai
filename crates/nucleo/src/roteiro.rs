@@ -4,7 +4,7 @@
 //!
 //! Os problemas saem como códigos com parâmetros; as frases ficam com quem os mostra.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -262,6 +262,12 @@ pub enum Problema {
     CenaNaoRegistrada {
         nome: String,
     },
+    PropDesconhecida {
+        numero: usize,
+        cena: String,
+        prop: String,
+        aceitas: Vec<String>,
+    },
     FonteForaDoCatalogo {
         fonte: String,
     },
@@ -354,6 +360,21 @@ impl Problema {
             }
             Self::CenaNaoRegistrada { nome } => {
                 format!("a cena \"{nome}\" não está registrada em remotion/src/scenes/index.ts")
+            }
+            Self::PropDesconhecida {
+                numero,
+                cena,
+                prop,
+                aceitas,
+            } => {
+                let aceitas = if aceitas.is_empty() {
+                    "nenhuma".into()
+                } else {
+                    aceitas.join(", ")
+                };
+                format!(
+                    "motion #{numero}: a cena \"{cena}\" não aceita a prop \"{prop}\" (aceita: {aceitas})"
+                )
             }
             Self::FonteForaDoCatalogo { fonte } => {
                 format!("a fonte \"{fonte}\" não está no catálogo")
@@ -536,50 +557,127 @@ impl Validacao {
     }
 }
 
+/// As cenas de um registro, pelo nome, com as props que cada uma aceita do `motion.json`. `None`
+/// quando a entrada não usa `cena()`, como no registro dos projetos criados antes dele: as props
+/// dessa cena não são conferidas.
+pub type CenasRegistradas = BTreeMap<String, Option<BTreeSet<String>>>;
+
 /// O que a validação confere fora do roteiro.
 #[derive(Debug, Clone, Default)]
 pub struct Contexto {
     /// As cenas do registro do Remotion do projeto.
-    pub cenas: BTreeSet<String>,
+    pub cenas: CenasRegistradas,
     /// As fontes do catálogo; sem ele, as fontes não são conferidas.
     pub fontes: Option<BTreeSet<String>>,
     /// A pasta de onde se resolvem os arquivos citados no estilo, como o logo.
     pub pasta: PathBuf,
 }
 
-/// As cenas registradas em `src/scenes/index.ts` de um Remotion: as chaves de `SCENES`.
-pub fn cenas_registradas(remotion: &Path) -> BTreeSet<String> {
+/// As cenas registradas em `src/scenes/index.ts` de um Remotion: as entradas de `SCENES`. Numa
+/// entrada `Nome: cena(Componente, {prop: true, …})`, as props são as chaves do objeto.
+pub fn cenas_registradas(remotion: &Path) -> CenasRegistradas {
     let Ok(texto) = fs::read_to_string(remotion.join(REGISTRO_DE_CENAS)) else {
-        return BTreeSet::new();
+        return CenasRegistradas::new();
     };
-    let sem_comentarios: String = texto
-        .lines()
-        .map(|linha| linha.split("//").next().unwrap_or(""))
-        .collect::<Vec<_>>()
-        .join("\n");
-    let Some(inicio) = sem_comentarios.find("SCENES") else {
-        return BTreeSet::new();
-    };
-    let resto = &sem_comentarios[inicio..];
-    let Some(abre) = resto
-        .find('=')
-        .and_then(|igual| resto[igual..].find('{').map(|p| igual + p))
+    let codigo = sem_comentarios(&texto);
+    let Some(corpo) = codigo
+        .find("SCENES")
+        .map(|inicio| &codigo[inicio..])
+        .and_then(|resto| resto.find('=').map(|igual| &resto[igual..]))
+        .and_then(objeto)
     else {
-        return BTreeSet::new();
+        return CenasRegistradas::new();
     };
-    let corpo = &resto[abre + 1..];
-    let corpo = corpo.split('}').next().unwrap_or("");
-    corpo
-        .split(',')
+    entradas(corpo)
         .filter_map(|entrada| {
-            let nome: String = entrada
-                .trim()
-                .chars()
-                .take_while(|c| c.is_alphanumeric() || *c == '_')
-                .collect();
-            (!nome.is_empty()).then_some(nome)
+            let (nome, valor) = chave_e_valor(entrada)?;
+            let props = valor
+                .trim_start()
+                .strip_prefix("cena(")
+                .and_then(objeto)
+                .map(|lista| {
+                    entradas(lista)
+                        .filter_map(|prop| chave_e_valor(prop).map(|(chave, _)| chave))
+                        .collect()
+                });
+            Some((nome, props))
         })
         .collect()
+}
+
+/// O código sem os comentários `//` e `/* */`.
+fn sem_comentarios(codigo: &str) -> String {
+    let mut saida = String::with_capacity(codigo.len());
+    let mut resto = codigo;
+    while let Some(barra) = resto.find('/') {
+        saida.push_str(&resto[..barra]);
+        let depois = &resto[barra..];
+        if let Some(bloco) = depois.strip_prefix("/*") {
+            resto = bloco.find("*/").map_or("", |fim| &bloco[fim + 2..]);
+        } else if depois.starts_with("//") {
+            resto = depois.find('\n').map_or("", |fim| &depois[fim..]);
+        } else {
+            saida.push('/');
+            resto = &depois[1..];
+        }
+    }
+    saida.push_str(resto);
+    saida
+}
+
+/// O que há entre a primeira `{` do texto e a `}` que a fecha.
+fn objeto(texto: &str) -> Option<&str> {
+    let abre = texto.find('{')?;
+    let mut profundidade = 0;
+    for (i, c) in texto[abre..].char_indices() {
+        match c {
+            '{' => profundidade += 1,
+            '}' => {
+                profundidade -= 1;
+                if profundidade == 0 {
+                    return Some(&texto[abre + 1..abre + i]);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// As entradas do corpo de um objeto: o que fica entre as vírgulas de fora de `()`, `[]` e `{}`.
+fn entradas(corpo: &str) -> impl Iterator<Item = &str> {
+    let mut partes = Vec::new();
+    let mut profundidade = 0;
+    let mut inicio = 0;
+    for (i, c) in corpo.char_indices() {
+        match c {
+            '(' | '[' | '{' => profundidade += 1,
+            ')' | ']' | '}' => profundidade -= 1,
+            ',' if profundidade == 0 => {
+                partes.push(&corpo[inicio..i]);
+                inicio = i + 1;
+            }
+            _ => {}
+        }
+    }
+    partes.push(&corpo[inicio..]);
+    partes
+        .into_iter()
+        .map(str::trim)
+        .filter(|parte| !parte.is_empty())
+}
+
+/// A chave de uma entrada (`nome`, `nome: valor` ou `'nome': valor`) e o valor, vazio na forma
+/// curta.
+fn chave_e_valor(entrada: &str) -> Option<(String, &str)> {
+    let (chave, valor) = entrada.split_once(':').unwrap_or((entrada, ""));
+    let chave: String = chave
+        .trim()
+        .trim_matches(|c| c == '\'' || c == '"')
+        .chars()
+        .take_while(|c| c.is_alphanumeric() || *c == '_')
+        .collect();
+    (!chave.is_empty()).then_some((chave, valor))
 }
 
 /// Valida o roteiro de um projeto: a transcrição e o registro de cenas vêm da pasta dele.
@@ -952,9 +1050,21 @@ fn mapear_motions(
                 .get("name")
                 .and_then(Value::as_str)
                 .unwrap_or("");
-            if !contexto.cenas.contains(nome) {
+            let Some(aceitas) = contexto.cenas.get(nome) else {
                 erros.push(Problema::CenaNaoRegistrada { nome: nome.into() });
                 continue;
+            };
+            if let (Some(aceitas), Some(Value::Object(props))) =
+                (aceitas, motion.extras.get("props"))
+            {
+                for prop in props.keys().filter(|prop| !aceitas.contains(*prop)) {
+                    erros.push(Problema::PropDesconhecida {
+                        numero,
+                        cena: nome.into(),
+                        prop: prop.clone(),
+                        aceitas: aceitas.iter().cloned().collect(),
+                    });
+                }
             }
         }
         let Some(inicio) = inicio_do_motion(motion, numero, trechos, legendas, erros, avisos)

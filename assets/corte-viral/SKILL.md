@@ -100,7 +100,7 @@ Para cada corte:
 ## 5. Cenas ilustradas (você cria, se precisar)
 
 Se um motion `scene` precisar de ilustração que não existe em `remotion/src/scenes/` (as que existem estão registradas em `index.ts`):
-- crie o componente seguindo o motion-guide (caixa 940×760, SVG desenhado em código, padrão de `Dinheiro.tsx`) e registre em `index.ts`;
+- crie o componente seguindo o motion-guide (caixa 940×760, SVG desenhado em código, padrão de `Dinheiro.tsx`) e registre em `index.ts` com as props que ele aceita: `Nome: cena(Nome, {prop: true, …})`;
 - se forem várias, use **um sub-agente por cena, em paralelo**;
 - valide com `cd remotion && npx tsc --noEmit` e um still da cena: `npx remotion still reel-demo out/x.png --frame=…` com props de teste, ou um corte já produzido.
 

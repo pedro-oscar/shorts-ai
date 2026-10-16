@@ -25,14 +25,15 @@ fn comando_desconhecido_falha_com_o_uso() {
     assert!(String::from_utf8(saida.stderr).unwrap().starts_with("Uso:"));
 }
 
-/// Um projeto com a transcrição de "Olá mundo. Tudo bem?" e o registro com a cena `Grafico`.
+/// Um projeto com a transcrição de "Olá mundo. Tudo bem?" e o registro com a cena `Grafico`, que
+/// aceita `title` e `bars`.
 fn projeto() -> tempfile::TempDir {
     let pasta = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(pasta.path().join("edit")).unwrap();
     std::fs::create_dir_all(pasta.path().join("remotion/src/scenes")).unwrap();
     std::fs::write(
         pasta.path().join("remotion/src/scenes/index.ts"),
-        "export const SCENES = {\n  Grafico,\n};\n",
+        "export const SCENES = {\n  Grafico: cena(Grafico, {title: true, bars: true}),\n};\n",
     )
     .unwrap();
     let palavras = r#"[
@@ -95,6 +96,25 @@ fn validar_sai_com_erro_quando_o_roteiro_e_invalido() {
         "{texto}"
     );
     assert!(texto.contains("Roteiro inválido"), "{texto}");
+}
+
+#[test]
+fn validar_aponta_a_prop_que_a_cena_nao_aceita() {
+    let pasta = projeto();
+    let roteiro = r#"{"cortes": [
+        {"id": "c01", "trechos": [[0.0, 1.9]],
+         "motions": [{"type": "scene", "name": "Grafico", "at": 1.0, "props": {"titulo": "Caixa"}}]}
+    ]}"#;
+
+    let (codigo, texto) = validar(&pasta, roteiro);
+
+    assert_eq!(codigo, Some(1), "{texto}");
+    assert!(
+        texto.contains(
+            "✗ erro: motion #1: a cena \"Grafico\" não aceita a prop \"titulo\" (aceita: bars, title)"
+        ),
+        "{texto}"
+    );
 }
 
 #[test]

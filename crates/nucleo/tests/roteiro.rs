@@ -1,7 +1,7 @@
 //! O roteiro: o plano de cada corte contra a saída do CLI Python (KGfmaHnBQx4) e uma
 //! transcrição pequena para cada regra de erro e de aviso.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::PathBuf;
 
@@ -32,7 +32,7 @@ fn contexto_de_referencia() -> Contexto {
         .iter()
         .flat_map(|c| c["motions"].as_array().into_iter().flatten())
         .filter(|m| m["type"] == "scene")
-        .map(|m| m["name"].as_str().unwrap().to_string())
+        .map(|m| (m["name"].as_str().unwrap().to_string(), None))
         .collect();
     Contexto {
         cenas,
@@ -84,8 +84,13 @@ fn os_cortes_do_kgfmahnbqx4_batem_com_a_saida_do_cli_python() {
     }
 }
 
+fn props(nomes: &[&str]) -> Option<BTreeSet<String>> {
+    Some(nomes.iter().map(|nome| nome.to_string()).collect())
+}
+
 /// No template, cada cena registrada tem o arquivo com o nome dela, a convenção com que o
-/// cache do render liga a cena `X` de um motion a `src/scenes/X.tsx` (ADR 0003).
+/// cache do render liga a cena `X` de um motion a `src/scenes/X.tsx` (ADR 0003), e declara as
+/// props que aceita.
 #[test]
 fn o_registro_de_cenas_vem_do_index_do_remotion() {
     let remotion = template();
@@ -97,8 +102,36 @@ fn o_registro_de_cenas_vem_do_index_do_remotion() {
         })
         .collect();
     assert!(arquivos.contains("Grafico"), "{arquivos:?}");
-    assert_eq!(cenas_registradas(&remotion), arquivos);
+    let registro = cenas_registradas(&remotion);
+    assert_eq!(registro.keys().cloned().collect::<BTreeSet<_>>(), arquivos);
+    let sem_lista: Vec<_> = registro.iter().filter(|(_, p)| p.is_none()).collect();
+    assert!(sem_lista.is_empty(), "{sem_lista:?}");
+    assert_eq!(registro["Checklist"], props(&["items", "title"]));
+    assert_eq!(registro["Dinheiro"], props(&["label", "notas"]));
     assert!(cenas_registradas(&remotion.join("inexistente")).is_empty());
+}
+
+/// Os projetos criados antes do `cena()` registram só os nomes; os comentários não contam.
+#[test]
+fn so_as_entradas_com_cena_declaram_as_props() {
+    let remotion = tempfile::tempdir().unwrap();
+    fs::create_dir_all(remotion.path().join("src/scenes")).unwrap();
+    fs::write(
+        remotion.path().join("src/scenes/index.ts"),
+        "/**\n * Cena nova = uma linha em SCENES = {Falsa}.\n */\n\
+         // eslint-disable-next-line\n\
+         export const SCENES: Record<string, React.FC<any>> = {\n  Grafico,\n  Outra: Grafico, /* remapeada */\n  Nova: cena(Nova, {\n    titulo: true, // o título\n    'at': true,\n  }),\n};\n\
+         export const EXEMPLOS = {Grafico: {props: {title: 'x'}}};\n",
+    )
+    .unwrap();
+    assert_eq!(
+        cenas_registradas(remotion.path()),
+        BTreeMap::from([
+            ("Grafico".to_string(), None),
+            ("Nova".to_string(), props(&["at", "titulo"])),
+            ("Outra".to_string(), None),
+        ])
+    );
 }
 
 // ---------------------------------------------------------------- regras
@@ -389,7 +422,7 @@ fn as_correcoes_valem_na_legenda_preservando_a_pontuacao_e_as_do_corte_vencem() 
 
 fn com_cena() -> Contexto {
     Contexto {
-        cenas: BTreeSet::from(["Grafico".to_string()]),
+        cenas: BTreeMap::from([("Grafico".to_string(), None)]),
         ..Contexto::default()
     }
 }
@@ -536,6 +569,54 @@ fn cena_nao_registrada_e_erro() {
             nome: "Fantasma".into()
         }]
     );
+}
+
+/// Uma prop com nome errado faz a cena desenhar o padrão dela, às vezes texto de outro vídeo.
+/// `accent` e `highlight` vêm do estilo, não das props.
+#[test]
+fn prop_que_a_cena_do_template_nao_aceita_e_erro() {
+    let contexto = Contexto {
+        cenas: cenas_registradas(&template()),
+        ..Contexto::default()
+    };
+    let corte = json!({"id": "c01", "trechos": [[10.0, 20.0]], "motions": [
+        {"type": "scene", "name": "Checklist", "at": 11.0, "props": {"title": "T", "itens": []}},
+        {"type": "scene", "name": "Checklist", "at": 14.0, "props": {"title": "T", "items": []}},
+        {"type": "scene", "name": "Dinheiro", "at": 17.0, "props": {"accent": "#f00"}},
+    ]});
+
+    let validacao = validar(&roteiro_com(corte), Some(&transcricao()), &contexto);
+
+    let aceitas = |nomes: &[&str]| nomes.iter().map(|nome| nome.to_string()).collect();
+    assert_eq!(
+        erros(&validacao),
+        [
+            &Problema::PropDesconhecida {
+                numero: 1,
+                cena: "Checklist".into(),
+                prop: "itens".into(),
+                aceitas: aceitas(&["items", "title"]),
+            },
+            &Problema::PropDesconhecida {
+                numero: 3,
+                cena: "Dinheiro".into(),
+                prop: "accent".into(),
+                aceitas: aceitas(&["label", "notas"]),
+            },
+        ]
+    );
+    assert_eq!(
+        erros(&validacao)[0].frase(),
+        "motion #1: a cena \"Checklist\" não aceita a prop \"itens\" (aceita: items, title)"
+    );
+}
+
+#[test]
+fn cena_sem_props_no_registro_nao_tem_as_props_conferidas() {
+    let validacao = validar_motions(json!([
+        {"type": "scene", "name": "Grafico", "at": 12.0, "props": {"qualquer": 1}},
+    ]));
+    assert!(!validacao.tem_erros(), "{validacao:#?}");
 }
 
 #[test]
