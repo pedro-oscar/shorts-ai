@@ -30,14 +30,21 @@ const DURACAO_CURTA: f64 = 20.0;
 const SOBREPOSICAO_MINIMA: f64 = 0.4;
 const RECUO_DO_INICIO: f64 = 0.12;
 const AVANCO_DO_FIM: f64 = 0.18;
-const AVANCO_DO_ULTIMO_FIM: f64 = 0.75;
+/// O som natural (reação, riso, respiro) aproveitado depois da última palavra do corte.
+const RESPIRO_DO_FIM: f64 = 1.2;
 const FOLGA_ANTES_DA_PROXIMA: f64 = 0.06;
+/// O mínimo entre a última palavra e o fim do reel; o que o respiro não cobre vira quadro
+/// congelado.
+const CAUDA_MINIMA: f64 = 1.0;
 /// Uma borda movida além disso pelo encaixe merece aviso.
 const BORDA_MOVIDA: f64 = 0.6;
 /// Folga ao decidir se um instante do vídeo cai dentro de um trecho.
 const TOLERANCIA_DO_INSTANTE: f64 = 0.05;
 const MOTION_MINIMO: f64 = 0.3;
-const FIM_LIVRE: f64 = 0.6;
+/// Um motion vai até este tanto depois da última palavra; dali em diante é a saída suave.
+const MOTION_DEPOIS_DA_FALA: f64 = 0.3;
+/// Os últimos segundos do reel, sem motion.
+const FIM_LIVRE: f64 = 0.8;
 const PALAVRA_LONGE_DO_AT: f64 = 4.0;
 const CENAS_DE_TELA_CHEIA: f64 = 0.6;
 const TITULO_INICIO: f64 = 0.1;
@@ -395,12 +402,24 @@ pub struct Legenda {
     pub confidence: Option<f64>,
 }
 
+/// Como o reel termina, no tempo do corte. A saída suave só começa depois da fala; quando o som
+/// depois dela é curto (o falante emenda outra frase), o último quadro congela, em silêncio.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub struct Saida {
+    /// Onde termina a última palavra.
+    #[serde(rename = "fimFala")]
+    pub fim_da_fala: f64,
+    /// Quanto o último quadro fica congelado depois do fim do vídeo do corte.
+    pub congelar: f64,
+}
+
 /// O `motion.json` do corte: o que o Remotion lê.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct PlanoDeMotion {
     pub style: Map<String, Value>,
     pub emphasis: Vec<String>,
     pub motions: Vec<Value>,
+    pub saida: Saida,
 }
 
 impl PlanoDeMotion {
@@ -426,9 +445,17 @@ pub struct Plano {
     pub pins: Vec<String>,
     /// Os trechos encaixados nas palavras, no tempo do vídeo original.
     pub trechos: Vec<(f64, f64)>,
+    /// A duração do vídeo do corte: a soma dos trechos.
     pub duracao: f64,
     pub legendas: Vec<Legenda>,
     pub motion: PlanoDeMotion,
+}
+
+impl Plano {
+    /// O vídeo do corte e o último quadro congelado.
+    pub fn duracao_do_reel(&self) -> f64 {
+        self.duracao + self.motion.saida.congelar
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -476,7 +503,7 @@ impl Validacao {
                     "  ✓ {} → {}  {:.1}s  {} trecho(s)  {} motion(s)\n",
                     corte.id,
                     plano.chave,
-                    plano.duracao,
+                    plano.duracao_do_reel(),
                     plano.trechos.len(),
                     plano.motion.motions.len()
                 )),
@@ -681,6 +708,7 @@ fn construir(
     }
     let duracao_do_video = palavras.last().map_or(0.0, |p| p.fim);
     let mut trechos = Vec::new();
+    let mut fim_da_fala = 0.0;
     let mut falhou = false;
     for (n, (a, b)) in corte.trechos.iter().enumerate() {
         let (a, b) = (a.0, b.0);
@@ -698,6 +726,7 @@ fn construir(
             Some(encaixe) => {
                 avisos.extend(encaixe.avisos);
                 trechos.push((encaixe.inicio, encaixe.fim));
+                fim_da_fala = encaixe.fim_da_fala;
             }
             None => {
                 erros.push(Problema::TrechoSemPalavra { inicio: a, fim: b });
@@ -709,16 +738,28 @@ fn construir(
         return None;
     }
     let duracao: f64 = trechos.iter().map(|(a, b)| b - a).sum();
-    if duracao > DURACAO_MAXIMA {
-        erros.push(Problema::DuracaoAcimaDoMaximo { duracao });
+    let respiro = trechos
+        .last()
+        .map_or(0.0, |&(_, fim)| (fim - fim_da_fala).max(0.0));
+    let saida = Saida {
+        fim_da_fala: arredondar(duracao - respiro),
+        congelar: arredondar((CAUDA_MINIMA - respiro).max(0.0)),
+    };
+    let duracao_do_reel = duracao + saida.congelar;
+    if duracao_do_reel > DURACAO_MAXIMA {
+        erros.push(Problema::DuracaoAcimaDoMaximo {
+            duracao: duracao_do_reel,
+        });
         return None;
     }
-    if duracao < DURACAO_CURTA {
-        avisos.push(Problema::CorteCurto { duracao });
+    if duracao_do_reel < DURACAO_CURTA {
+        avisos.push(Problema::CorteCurto {
+            duracao: duracao_do_reel,
+        });
     }
     let legendas = legendar(roteiro, corte, &trechos, palavras);
     let motion = mapear_motions(
-        corte, roteiro, &trechos, duracao, &legendas, contexto, erros, avisos,
+        corte, roteiro, &trechos, duracao, saida, &legendas, contexto, erros, avisos,
     );
     Some(Plano {
         id: corte.id.clone(),
@@ -737,6 +778,8 @@ fn construir(
 struct Encaixe {
     inicio: f64,
     fim: f64,
+    /// Onde termina a última palavra do trecho, no tempo do vídeo original.
+    fim_da_fala: f64,
     avisos: Vec<Problema>,
 }
 
@@ -762,7 +805,7 @@ fn encaixar(palavras: &[&Palavra], a: f64, b: f64, ultimo: bool) -> Option<Encai
     let inicio = p0.inicio.min(anterior.max(p0.inicio - RECUO_DO_INICIO));
     let fim = if ultimo {
         p1.fim
-            .max((proxima - FOLGA_ANTES_DA_PROXIMA).min(p1.fim + AVANCO_DO_ULTIMO_FIM))
+            .max((proxima - FOLGA_ANTES_DA_PROXIMA).min(p1.fim + RESPIRO_DO_FIM))
     } else {
         p1.fim.max(proxima.min(p1.fim + AVANCO_DO_FIM))
     };
@@ -772,7 +815,7 @@ fn encaixar(palavras: &[&Palavra], a: f64, b: f64, ultimo: bool) -> Option<Encai
             palavra: p1.texto.trim().into(),
         });
     }
-    let folga_esperada = if ultimo { AVANCO_DO_ULTIMO_FIM } else { 0.0 };
+    let folga_esperada = if ultimo { RESPIRO_DO_FIM } else { 0.0 };
     if (inicio - a).abs() > BORDA_MOVIDA
         || fim - b > BORDA_MOVIDA + folga_esperada
         || b - fim > BORDA_MOVIDA
@@ -785,6 +828,7 @@ fn encaixar(palavras: &[&Palavra], a: f64, b: f64, ultimo: bool) -> Option<Encai
     Some(Encaixe {
         inicio: arredondar(inicio),
         fim: arredondar(fim),
+        fim_da_fala: p1.fim,
         avisos,
     })
 }
@@ -874,12 +918,14 @@ fn mapear_motions(
     roteiro: &Roteiro,
     trechos: &[(f64, f64)],
     duracao: f64,
+    saida_do_reel: Saida,
     legendas: &[Legenda],
     contexto: &Contexto,
     erros: &mut Vec<Problema>,
     avisos: &mut Vec<Problema>,
 ) -> PlanoDeMotion {
-    let limite = duracao - FIM_LIVRE;
+    let limite = (saida_do_reel.fim_da_fala + MOTION_DEPOIS_DA_FALA)
+        .min(duracao + saida_do_reel.congelar - FIM_LIVRE);
     let mut saida: Vec<Value> = Vec::new();
     if let Some(titulo) = corte.titulo.as_deref().filter(|t| !t.is_empty())
         && !corte.motions.iter().any(|m| m.tipo == "title")
@@ -954,6 +1000,7 @@ fn mapear_motions(
         style: estilo,
         emphasis: corte.enfase.clone(),
         motions: saida,
+        saida: saida_do_reel,
     }
 }
 

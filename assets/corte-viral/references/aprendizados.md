@@ -8,6 +8,7 @@ Regras aprovadas pelo usuário. **Valem mais que o SKILL.md e o motion-guide.** 
 
 ## Corte e enquadramento
 - 2026-10-08 — Cortes de **60–90 s** são o alvo: os de 35–60 s saíam curtos e prejudicavam o corte. Menos picotes, contexto completo, payoff com espaço. (Substitui a regra de 06/10 "ideal 35–60 s".)
+- 2026-10-08 — O final ainda soava abrupto: o fade começava antes da última palavra. Agora o áudio só baixa depois da fala e o último quadro congela se o falante emendar outra frase. No roteiro, o último trecho termina depois da pausa/reação que segue o payoff.
 - 2026-10-06 — Final sem corte seco: terminar numa frase completa, com respiro e saída suave.
 - 2026-10-05 — Nunca deixar a tela dividida.
 - 2026-10-05 — Em troca de câmera, o rosto da nova pessoa precisa estar inteiro no quadro. Conferir os PNGs de verify_face depois de cada `CUT`.

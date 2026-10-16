@@ -20,7 +20,7 @@ O vídeo `{VIDEO}` já foi transcrito. O **idioma do vídeo** é `{IDIOMA}`. A t
    - para cada corte: `trechos` enxutos (sem enrolação, começando no gancho), `titulo`, `enfase`, `motions` sincronizados com `word` + `at`, `gancho`, `payoff`, `porque`, `nota`, `categoria` e `descricao`, o texto do post do reel;
    - **escreva em `{IDIOMA}`** os títulos, as correções, a `descricao` e o texto de capa e dos motions;
    - duração **alvo 60–90 s**; acima de 90 s a validação falha;
-   - o **último trecho termina numa frase completa** que fecha a ideia, sem corte seco no meio de raciocínio;
+   - o **último trecho termina numa frase completa** que fecha a ideia, sem corte seco no meio de raciocínio; o fim do trecho vai depois da pausa ou reação que segue o payoff, não na última sílaba;
    - a posição dos motions é automática e nunca cobre o rosto: escolha só tipo, conteúdo e tempo. Textos curtos (título ≤ 5 palavras, keyword ≤ 2), nada nos últimos 0,8 s. Em plano fechado, prefira keyword/counter a cards;
    - `correcoes` globais para nomes próprios e termos que o Whisper errou.
 3. Se algum motion `scene` precisar de ilustração que não existe em `remotion/src/scenes/`, crie a cena:

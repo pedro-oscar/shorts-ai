@@ -9,7 +9,7 @@ import {planejarLayout} from './motions/layout';
 import {MotionLayer} from './motions/MotionLayer';
 import {carregarFonte} from './fonts';
 import {resolveStyle} from './theme';
-import type {ReelProps} from './types';
+import type {ReelData, ReelProps} from './types';
 
 /**
  * Camadas, de baixo para cima:
@@ -19,8 +19,14 @@ import type {ReelProps} from './types';
  * 4. legenda
  * 5. títulos, palavras-chave, contadores, cards e flashes, sempre fora da cabeça em foco
  * 6. logo do kit, no canto mais longe do rosto
- * 7. saída suave: escurece no fim (o áudio baixa junto, no FaceCropVideo)
+ * 7. saída suave: depois da última palavra o áudio baixa (FaceCropVideo), o último quadro congela
+ *    se o respiro natural for curto, e a imagem escurece
  */
+
+/** s em que a fala termina (linha do tempo do corte). motion.json antigo, sem `saida`: comportamento anterior */
+const fimDaFala = (data: ReelData, fadeOut: number): number =>
+  data.plan.saida?.fimFala ?? Math.max(0, data.clip.durationSec - fadeOut - 0.25);
+
 export const Reel: React.FC<ReelProps> = ({clipId, data}) => {
   const frame = useCurrentFrame();
   const {fps, width, height, durationInFrames} = useVideoConfig();
@@ -52,10 +58,14 @@ export const Reel: React.FC<ReelProps> = ({clipId, data}) => {
   );
   if (!data || !fontesProntas) return null; // calculateMetadata sempre preenche os dados
 
+  // escurece nos últimos `fadeOut` s, mas nunca antes de a última palavra terminar
   const fimF = Math.round(style.fadeOut * fps);
+  const fimFala = fimDaFala(data, style.fadeOut);
+  const falaF = Math.round(fimFala * fps);
+  const escIni = Math.min(Math.max(falaF + Math.round(0.1 * fps), durationInFrames - fimF), durationInFrames - 2);
   const escurecer =
     fimF > 0
-      ? interpolate(frame, [durationInFrames - fimF, durationInFrames - 1], [0, 1], {
+      ? interpolate(frame, [escIni, durationInFrames - 1], [0, 1], {
           extrapolateLeft: 'clamp',
           extrapolateRight: 'clamp',
         })
@@ -63,7 +73,14 @@ export const Reel: React.FC<ReelProps> = ({clipId, data}) => {
 
   return (
     <AbsoluteFill style={{backgroundColor: '#000', fontSynthesis: 'none'}}>
-      <FaceCropVideo clipId={clipId} clip={data.clip} face={data.face} motions={motions} fadeOut={style.fadeOut} />
+      <FaceCropVideo
+        clipId={clipId}
+        clip={data.clip}
+        face={data.face}
+        motions={motions}
+        fadeOut={style.fadeOut}
+        fimFala={fimFala}
+      />
       <MotionLayer motions={motions} placements={placements} style={style} fullScenesOnly />
       {style.grain ? <Grain /> : null}
       <Captions captions={data.captions} style={style} emphasis={data.plan.emphasis ?? []} />

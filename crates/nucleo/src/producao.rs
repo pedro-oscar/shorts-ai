@@ -208,7 +208,7 @@ impl Producao {
                 "id": reel.id,
                 "titulo": plano.titulo,
                 "arquivo": reel.arquivo.strip_prefix(pedido.pasta).unwrap_or(&reel.arquivo),
-                "duracao": plano.duracao,
+                "duracao": plano.duracao_do_reel(),
                 "revisao": format!("{CORTES}/{}/{FOLHA}", plano.chave),
                 "instantes": instantes,
                 "avisos": avisos,

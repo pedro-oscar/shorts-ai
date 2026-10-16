@@ -62,7 +62,7 @@ mod tests {
     use serde_json::{Map, json};
 
     use super::*;
-    use crate::roteiro::PlanoDeMotion;
+    use crate::roteiro::{PlanoDeMotion, Saida};
 
     fn plano(duracao: f64, motions: Vec<serde_json::Value>, trechos: Vec<(f64, f64)>) -> Plano {
         Plano {
@@ -77,6 +77,10 @@ mod tests {
                 style: Map::new(),
                 emphasis: vec![],
                 motions,
+                saida: Saida {
+                    fim_da_fala: duracao,
+                    congelar: 0.0,
+                },
             },
         }
     }

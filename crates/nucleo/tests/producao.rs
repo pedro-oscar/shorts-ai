@@ -356,6 +356,8 @@ fn o_template_recebe_video_legendas_rosto_motions_e_estilo_de_cada_reel() {
     assert_eq!(motion["motions"][0]["type"], "title");
     assert_eq!(motion["motions"][0]["text"], "Negociar salário tem regra");
     assert!(motion["style"].is_object());
+    // O c01 vai de 0 a 2,44 s: "fim." acaba em 2,4 e o "oi" seguinte começa em 2,5.
+    assert_eq!(motion["saida"], json!({"fimFala": 2.4, "congelar": 0.96}));
 }
 
 #[test]
@@ -843,6 +845,8 @@ fn o_resumo_da_producao_lista_reels_folhas_e_avisos_para_a_revisao() {
         "publicar/c01 - Negociar salário tem regra.mp4"
     );
     assert_eq!(primeiro["instantes"][0], 0.6);
+    // O reel: os 2,44 s do corte e 0,96 s de último quadro congelado.
+    assert!((primeiro["duracao"].as_f64().unwrap() - 3.4).abs() < 1e-9);
     assert!(primeiro["avisos"].is_array());
     assert_eq!(resumo["erros"], json!([]));
 }

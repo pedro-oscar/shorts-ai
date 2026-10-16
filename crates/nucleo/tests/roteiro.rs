@@ -6,7 +6,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use nucleo::roteiro::{
-    Contexto, Gravidade, Problema, Transcricao, Validacao, cenas_registradas, validar,
+    Contexto, Gravidade, Problema, Saida, Transcricao, Validacao, cenas_registradas, validar,
 };
 use serde_json::{Value, json};
 
@@ -234,11 +234,91 @@ fn o_inicio_recua_ate_012_sem_invadir_a_palavra_anterior() {
 }
 
 #[test]
-fn o_ultimo_trecho_avanca_075_e_para_006_antes_da_proxima() {
+fn o_ultimo_trecho_para_006_antes_da_proxima_palavra() {
     let validacao = validar_corte(corte_longo(json!({"trechos": [[10.0, 11.0]]})));
     let plano = validacao.cortes[0].plano.as_ref().unwrap();
-    // última palavra: p7 (10,0–10,5)... a seguinte começa em 11,0: min(10,94; 11,25) = 10,94.
+    // última palavra: p7 (10,0–10,5)... a seguinte começa em 11,0: min(10,94; 11,7) = 10,94.
     assert_eq!(plano.trechos, [(9.88, 10.94)]);
+}
+
+/// "fim." em 0–1 s e a palavra seguinte só em 5 s: sobra som natural depois da fala.
+fn transcricao_com_pausa_no_fim() -> Transcricao {
+    let palavras = json!([
+        {"text": "fim.", "start": 0.0, "end": 1.0},
+        {"text": "depois", "start": 5.0, "end": 5.5},
+    ]);
+    Transcricao::do_json(&json!({"words": palavras}).to_string()).unwrap()
+}
+
+#[test]
+fn o_ultimo_trecho_aproveita_ate_12_s_de_som_depois_da_fala_e_nada_congela() {
+    let roteiro = roteiro_com(json!({"id": "c01", "trechos": [[0.0, 1.0]]}));
+
+    let validacao = validar(
+        &roteiro,
+        Some(&transcricao_com_pausa_no_fim()),
+        &Contexto::default(),
+    );
+
+    let plano = validacao.cortes[0].plano.as_ref().unwrap();
+    assert_eq!(plano.trechos, [(0.0, 2.2)]);
+    assert_eq!(
+        plano.motion.saida,
+        Saida {
+            fim_da_fala: 1.0,
+            congelar: 0.0
+        }
+    );
+    assert!((plano.duracao_do_reel() - 2.2).abs() < 1e-9);
+}
+
+#[test]
+fn a_fala_emendada_em_outra_frase_congela_o_ultimo_quadro_ate_1_s_depois_dela() {
+    let validacao = validar_corte(corte_longo(json!({"trechos": [[10.0, 11.0]]})));
+
+    let plano = validacao.cortes[0].plano.as_ref().unwrap();
+    // p7 termina em 10,5 e p8 começa em 11,0: o corte (9,88–10,94) tem só 0,44 s depois da
+    // fala, que termina em 0,62 s do corte; faltam 0,56 s para completar 1 s.
+    assert_eq!(
+        plano.motion.saida,
+        Saida {
+            fim_da_fala: 0.62,
+            congelar: 0.56
+        }
+    );
+    assert!((plano.duracao_do_reel() - 1.62).abs() < 1e-9);
+    let motion = serde_json::to_value(&plano.motion).unwrap();
+    assert_eq!(motion["saida"], json!({"fimFala": 0.62, "congelar": 0.56}));
+    assert!(
+        validacao.relatorio().contains("1.6s"),
+        "{}",
+        validacao.relatorio()
+    );
+}
+
+#[test]
+fn o_maximo_de_90_s_conta_o_quadro_congelado() {
+    // Uma palavra por segundo, com 0,3 s entre elas: o corte de 0 a 89,94 s cabe nos 90,5 s,
+    // mas a fala emenda a próxima e os 0,76 s congelados levam o reel a 90,7 s.
+    let palavras: Vec<Value> = (0..100)
+        .map(|i| {
+            let inicio = f64::from(i);
+            json!({"text": format!("p{i}."), "start": inicio, "end": inicio + 0.7, "type": "word"})
+        })
+        .collect();
+    let transcricao = Transcricao::do_json(&json!({"words": palavras}).to_string()).unwrap();
+    let roteiro = roteiro_com(json!({"id": "c01", "trechos": [[0.0, 89.8]]}));
+
+    let validacao = validar(&roteiro, Some(&transcricao), &Contexto::default());
+
+    assert!(
+        matches!(
+            problemas(&validacao)[..],
+            [Problema::DuracaoAcimaDoMaximo { duracao }] if (duracao - 90.7).abs() < 1e-9
+        ),
+        "{:?}",
+        problemas(&validacao)
+    );
 }
 
 #[test]
@@ -271,7 +351,7 @@ fn encaixe_que_move_a_borda_mais_de_06_s_e_aviso() {
     assert!(
         problemas(&validacao).contains(&&Problema::EncaixeMoveuBorda {
             pedido: (0.0, 5.0),
-            encaixado: (0.0, 1.75),
+            encaixado: (0.0, 2.2),
         }),
         "{:?}",
         problemas(&validacao)
@@ -346,7 +426,8 @@ fn motions_usam_at_word_duracoes_padrao_e_o_fim_limitado() {
 
     assert!(!validacao.tem_erros(), "{:?}", problemas(&validacao));
     let plano = validacao.cortes[0].plano.as_ref().unwrap();
-    // O corte vai de 9,88 a 19,94 do original: 10,06 s.
+    // O corte vai de 9,88 a 19,94 do original: 10,06 s. A fala termina em 9,62 s (p16 acaba
+    // em 19,5) e congela 0,56 s; os motions param em min(9,62 + 0,3; 10,62 - 0,8) = 9,82.
     assert_eq!(plano.trechos, [(9.88, 19.94)]);
     let motion = serde_json::to_value(&plano.motion).unwrap();
     assert_eq!(
@@ -360,11 +441,30 @@ fn motions_usam_at_word_duracoes_padrao_e_o_fim_limitado() {
                 {"type": "zoom", "scale": 1.2, "start": 5.02, "end": 6.42},
                 {"type": "shake", "start": 2.62, "end": 3.62},
                 {"type": "flash", "at": 3.12},
-                {"type": "scene", "name": "Grafico", "start": 8.12, "end": 9.46},
-                {"type": "counter", "to": 3, "start": 9.12, "end": 9.46},
+                {"type": "scene", "name": "Grafico", "start": 8.12, "end": 9.82},
+                {"type": "counter", "to": 3, "start": 9.12, "end": 9.82},
             ],
+            "saida": {"fimFala": 9.62, "congelar": 0.56},
         })
     );
+}
+
+#[test]
+fn os_motions_param_03_s_depois_da_fala() {
+    let corte = json!({
+        "id": "c01", "trechos": [[0.0, 1.0]],
+        "motions": [{"type": "keyword", "text": "K", "at": 0.2}],
+    });
+
+    let validacao = validar(
+        &roteiro_com(corte),
+        Some(&transcricao_com_pausa_no_fim()),
+        &Contexto::default(),
+    );
+
+    let plano = validacao.cortes[0].plano.as_ref().unwrap();
+    // A fala acaba em 1,0 e o reel em 2,2: o keyword de 1,6 s iria até 1,8 e para em 1,3.
+    assert_eq!(plano.motion.motions[0]["end"], 1.3);
 }
 
 #[test]

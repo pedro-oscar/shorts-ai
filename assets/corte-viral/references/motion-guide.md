@@ -53,7 +53,7 @@ Tempos em segundos na linha do tempo **do corte** (a mesma de `captions.json`, q
 - Um elemento novo a cada **3–6 s**; nunca mais de 8 s sem nada. Mas não cubra o rosto o tempo todo: pelo menos 40% do corte com o rosto limpo.
 - O início do motion fica **0,1 s antes** do `startMs` da palavra que ele ilustra. O payoff visual cai na palavra do payoff.
 - A legenda (centro em `captionY`, ≈ y 1270) e as zonas da UI do app (topo 0–150 px, faixa inferior 1400–1920 px) já são respeitadas pelo layout automático.
-- **Fim do reel:** não coloque motion nos últimos 0,8 s (é a saída suave). O payoff visual vem antes.
+- **Fim do reel:** os motions param até 0,3 s depois da última palavra e nunca entram nos últimos 0,8 s (é a saída suave). O payoff visual vem antes.
 - **Contraste sempre**: texto com contorno preto ou sobre tarja sólida. Nada amarelo sobre fundo claro nem vermelho sobre vermelho. Se o fundo do vídeo for claro na região, use tarja.
 - Fonte: Montserrat 800–900 (`FONT` em `theme.ts`). Não carregue fontes externas sem conferir num still.
 
