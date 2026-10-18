@@ -123,6 +123,8 @@ pub struct Config {
 
 /// Onde ficam, nos dados do app, os modelos da Transcrição (o do Whisper e o do VAD).
 const MODELS_DIR: &str = "modelos";
+/// Quanto `interromper` espera o trabalho que roda largar os processos.
+const ESPERA_PARA_INTERROMPER: std::time::Duration = std::time::Duration::from_secs(15);
 
 pub struct Nucleo {
     biblioteca: Mutex<PathBuf>,
@@ -1440,6 +1442,14 @@ impl Nucleo {
                 Parou::NaoEstava => Err(acao_indisponivel(id, "cancelar")),
             },
         }
+    }
+
+    /// Para tudo antes de o app fechar para se atualizar: a fila não começa mais nada, e o que
+    /// está rodando tem o processo morto e volta Pausado, com a etapa em curso descartada. O
+    /// instalador do Windows não consegue trocar um sidecar que ainda roda. Volta quando nada
+    /// mais roda, ou depois de alguns segundos.
+    pub fn interromper(&self) {
+        self.fila.interromper(ESPERA_PARA_INTERROMPER);
     }
 
     /// Devolve o projeto pausado, cancelado ou aguardando a cota ao fim da fila, para recomeçar

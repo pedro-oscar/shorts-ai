@@ -756,7 +756,7 @@ mod na_fila {
     use std::sync::mpsc;
     use std::time::Duration;
 
-    use nucleo::{Config, EstadoDaEtapa, Etapa, Evento, Nucleo, Padroes};
+    use nucleo::{Config, EstadoDaEtapa, Etapa, Evento, Nucleo, Padroes, Parada};
 
     use super::gravado;
 
@@ -842,6 +842,75 @@ mod na_fila {
             dados,
             _tmp: tmp,
         }
+    }
+
+    #[test]
+    fn interromper_mata_o_ffmpeg_em_curso_e_o_projeto_volta_pausado() {
+        let tmp = tempfile::tempdir().unwrap();
+        let bin = tmp.path().join("bin");
+        fs::create_dir(&bin).unwrap();
+        // O ffmpeg falso trava: só para se o núcleo o matar.
+        fs::write(bin.join("ffmpeg"), "#!/bin/sh\nexec sleep 30\n").unwrap();
+        fs::write(bin.join("whisper-cli"), "#!/bin/sh\nexit 1\n").unwrap();
+        for nome in ["ffmpeg", "whisper-cli"] {
+            fs::set_permissions(bin.join(nome), fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let (envio, eventos) = mpsc::channel();
+        let envio = Mutex::new(envio);
+        let nucleo = Nucleo::new(
+            Config {
+                app_data_dir: tmp.path().join("dados"),
+                pasta_de_videos: Some(tmp.path().join("Videos")),
+                sidecar_dir: Some(bin),
+                ..Config::default()
+            },
+            move |evento| {
+                let _ = envio.lock().unwrap().send(evento);
+            },
+        );
+        let video = tmp.path().join("aula.mp4");
+        fs::write(&video, b"video de mentira").unwrap();
+        let projeto = nucleo
+            .criar_lote(&[video.display().to_string()], &Padroes::default())
+            .unwrap()
+            .remove(0);
+        loop {
+            if let Evento::EtapaMudou {
+                etapa: Etapa::Transcricao,
+                estado: EstadoDaEtapa::EmAndamento,
+                ..
+            } = eventos
+                .recv_timeout(Duration::from_secs(20))
+                .expect("a Transcrição não começou")
+            {
+                break;
+            }
+        }
+
+        let inicio = std::time::Instant::now();
+        nucleo.interromper();
+
+        assert!(
+            inicio.elapsed() < Duration::from_secs(10),
+            "o ffmpeg foi morto, e não esperado"
+        );
+        let resumo = nucleo
+            .lotes()
+            .into_iter()
+            .flat_map(|lote| lote.projetos)
+            .find(|item| item.id == projeto.id)
+            .unwrap();
+        assert_eq!(resumo.parada, Some(Parada::Pausado));
+        let transcricao = resumo
+            .etapas
+            .iter()
+            .find(|item| item.etapa == Etapa::Transcricao)
+            .unwrap();
+        assert_eq!(
+            transcricao.estado,
+            EstadoDaEtapa::Pendente,
+            "a etapa em curso é descartada"
+        );
     }
 
     struct Rodada {

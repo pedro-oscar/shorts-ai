@@ -42,11 +42,25 @@ impl Trabalho {
     }
 }
 
-/// Os pedidos de parada do projeto que está rodando.
+/// Os pedidos de parada do trabalho que está rodando.
 #[derive(Clone, Default)]
 struct Controle {
     pausar: Arc<AtomicBool>,
+    /// Mata o processo e descarta a etapa em curso.
     cancelar: Arc<AtomicBool>,
+    /// Junto com `cancelar`, quando o app vai fechar: o projeto volta Pausado, e não Cancelado.
+    interromper: Arc<AtomicBool>,
+}
+
+impl Controle {
+    /// Como fica o projeto cujo processo o `cancelar` matou.
+    fn parada_do_cancelar(&self) -> Parada {
+        if self.interromper.load(Ordering::SeqCst) {
+            Parada::Pausado
+        } else {
+            Parada::Cancelado
+        }
+    }
 }
 
 /// Quem está na fila e quem está rodando.
@@ -55,6 +69,8 @@ struct Estado {
     /// O trabalho que espera a vez, na ordem em que o trabalhador o pega.
     pendentes: VecDeque<Trabalho>,
     atual: Option<(String, Controle)>,
+    /// O controle do trabalho que está rodando, projeto ou versão final.
+    trabalhando: Option<Controle>,
     /// Os projetos que esperam a cota liberar, com a hora de tentar de novo.
     aguardando: Vec<(PathBuf, Instant)>,
     encerrar: bool,
@@ -152,12 +168,22 @@ impl Fila {
                             &controle,
                         );
                         notificar(&pasta, &emit);
-                        travar(&do_trabalhador).atual = None;
                     }
                     Trabalho::VersaoFinal(pasta) => {
-                        renderizar_versao_final(&pasta, &emit, producao.as_ref());
+                        renderizar_versao_final(
+                            &pasta,
+                            &emit,
+                            producao.as_ref(),
+                            &controle.cancelar,
+                        );
                     }
                 }
+                let mut estado = travar(&do_trabalhador);
+                estado.atual = None;
+                estado.trabalhando = None;
+                drop(estado);
+                // Quem espera o trabalhador largar o trabalho (`interromper`).
+                do_trabalhador.acordar.notify_all();
             }
         });
         Self { compartilhado }
@@ -201,6 +227,23 @@ impl Fila {
             }
             _ => Parou::NaoEstava,
         }
+    }
+
+    /// Para tudo para o app fechar: a fila não começa mais nada, e o trabalho que está rodando
+    /// tem o processo morto (um projeto volta Pausado, com a etapa em curso descartada). Volta
+    /// quando o trabalhador larga o trabalho, ou depois de `espera`.
+    pub fn interromper(&self, espera: Duration) {
+        let mut estado = travar(&self.compartilhado);
+        estado.encerrar = true;
+        if let Some(controle) = &estado.trabalhando {
+            controle.interromper.store(true, Ordering::SeqCst);
+            controle.cancelar.store(true, Ordering::SeqCst);
+        }
+        self.compartilhado.acordar.notify_all();
+        let _ = self
+            .compartilhado
+            .acordar
+            .wait_timeout_while(estado, espera, |estado| estado.trabalhando.is_some());
     }
 
     /// Há projeto rodando, esperando a vez ou esperando a cota.
@@ -309,6 +352,7 @@ fn proximo(compartilhado: &Compartilhado) -> Option<Proximo> {
             if let Some(id) = trabalho.projeto() {
                 estado.atual = Some((id, controle.clone()));
             }
+            estado.trabalhando = Some(controle.clone());
             return Some(Proximo::Trabalho(trabalho, controle));
         }
         let proxima_liberacao = estado.aguardando.iter().map(|(_, libera)| *libera).min();
@@ -364,7 +408,12 @@ fn voltar_da_espera(pasta: &Path, emit: &Emitir) {
 /// O render da versão final de um projeto cuja Produção já rodou. Os cortes e os rostos vêm do
 /// cache da Produção; nenhuma sessão do Claude é aberta. A falha vai só no evento: as etapas
 /// do projeto continuam como estavam.
-fn renderizar_versao_final(pasta: &Path, emit: &Emitir, producao: Option<&Producao>) {
+fn renderizar_versao_final(
+    pasta: &Path,
+    emit: &Emitir,
+    producao: Option<&Producao>,
+    cancelar: &AtomicBool,
+) {
     let id = nome_do_arquivo(pasta);
     let mudou = |estado, falha| {
         emit(Evento::VersaoFinalMudou {
@@ -380,7 +429,7 @@ fn renderizar_versao_final(pasta: &Path, emit: &Emitir, producao: Option<&Produc
             &projeto,
             producao,
             Qualidade::Final,
-            &AtomicBool::new(false),
+            cancelar,
             &mut |percentual| {
                 emit(Evento::ProgressoDaVersaoFinal {
                     projeto: id.clone(),
@@ -472,7 +521,7 @@ fn rodar(pasta: &Path, emit: &Emitir, executores: &Executores, controle: &Contro
             continue;
         }
         if controle.cancelar.load(Ordering::SeqCst) {
-            parar(pasta, &mut projeto, Parada::Cancelado, emit);
+            parar(pasta, &mut projeto, controle.parada_do_cancelar(), emit);
             return;
         }
         if controle.pausar.load(Ordering::SeqCst) {
@@ -530,7 +579,7 @@ fn rodar(pasta: &Path, emit: &Emitir, executores: &Executores, controle: &Contro
         // Cancelar descarta a etapa em curso, tenha ela terminado ou não.
         if cancelar.load(Ordering::SeqCst) {
             transicao(&mut projeto, EstadoDaEtapa::Pendente, None);
-            parar(pasta, &mut projeto, Parada::Cancelado, emit);
+            parar(pasta, &mut projeto, controle.parada_do_cancelar(), emit);
             return;
         }
         match resultado {
