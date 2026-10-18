@@ -1,6 +1,7 @@
 // Testes do scripts/sidecars.mjs pela linha de comando, com um manifesto de teste e um
 // servidor local no lugar das Releases do GitHub. O build do whisper.cpp e o do cargo ficam
-// de fora: eles só entram quando o manifesto os pede.
+// de fora: eles só entram quando o manifesto os pede. O ffmpeg montado para o alvo desta
+// máquina é conferido, então os pacotes de teste trazem um ffmpeg falso (um script de shell).
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -22,6 +23,25 @@ import { fileURLToPath } from "node:url";
 
 const SCRIPT = fileURLToPath(new URL("sidecars.mjs", import.meta.url));
 const ALVO = "x86_64-unknown-linux-gnu";
+// A conferência roda o ffmpeg montado, o que só acontece com o alvo desta máquina.
+const SEM_CONFERENCIA =
+  process.platform !== "linux" || process.arch !== "x64"
+    ? "a conferência só roda o ffmpeg do alvo desta máquina"
+    : false;
+const RECURSOS = [
+  "libx264",
+  "wrapped_avframe",
+  "zscale",
+  "loudnorm",
+  "signalstats",
+];
+
+/**
+ * Um ffmpeg falso que lista os encoders e filtros dados no `-encoders` e no `-filters`.
+ * @param {string[]} recursos
+ */
+const ffmpegFalso = (recursos) =>
+  `#!/bin/sh\necho " V....D ${recursos.join(" ")}"\n`;
 
 /** @param {string | Buffer} conteudo */
 const sha256 = (conteudo) =>
@@ -150,7 +170,7 @@ test("o executável baixado vai para a saída com o nome do alvo, pronto para ro
 test("de um pacote, cada arquivo listado vira o sidecar com o nome dado", async (t) => {
   const dir = pasta(t);
   const pacote = tarGz(dir, {
-    "ffmpeg.exe": "ffmpeg",
+    "ffmpeg.exe": ffmpegFalso(RECURSOS),
     "ffprobe.exe": "ffprobe",
     "ffplay.exe": "ffplay",
   });
@@ -227,4 +247,141 @@ test("um alvo fora do manifesto é erro com os alvos que existem", async (t) => 
   assert.notEqual(status, 0);
   assert.match(saida, /riscv64-unknown-linux-gnu/);
   assert.ok(saida.includes(ALVO), saida);
+});
+
+/**
+ * Monta um pacote com o ffmpeg falso dado e devolve o resultado do script.
+ * @param {import("node:test").TestContext} t
+ * @param {string[]} recursos
+ */
+async function montarFfmpeg(t, recursos) {
+  const dir = pasta(t);
+  const pacote = tarGz(dir, { ffmpeg: ffmpegFalso(recursos) });
+  const { base } = await servidor(t, { "/ffmpeg.tar.gz": pacote });
+  return sidecars(
+    manifesto(dir, [
+      {
+        url: `${base}/ffmpeg.tar.gz`,
+        sha256: sha256(pacote),
+        arquivos: { "pacote/bin/ffmpeg": "ffmpeg" },
+      },
+    ]),
+  );
+}
+
+test(
+  "um ffmpeg sem o libx264 é recusado nomeando o que falta",
+  { skip: SEM_CONFERENCIA },
+  async (t) => {
+    const { status, saida } = await montarFfmpeg(
+      t,
+      RECURSOS.filter((recurso) => recurso !== "libx264"),
+    );
+
+    assert.notEqual(status, 0);
+    assert.match(saida, /não tem libx264/);
+  },
+);
+
+test(
+  "um ffmpeg com tudo o que o app usa passa na conferência",
+  { skip: SEM_CONFERENCIA },
+  async (t) => {
+    const { status, saida } = await montarFfmpeg(t, RECURSOS);
+
+    assert.equal(status, 0, saida);
+    assert.match(saida, /ffmpeg conferido/);
+  },
+);
+
+test("--fontes baixa o código-fonte de cada ffmpeg com o nome da Release", async (t) => {
+  const dir = pasta(t);
+  const windows = Buffer.from("código do ffmpeg 9.0.2");
+  const linux = Buffer.from("código do commit 2a571b6068");
+  const { base } = await servidor(t, {
+    "/ffmpeg-9.0.2.tar.xz": windows,
+    "/2a571b6068.tar.gz": linux,
+  });
+  const arquivo = join(dir, "manifesto.json");
+  /** @param {string} caminho @param {Buffer} conteudo @param {string} nome */
+  const ffmpeg = (caminho, conteudo, nome) => ({
+    url: `${base}/nao-baixa.zip`,
+    sha256: sha256("o binário fica de fora"),
+    arquivos: { "bin/ffmpeg": "ffmpeg" },
+    fonte: { url: `${base}${caminho}`, sha256: sha256(conteudo), nome },
+  });
+  writeFileSync(
+    arquivo,
+    JSON.stringify({
+      "x86_64-pc-windows-msvc": {
+        baixar: [
+          ffmpeg("/ffmpeg-9.0.2.tar.xz", windows, "ffmpeg-9.0.2-fonte.tar.xz"),
+        ],
+      },
+      [ALVO]: {
+        baixar: [
+          ffmpeg("/2a571b6068.tar.gz", linux, "ffmpeg-g2a571b6068.tar.gz"),
+        ],
+      },
+    }),
+  );
+  const fontes = join(dir, "fontes");
+
+  const { status, saida } = await sidecars([
+    "--manifesto",
+    arquivo,
+    "--cache",
+    join(dir, "cache"),
+    "--fontes",
+    fontes,
+  ]);
+
+  assert.equal(status, 0, saida);
+  assert.deepEqual(readdirSync(fontes).sort(), [
+    "ffmpeg-9.0.2-fonte.tar.xz",
+    "ffmpeg-g2a571b6068.tar.gz",
+  ]);
+  assert.deepEqual(
+    readFileSync(join(fontes, "ffmpeg-9.0.2-fonte.tar.xz")),
+    windows,
+  );
+});
+
+test("--fontes recusa um código-fonte com outro SHA-256", async (t) => {
+  const dir = pasta(t);
+  const { base } = await servidor(t, {
+    "/fonte.tar.xz": Buffer.from("trocado"),
+  });
+  const arquivo = join(dir, "manifesto.json");
+  writeFileSync(
+    arquivo,
+    JSON.stringify({
+      [ALVO]: {
+        baixar: [
+          {
+            url: `${base}/nao-baixa.zip`,
+            sha256: sha256("o binário fica de fora"),
+            fonte: {
+              url: `${base}/fonte.tar.xz`,
+              sha256: sha256("o original"),
+              nome: "ffmpeg-fonte.tar.xz",
+            },
+          },
+        ],
+      },
+    }),
+  );
+
+  const { status, saida } = await sidecars([
+    "--manifesto",
+    arquivo,
+    "--cache",
+    join(dir, "cache"),
+    "--fontes",
+    join(dir, "fontes"),
+  ]);
+
+  assert.notEqual(status, 0);
+  assert.ok(saida.includes(sha256("trocado")), saida);
+  assert.equal(existsSync(join(dir, "fontes", "ffmpeg-fonte.tar.xz")), false);
 });

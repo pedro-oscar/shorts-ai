@@ -36,6 +36,7 @@
     "tickets": "node scripts/tickets.mjs",
     "sidecars": "node scripts/sidecars.mjs",
     "instalador:windows": "npm run sidecars && tauri build --bundles nsis --config src-tauri/tauri.sidecars.conf.json",
+    "instalador:linux": "npm run sidecars && tauri build --bundles appimage,deb --config src-tauri/tauri.sidecars.conf.json",
     "afk": "tsx .sandcastle/main.ts"
   },
   "dependencies": {

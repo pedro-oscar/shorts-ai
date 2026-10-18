@@ -7,6 +7,11 @@
         "arquivos": {
           "ffmpeg-9.0.2-essentials_build/bin/ffmpeg.exe": "ffmpeg",
           "ffmpeg-9.0.2-essentials_build/bin/ffprobe.exe": "ffprobe"
+        },
+        "fonte": {
+          "url": "https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz",
+          "sha256": "8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e",
+          "nome": "ffmpeg-9.0.2-fonte.tar.xz"
         }
       },
       {
@@ -24,6 +29,46 @@
       "micromamba": {
         "url": "https://github.com/mamba-org/micromamba-releases/releases/download/2.9.0-0/micromamba-win-64.exe",
         "sha256": "a6d804394b2418991c4e29562853eaace2f2ce9d9da661a98e74e02e8dbb44b0"
+      },
+      "vulkan": [
+        "shaderc=2026.4",
+        "libvulkan-loader=1.4.357.0",
+        "libvulkan-headers=1.4.357.0",
+        "spirv-headers=1.4.363.0"
+      ]
+    },
+    "cargo": ["shorts-cli"]
+  },
+  "x86_64-unknown-linux-gnu": {
+    "baixar": [
+      {
+        "url": "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-30-13-08/ffmpeg-n9.0.2-17-g2a571b6068-linux64-gpl-9.0.tar.xz",
+        "sha256": "68ee646831adaae2495618346f3bba94ff207ff83bbd34d643e7004730d66269",
+        "arquivos": {
+          "ffmpeg-n9.0.2-17-g2a571b6068-linux64-gpl-9.0/bin/ffmpeg": "ffmpeg",
+          "ffmpeg-n9.0.2-17-g2a571b6068-linux64-gpl-9.0/bin/ffprobe": "ffprobe"
+        },
+        "fonte": {
+          "url": "https://github.com/FFmpeg/FFmpeg/archive/2a571b606854520cf89804d8030c8b328e621689.tar.gz",
+          "sha256": "f02fc0809a13f37e3d4e1f74254d07e035a5ef01a6d91e727b915b1764d97540",
+          "nome": "ffmpeg-n9.0.2-17-g2a571b6068-fonte.tar.gz"
+        }
+      },
+      {
+        "url": "https://github.com/yt-dlp/yt-dlp/releases/download/2026.08.19/yt-dlp_linux",
+        "sha256": "58162f9bfdc27458ea47bfcb311cf47028f17d8154a8bf7d689861d46399230a",
+        "sidecar": "yt-dlp"
+      }
+    ],
+    "whisper": {
+      "codigo": {
+        "url": "https://github.com/ggml-org/whisper.cpp/archive/refs/tags/v1.9.5.tar.gz",
+        "sha256": "ff1a9053feb509ff9d7729703355541ae9690073a6b1c40eb692c962e0dc1720",
+        "pasta": "whisper.cpp-1.9.5"
+      },
+      "micromamba": {
+        "url": "https://github.com/mamba-org/micromamba-releases/releases/download/2.9.0-0/micromamba-linux-64",
+        "sha256": "366cd9cd8be14df1ab8ed50352a82111082a36686b2d389fdb79a92c3fafb3e3"
       },
       "vulkan": [
         "shaderc=2026.4",

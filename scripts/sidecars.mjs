@@ -5,8 +5,12 @@
 // lista os mesmos nomes; ele só entra no build do instalador, para o `cargo build` de todo dia
 // não exigir os executáveis.
 //
+// Quando o alvo é o desta máquina, o ffmpeg montado é conferido: sem os recursos que o app usa,
+// a falha só apareceria no meio de um lote. Com --fontes, o script só baixa o código-fonte de
+// cada ffmpeg do manifesto (a GPL pede que ele acompanhe a build), para anexar à Release.
+//
 // Uso: npm run sidecars [-- --alvo <alvo>] [--manifesto <arquivo>] [--saida <pasta>] [--cache <pasta>]
-// Por enquanto o manifesto só tem o Windows x64; o Linux entra com o build distribuível.
+//      npm run sidecars -- --fontes <pasta>
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
@@ -28,26 +32,24 @@ import { parseArgs } from "node:util";
 
 /**
  * @typedef {{ url: string, sha256: string }} Download
- * @typedef {Download & { sidecar?: string, arquivos?: Record<string, string> }} Baixar
+ * @typedef {Download & { nome: string }} Fonte
+ * @typedef {Download & { sidecar?: string, arquivos?: Record<string, string>, fonte?: Fonte }} Baixar
  *   `sidecar`: o próprio arquivo baixado é o executável; `arquivos`: caminho dentro do pacote
- *   → nome do sidecar.
+ *   → nome do sidecar; `fonte`: o código-fonte da build, com o nome que ele tem na Release.
  * @typedef {{ codigo: Download & { pasta: string }, micromamba: Download, vulkan: string[] }} Whisper
  * @typedef {{ baixar?: Baixar[], whisper?: Whisper, cargo?: string[] }} Receita
  */
 
 const RAIZ = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
-// Os dois whisper-cli ficam na mesma pasta, então são estáticos: sem DLLs de mesmo nome e
-// versões diferentes. O runtime do MSVC vai dentro (/MT) e o OpenMP fica de fora (viria como
-// vcomp140.dll), para não depender do Visual C++ Redistributable. Sem GGML_NATIVE, o binário
-// roda em qualquer x64 com AVX2, e não só na CPU de quem compilou.
+// Os dois whisper-cli ficam na mesma pasta, então são estáticos: sem bibliotecas de mesmo nome
+// e versões diferentes. O OpenMP fica de fora (no Windows viria como vcomp140.dll). Sem
+// GGML_NATIVE, o binário roda em qualquer x64 com AVX2, e não só na CPU de quem compilou.
 const CMAKE_DO_WHISPER = [
   "-G",
   "Ninja",
   "-DCMAKE_BUILD_TYPE=Release",
   "-DBUILD_SHARED_LIBS=OFF",
-  "-DCMAKE_POLICY_DEFAULT_CMP0091=NEW",
-  "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded",
   "-DGGML_NATIVE=OFF",
   "-DGGML_AVX2=ON",
   "-DGGML_FMA=ON",
@@ -55,6 +57,33 @@ const CMAKE_DO_WHISPER = [
   "-DGGML_OPENMP=OFF",
   "-DWHISPER_BUILD_TESTS=OFF",
 ];
+
+// No Windows, o runtime do MSVC vai dentro (/MT), para não depender do Visual C++
+// Redistributable.
+const CMAKE_DO_MSVC = [
+  "-DCMAKE_POLICY_DEFAULT_CMP0091=NEW",
+  "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded",
+];
+
+// No Linux, o binário não guarda o caminho do ambiente do conda (RUNPATH): o libvulkan.so.1 tem
+// de ser o do sistema, e o empacotador do AppImage copiaria o do conda para dentro.
+const CMAKE_DO_LINUX = ["-DCMAKE_SKIP_RPATH=ON"];
+
+// O que o app usa do ffmpeg (tickets 17 e 19): o encoder do corte e o do `-f null` da análise
+// de cor, o zscale do HDR, a normalização de volume e a medição de cor.
+const RECURSOS_DO_FFMPEG = [
+  "libx264",
+  "wrapped_avframe",
+  "zscale",
+  "loudnorm",
+  "signalstats",
+];
+
+/** O alvo do Rust que esta máquina roda, sem perguntar ao rustc. */
+const ALVO_DO_HOST = /** @type {Record<string, string>} */ ({
+  "linux-x64": "x86_64-unknown-linux-gnu",
+  "win32-x64": "x86_64-pc-windows-msvc",
+})[`${process.platform}-${process.arch}`];
 
 /**
  * @param {string} command
@@ -170,20 +199,23 @@ function vcvars() {
 /**
  * Compila o whisper-cli duas vezes: com Vulkan e, como reserva, só para a CPU. O glslc e os
  * headers do Vulkan vêm do conda-forge num ambiente do micromamba, sem o Vulkan SDK e sem
- * administrador; em execução, o whisper-cli usa o vulkan-1.dll do driver.
+ * administrador; em execução, o whisper-cli usa o carregador do Vulkan do sistema
+ * (vulkan-1.dll do driver no Windows, libvulkan.so.1 no Linux).
  * @param {Whisper} whisper
  * @param {string} cache
  * @param {{ alvo: string, saida: string }} destino
  */
 async function compilarWhisper(whisper, cache, destino) {
-  if (process.platform !== "win32") {
-    throw new Error(
-      "a receita do whisper.cpp deste manifesto é a do Windows (MSVC)",
-    );
-  }
-  const vulkan = join(cache, "vulkan", "Library");
-  if (!existsSync(join(vulkan, "bin", "glslc.exe"))) {
+  const windows = process.platform === "win32";
+  const exe = windows ? ".exe" : "";
+  // No Windows, o conda põe as bibliotecas em Library/; no Linux, direto no prefixo.
+  const vulkan = windows
+    ? join(cache, "vulkan", "Library")
+    : join(cache, "vulkan");
+  const glslc = join(vulkan, "bin", `glslc${exe}`);
+  if (!existsSync(glslc)) {
     const micromamba = await baixar(whisper.micromamba, cache);
+    if (!windows) chmodSync(micromamba, 0o755);
     run(micromamba, [
       "create",
       "--yes",
@@ -205,14 +237,28 @@ async function compilarWhisper(whisper, cache, destino) {
       "-DGGML_VULKAN=ON",
       `-DCMAKE_PREFIX_PATH=${vulkan}`,
       `-DVulkan_INCLUDE_DIR=${join(vulkan, "include")}`,
-      `-DVulkan_LIBRARY=${join(vulkan, "lib", "vulkan-1.lib")}`,
-      `-DVulkan_GLSLC_EXECUTABLE=${join(vulkan, "bin", "glslc.exe")}`,
+      `-DVulkan_LIBRARY=${join(vulkan, "lib", windows ? "vulkan-1.lib" : "libvulkan.so")}`,
+      `-DVulkan_GLSLC_EXECUTABLE=${glslc}`,
     ],
     "whisper-cli-cpu": [],
   };
   for (const [nome, opcoes] of Object.entries(variantes)) {
     const build = join(cache, `build-${nome}`);
-    const configurar = [...CMAKE_DO_WHISPER, ...opcoes]
+    if (!windows) {
+      run("cmake", [
+        "-S",
+        fonte,
+        "-B",
+        build,
+        ...CMAKE_DO_WHISPER,
+        ...CMAKE_DO_LINUX,
+        ...opcoes,
+      ]);
+      run("cmake", ["--build", build, "--target", "whisper-cli"]);
+      instalar(join(build, "bin", "whisper-cli"), nome, destino);
+      continue;
+    }
+    const configurar = [...CMAKE_DO_WHISPER, ...CMAKE_DO_MSVC, ...opcoes]
       .map((opcao) => `"${opcao}"`)
       .join(" ");
     // O ambiente do MSVC só existe dentro do cmd que chamou o vcvars, então o build é um .bat.
@@ -265,6 +311,53 @@ async function montar(receita, { alvo, saida, cache }) {
   }
 }
 
+/**
+ * Roda o ffmpeg montado e exige os recursos que o app usa; falha nomeando os que faltam.
+ * @param {string} ffmpeg
+ */
+function conferirFfmpeg(ffmpeg) {
+  const saida = ["-encoders", "-filters"]
+    .map((lista) => {
+      const { stdout, status, error } = spawnSync(
+        ffmpeg,
+        ["-hide_banner", lista],
+        { encoding: "utf8" },
+      );
+      if (status !== 0) {
+        throw new Error(
+          `${ffmpeg} ${lista}: ${error?.message ?? `saiu com ${String(status)}`}`,
+        );
+      }
+      return stdout;
+    })
+    .join("\n");
+  const palavras = new Set(saida.split(/\s+/));
+  const faltam = RECURSOS_DO_FFMPEG.filter((recurso) => !palavras.has(recurso));
+  if (faltam.length > 0) {
+    throw new Error(
+      `o ffmpeg montado não tem ${faltam.join(", ")}, que o app usa: troque a build no manifesto`,
+    );
+  }
+  console.log(`  ffmpeg conferido: ${RECURSOS_DO_FFMPEG.join(", ")}`);
+}
+
+/**
+ * Baixa o código-fonte de cada ffmpeg do manifesto para a pasta, com o nome da Release.
+ * @param {Record<string, Receita>} manifesto
+ * @param {{ pasta: string, cache: string }} opcoes
+ */
+async function baixarFontes(manifesto, { pasta, cache }) {
+  mkdirSync(pasta, { recursive: true });
+  for (const receita of Object.values(manifesto)) {
+    for (const { fonte } of receita.baixar ?? []) {
+      if (!fonte) continue;
+      const arquivo = join(pasta, fonte.nome);
+      copyFileSync(await baixar(fonte, cache), arquivo);
+      console.log(`  ${arquivo}`);
+    }
+  }
+}
+
 /** O alvo do `rustc` desta máquina, o mesmo que o Tauri usa no nome dos sidecars. */
 function alvoDoRustc() {
   const { stdout, stderr, status, error } = spawnSync("rustc", ["-vV"], {
@@ -293,12 +386,21 @@ async function main() {
       },
       saida: { type: "string", default: join(RAIZ, "src-tauri", "binaries") },
       cache: { type: "string", default: join(RAIZ, "target", "sidecars") },
+      fontes: { type: "string" },
     },
   });
-  const alvo = values.alvo ?? alvoDoRustc();
   /** @type {unknown} */
   const json = JSON.parse(readFileSync(values.manifesto, "utf8"));
   const manifesto = /** @type {Record<string, Receita>} */ (json);
+  if (values.fontes) {
+    console.log("Código-fonte dos ffmpeg:");
+    await baixarFontes(manifesto, {
+      pasta: values.fontes,
+      cache: values.cache,
+    });
+    return;
+  }
+  const alvo = values.alvo ?? alvoDoRustc();
   const receita = manifesto[alvo];
   if (!receita) {
     throw new Error(
@@ -311,6 +413,11 @@ async function main() {
     saida: values.saida,
     cache: values.cache,
   });
+  const ffmpeg = join(
+    values.saida,
+    `ffmpeg-${alvo}${alvo.includes("windows") ? ".exe" : ""}`,
+  );
+  if (alvo === ALVO_DO_HOST && existsSync(ffmpeg)) conferirFfmpeg(ffmpeg);
 }
 
 main().catch((/** @type {unknown} */ error) => {
