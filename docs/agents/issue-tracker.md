@@ -1,6 +1,6 @@
 # Issue tracker: Local Markdown
 
-Issues and specs for this repo live as markdown files in `.scratch/`.
+Issues and specs for this repo live as markdown files in `.scratch/`. That folder is its own private git repo: the main repo ignores it and it never goes to GitHub. Commit ticket changes inside it (`git -C .scratch add … && git -C .scratch commit`), separately from the code commit.
 
 ## Conventions
 

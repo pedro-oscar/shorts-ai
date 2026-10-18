@@ -2,7 +2,7 @@
 
 ### Issue tracker
 
-Issues live as local markdown files under `.scratch/<feature>/`. See `docs/agents/issue-tracker.md`.
+Issues live as local markdown files under `.scratch/<feature>/`, a private git repo of its own that this one ignores: a ticket change is a commit there (`git -C .scratch commit`), never here. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
@@ -22,7 +22,8 @@ Depois de clonar, rode `npm ci`: é ele que liga o hook (`.husky/pre-commit`, po
 
 - `gitleaks` 8.30+ no PATH (binário das releases de github.com/gitleaks/gitleaks); o pre-commit também usa;
 - `cargo-audit`: `cargo install cargo-audit --locked`;
-- para o `check:full`, Docker ou Podman; sem eles, o script instala o Semgrep com `uv`.
+- para o `check:full`, Docker ou Podman; sem eles, o script instala o Semgrep com `uv`;
+- a pasta de referência dos testes do núcleo (vídeo KGfmaHnBQx4 e sessões gravadas, de fora do repositório) em `~/shorts-ai-referencia`, ou onde a `SHORTS_AI_REFERENCIA` apontar; o `LEIA.md` dela diz o que é cada arquivo.
 
 ## Loop AFK
 

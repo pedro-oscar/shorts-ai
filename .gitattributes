@@ -2,5 +2,3 @@
 * text=auto eol=lf
 *.bat text eol=crlf
 *.cmd text eol=crlf
-# A gravação do whisper-cli no Windows fica byte a byte, com o CRLF do stderr que o núcleo vai ler.
-.scratch/shorts-ai-mvp/spike-transcricao/gravado/** -text

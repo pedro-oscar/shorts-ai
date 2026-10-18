@@ -15,7 +15,7 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["**/*", ".sandcastle/**/*", ".scratch/**/*"],
+  "include": ["**/*", ".sandcastle/**/*"],
   "exclude": [
     "node_modules",
     ".claude",

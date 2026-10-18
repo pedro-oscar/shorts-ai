@@ -10,3 +10,5 @@ target/
 /src-tauri/gen/
 # Os executáveis que vão com o app, montados pelo `npm run sidecars`.
 /src-tauri/binaries/
+# Os tickets, a spec e os spikes: um repositório git local e privado, que não vai ao GitHub.
+/.scratch/

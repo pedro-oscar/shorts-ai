@@ -22,6 +22,8 @@ export default defineConfig([
     // Cópia do CLI (assets/ORIGEM.md): tem o próprio tsconfig e não segue estes padrões.
     "assets/",
     "src-tauri/gen/",
+    // Os tickets e os spikes: um repositório local e privado, fora deste (AGENTS.md).
+    ".scratch/",
   ]),
   js.configs.recommended,
   // Com tipos: barra `any` vazando (no-unsafe-*), promessas soltas e eval implícito.

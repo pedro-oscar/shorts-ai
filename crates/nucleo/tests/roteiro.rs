@@ -11,9 +11,10 @@ use nucleo::roteiro::{
 };
 use serde_json::{Value, json};
 
+mod comum;
+
 fn referencia() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../.scratch/shorts-ai-mvp/referencia-kgfmahnbqx4")
+    comum::referencia("kgfmahnbqx4")
 }
 
 fn template() -> PathBuf {

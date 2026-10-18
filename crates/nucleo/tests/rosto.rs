@@ -7,6 +7,8 @@ use nucleo::rosto::{
     histograma_hsv, rastrear, suavizar, trocou_de_cena,
 };
 
+mod comum;
+
 fn rosto(cx: f64, cy: f64, lado: f64) -> Deteccao {
     Deteccao {
         cx,
@@ -417,11 +419,7 @@ fn o_centro_do_corte_de_referencia_fica_perto_do_resultado_do_cli() {
 
     let corte = std::env::var("SHORTS_CORTE_C01").expect("SHORTS_CORTE_C01 com o caminho do corte");
     let referencia: serde_json::Value = serde_json::from_str(
-        &std::fs::read_to_string(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../.scratch/shorts-ai-mvp/referencia-kgfmahnbqx4/cortes/c01/face.json"
-        ))
-        .unwrap(),
+        &std::fs::read_to_string(comum::referencia("kgfmahnbqx4/cortes/c01/face.json")).unwrap(),
     )
     .unwrap();
     let chaves: Vec<(f64, f64)> = referencia["keys"]

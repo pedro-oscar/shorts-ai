@@ -10,10 +10,10 @@ use nucleo::transcricao::{
     vad_segments,
 };
 
+mod comum;
+
 fn gravado(nome: &str) -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../.scratch/shorts-ai-mvp/spike-transcricao/gravado")
-        .join(nome)
+    comum::referencia("whisper-gravado").join(nome)
 }
 
 fn vad_gravado() -> Vec<VadSegment> {
@@ -265,11 +265,7 @@ echo "whisper_print_progress_callback: progress = 100%" >&2
         let transcricao = cenario.transcrever(Some("pt"), &mut Vec::new()).unwrap();
 
         let esperado: Vec<(String, f64, f64)> = serde_json::from_str(
-            &fs::read_to_string(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/tests/dados/palavras-do-medir.json"
-            ))
-            .unwrap(),
+            &fs::read_to_string(super::comum::referencia("palavras-do-medir.json")).unwrap(),
         )
         .unwrap();
         let obtido: Vec<_> = transcricao

@@ -11,7 +11,7 @@ O render continua no Remotion (Node), porque as cenas que o Claude escreve são 
 
 ## Transcrição
 
-Decidida depois do spike de 08/10/2026 (relatório em `.scratch/shorts-ai-mvp/spike-transcricao/`):
+Decidida depois do spike de 08/10/2026 (relatório na `.scratch` local do autor, `shorts-ai-mvp/spike-transcricao/`):
 
 - **Motor:** whisper.cpp v1.9.5, com a versão fixada.
 - **Integração:** executável separado, o whisper-cli oficial, levado como sidecar.

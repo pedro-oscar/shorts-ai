@@ -9,10 +9,13 @@
 //
 // The issues are the local tickets in .scratch/ (read and closed with
 // `npm run tickets`), so closing one is a commit, not a call to a remote
-// tracker. That is why the whole run shares one sandbox and one branch: each
-// iteration starts from the previous one's commits and sees which tickets are
-// already done. The host's current branch is never touched; review the run's
-// branch and merge it yourself.
+// tracker. .scratch/ is a private git repo of its own, ignored by this one and
+// bind-mounted from the host: a ticket closed in the sandbox is committed
+// straight into the host's .scratch/, ahead of the human merge (revert it there
+// if the run's branch is thrown away). The whole run shares one sandbox and one
+// branch: each iteration starts from the previous one's commits and sees which
+// tickets are already done. The host's current branch is never touched; review
+// the run's branch and merge it yourself.
 //
 // The loop repeats up to MAX_ITERATIONS times, processing one issue per
 // iteration and stopping early once the backlog is exhausted (an implement
@@ -62,6 +65,18 @@ const hooks = {
 // platform-specific binaries and any packages added since the last copy.
 const copyToWorktree = ["node_modules"];
 
+// The tickets (.scratch/, read-write) and the reference material the core's
+// tests read (~/shorts-ai-referencia, see AGENTS.md) live outside the repo, so
+// the worktree does not have them.
+const mounts = [
+  { hostPath: ".scratch", sandboxPath: ".scratch" },
+  {
+    hostPath: "~/shorts-ai-referencia",
+    sandboxPath: "~/shorts-ai-referencia",
+    readonly: true,
+  },
+];
+
 // ---------------------------------------------------------------------------
 // Main loop
 // ---------------------------------------------------------------------------
@@ -70,12 +85,21 @@ const branch = `afk/${String(Date.now())}`;
 
 const sandbox = await sandcastle.createSandbox({
   branch,
-  sandbox: docker(),
+  sandbox: docker({ mounts }),
   hooks,
   copyToWorktree,
 });
 
 let completed = 0;
+
+/** The tickets repo's HEAD: a blocked issue moves it without a code commit. */
+async function ticketsHead(): Promise<string> {
+  const result = await sandbox.exec("git -C .scratch rev-parse HEAD");
+  if (result.exitCode !== 0) {
+    throw new Error(`git -C .scratch rev-parse: ${result.stderr}`);
+  }
+  return result.stdout.trim();
+}
 
 try {
   for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
@@ -87,6 +111,7 @@ try {
     const head = await sandbox.exec("git rev-parse HEAD");
     if (head.exitCode !== 0) throw new Error(`git rev-parse: ${head.stderr}`);
     const base = head.stdout.trim();
+    const tickets = await ticketsHead();
 
     // -----------------------------------------------------------------------
     // Phase 1: Implement
@@ -108,6 +133,12 @@ try {
     });
 
     if (!implement.commits.length) {
+      if ((await ticketsHead()) !== tickets) {
+        // Only a ticket changed (blocked, now needs-info): no code to review,
+        // and the new status takes it off the list for the next iteration.
+        console.log("Implementation agent only updated a ticket. Moving on.");
+        continue;
+      }
       // No commits means the backlog is empty or every remaining issue is
       // blocked — there is nothing left to implement or review, so stop.
       console.log("Implementation agent made no commits. Stopping.");

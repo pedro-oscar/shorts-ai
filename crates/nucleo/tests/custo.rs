@@ -1,24 +1,23 @@
 //! O custo pela interface pública do núcleo: a tabela de preços (embutida e baixada), o preço
 //! de API calculado com os tokens de `modelUsage` e os totais por projeto, reel e lote.
 //!
-//! Os casos de referência saem dos `result` das sessões gravadas em `tests/dados/`.
+//! Os casos de referência saem dos `result` das sessões gravadas na pasta de referência.
 
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::{Read, Write};
 use std::net::TcpListener;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use nucleo::custo::{TabelaDePrecos, preco_a_conferir};
 use nucleo::sessao::UsoDoModelo;
 use nucleo::{Config, Etapa, Nucleo};
 use serde_json::{Value, json};
 
+mod comum;
+
 fn gravacao(nome: &str) -> String {
-    let caminho = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/dados")
-        .join(nome);
-    fs::read_to_string(caminho).unwrap()
+    fs::read_to_string(comum::referencia("sessoes").join(nome)).unwrap()
 }
 
 /// Os tokens e o custo do último `result` da gravação, como o núcleo os lê do `modelUsage`.

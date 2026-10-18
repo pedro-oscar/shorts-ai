@@ -2,13 +2,10 @@
 //! script de shell) que repete uma sessão gravada, recortada: os eventos, o roteiro, o log e o
 //! `custos.json`. Variações: vários `result`, sessão que cai e roteiro inválido.
 //!
-//! As gravações são sessões reais de roteiro do CLI (`~/ai-editor/edit/logs/`), recortadas:
-//! ficam algumas linhas, na ordem, e cada texto com mais de 200 caracteres é cortado com `…`;
-//! números, ids e tipos ficam como vieram.
-//! - `sessao-roteiro.jsonl`: `20261006-150110-roteirizar.jsonl`, do KGfmaHnBQx4, cujo roteiro
-//!   final é o da referência que o `claude` falso escreve.
-//! - `sessao-roteiro-varios-results.jsonl`: `20261007-145036-roteirizar.jsonl`, outro vídeo, em
-//!   que os sub-agentes em segundo plano fazem a sessão terminar com quatro `result`.
+//! As gravações de roteiro são sessões reais do CLI, recortadas, e ficam na pasta de referência
+//! (`comum`), cujo `LEIA.md` diz de onde veio cada uma: `sessao-roteiro.jsonl`, do KGfmaHnBQx4,
+//! cujo roteiro final é o que o `claude` falso escreve, e `sessao-roteiro-varios-results.jsonl`,
+//! que termina com quatro `result`. As de revisão, curtas, ficam em `tests/dados/`.
 #![cfg(unix)]
 
 use std::fs;
@@ -45,10 +42,17 @@ fn raiz() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
+mod comum;
+
+/// As gravações de roteiro vêm da pasta de referência; as de revisão, de `tests/dados/`.
 fn gravacao(nome: &str) -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/dados")
-        .join(nome)
+    if nome.starts_with("sessao-roteiro") {
+        comum::referencia("sessoes").join(nome)
+    } else {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/dados")
+            .join(nome)
+    }
 }
 
 struct Cenario {
@@ -67,7 +71,7 @@ impl Cenario {
         fs::write(&claude, CLAUDE).unwrap();
         fs::set_permissions(&claude, fs::Permissions::from_mode(0o755)).unwrap();
         fs::copy(gravacao("sessao-roteiro.jsonl"), bin.join("stream.jsonl")).unwrap();
-        let referencia = raiz().join(".scratch/shorts-ai-mvp/referencia-kgfmahnbqx4");
+        let referencia = comum::referencia("kgfmahnbqx4");
         fs::copy(referencia.join("roteiro.json"), bin.join("roteiro.json")).unwrap();
         fs::write(bin.join("roteiro-valido"), "").unwrap();
 
@@ -850,7 +854,7 @@ mod na_fila {
             "#!/bin/sh\nfor u; do :; done\nhead -c 3200000 /dev/zero > \"$u\"\n",
         )
         .unwrap();
-        let gravado = raiz().join(".scratch/shorts-ai-mvp/spike-transcricao/gravado");
+        let gravado = comum::referencia("whisper-gravado");
         fs::write(
             bin.join("whisper-cli"),
             format!(
