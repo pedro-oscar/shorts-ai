@@ -82,10 +82,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # No Linux, os sidecars vão como recursos (bin/), e não ao lado do executável: o .deb
+          # poria um ffmpeg no /usr/bin, em conflito com o do sistema.
           - os: ubuntu-22.04
             bundles: appimage,deb
+            sidecars: src-tauri/tauri.sidecars.linux.conf.json
           - os: windows-2025
             bundles: nsis,msi
+            sidecars: src-tauri/tauri.sidecars.windows.conf.json
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -144,7 +148,7 @@ jobs:
           uploadWorkflowArtifacts: ${{ github.event_name != 'push' }}
           args: >-
             --bundles ${{ matrix.bundles }}
-            --config src-tauri/tauri.sidecars.conf.json
+            --config ${{ matrix.sidecars }}
             ${{ github.event_name == 'push' && '--config src-tauri/tauri.release.conf.json' || '' }}
 
   # Os dois jobs do build gravam o mesmo latest.json, e um pode ter sobrescrito o outro: aí

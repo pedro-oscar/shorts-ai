@@ -1,9 +1,10 @@
-// Monta os executáveis que vão com o app (os sidecars do Tauri, em `bundle.externalBin`) para
-// o alvo do Rust desta máquina: src-tauri/binaries/<nome>-<alvo>[.exe]. O manifesto
-// (scripts/sidecars.json) fixa a versão e o SHA-256 de tudo o que é baixado; os downloads e os
-// builds ficam em target/sidecars/, que pode ser apagado. O src-tauri/tauri.sidecars.conf.json
-// lista os mesmos nomes; ele só entra no build do instalador, para o `cargo build` de todo dia
-// não exigir os executáveis.
+// Monta os executáveis que vão com o app (os sidecars) para o alvo do Rust desta máquina:
+// src-tauri/binaries/<nome>-<alvo>[.exe]. O manifesto (scripts/sidecars.json) fixa a versão e
+// o SHA-256 de tudo o que é baixado; os downloads e os builds ficam em target/sidecars/, que
+// pode ser apagado. O src-tauri/tauri.sidecars.<sistema>.conf.json de cada sistema lista os
+// mesmos nomes: no Windows, em `bundle.externalBin`, ao lado do executável; no Linux, como
+// recursos em bin/, para o .deb não pôr um ffmpeg no /usr/bin. Ele só entra no build do
+// instalador, para o `cargo build` de todo dia não exigir os executáveis.
 //
 // Quando o alvo é o desta máquina, o ffmpeg montado é conferido: sem os recursos que o app usa,
 // a falha só apareceria no meio de um lote. Com --fontes, o script só baixa o código-fonte de

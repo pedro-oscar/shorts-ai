@@ -41,6 +41,23 @@ impl AtualizacaoBaixada {
     }
 }
 
+/// No Windows, o Tauri instala os sidecars ao lado do executável do app. No Linux, eles vão
+/// como recursos em bin/ (src-tauri/tauri.sidecars.linux.conf.json): ao lado do executável,
+/// o .deb os poria no /usr/bin, em conflito com o ffmpeg do sistema. No desenvolvimento, o
+/// cargo deixa o `shorts-cli` ao lado do executável.
+fn pasta_dos_sidecars(app: &tauri::App) -> Option<PathBuf> {
+    app.path()
+        .resource_dir()
+        .ok()
+        .map(|dir| dir.join("bin"))
+        .filter(|dir| dir.is_dir())
+        .or_else(|| {
+            std::env::current_exe()
+                .ok()
+                .and_then(|exe| exe.parent().map(std::path::Path::to_path_buf))
+        })
+}
+
 /// Procura a versão nova nas Releases e a baixa em segundo plano; a interface só fica sabendo
 /// quando ela está pronta para instalar.
 async fn baixar_atualizacao(app: AppHandle) -> Result<(), Box<dyn std::error::Error>> {
@@ -676,11 +693,7 @@ fn main() {
                     assets_dir: app.path().resource_dir().ok().map(|dir| dir.join("assets")),
                     npm: None,
                     node: None,
-                    // O Tauri instala os sidecars ao lado do executável do app; no
-                    // desenvolvimento, o cargo deixa o `shorts-cli` ali também.
-                    sidecar_dir: std::env::current_exe()
-                        .ok()
-                        .and_then(|exe| exe.parent().map(std::path::Path::to_path_buf)),
+                    sidecar_dir: pasta_dos_sidecars(app),
                     chave_de_api_no_ambiente: std::env::var_os("ANTHROPIC_API_KEY")
                         .is_some_and(|chave| !chave.is_empty()),
                     abrir_com: None,

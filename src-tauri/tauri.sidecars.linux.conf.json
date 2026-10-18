@@ -1,0 +1,13 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "resources": {
+      "binaries/ffmpeg-x86_64-unknown-linux-gnu": "bin/ffmpeg",
+      "binaries/ffprobe-x86_64-unknown-linux-gnu": "bin/ffprobe",
+      "binaries/yt-dlp-x86_64-unknown-linux-gnu": "bin/yt-dlp",
+      "binaries/whisper-cli-x86_64-unknown-linux-gnu": "bin/whisper-cli",
+      "binaries/whisper-cli-cpu-x86_64-unknown-linux-gnu": "bin/whisper-cli-cpu",
+      "binaries/shorts-cli-x86_64-unknown-linux-gnu": "bin/shorts-cli"
+    }
+  }
+}
