@@ -150,26 +150,27 @@ jobs:
   # Os dois jobs do build gravam o mesmo latest.json, e um pode ter sobrescrito o outro: aí
   # este falha, e basta rodar de novo o job do sistema que sumiu.
   conferir:
-    needs: build
+    needs: [rascunho, build]
     if: github.event_name == 'push'
     runs-on: ubuntu-24.04
     env:
       GH_TOKEN: ${{ github.token }}
-      TAG: ${{ github.ref_name }}
+      RELEASE: repos/${{ github.repository }}/releases/${{ needs.rascunho.outputs.release_id }}
     steps:
+      # Pelo id da Release: o `gh release download` não acha rascunho pela tag.
       - name: O rascunho tem tudo
         run: |
-          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern latest.json \
-            --dir "$RUNNER_TEMP"
-          for plataforma in windows-x86_64 linux-x86_64; do
-            jq -e --arg p "$plataforma" '.platforms[$p].url' "$RUNNER_TEMP/latest.json" \
-              > /dev/null || { echo "::error::o latest.json não tem $plataforma"; exit 1; }
-          done
-          assets="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets \
-            --jq '.assets[].name')"
+          assets="$(gh api "$RELEASE/assets" --paginate --jq '.[] | "\(.id) \(.name)"')"
           echo "$assets"
           for sufixo in -setup.exe .msi .AppImage .deb .sig latest.json precos.json \
             -fonte.tar.xz -fonte.tar.gz; do
             grep -q -- "$sufixo\$" <<< "$assets" \
               || { echo "::error::falta um asset terminado em $sufixo"; exit 1; }
+          done
+          latest="$(awk '$2 == "latest.json" { print $1 }' <<< "$assets")"
+          gh api -H "Accept: application/octet-stream" \
+            "repos/$GITHUB_REPOSITORY/releases/assets/$latest" > "$RUNNER_TEMP/latest.json"
+          for plataforma in windows-x86_64 linux-x86_64; do
+            jq -e --arg p "$plataforma" '.platforms[$p].url' "$RUNNER_TEMP/latest.json" \
+              > /dev/null || { echo "::error::o latest.json não tem $plataforma"; exit 1; }
           done
