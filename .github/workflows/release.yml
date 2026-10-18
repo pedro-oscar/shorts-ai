@@ -157,6 +157,9 @@ jobs:
     needs: [rascunho, build]
     if: github.event_name == 'push'
     runs-on: ubuntu-24.04
+    # O GitHub só mostra o rascunho a quem pode escrever no repositório.
+    permissions:
+      contents: write
     env:
       GH_TOKEN: ${{ github.token }}
       RELEASE: repos/${{ github.repository }}/releases/${{ needs.rascunho.outputs.release_id }}
