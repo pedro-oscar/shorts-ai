@@ -4,17 +4,34 @@
 import {bundle} from '@remotion/bundler';
 import {renderMedia, selectComposition} from '@remotion/renderer';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 const [modo, ...args] = process.argv.slice(2);
 
 if (modo === 'pacote') {
   const [pasta] = args;
-  await bundle({
-    entryPoint: path.resolve('src/index.ts'),
-    outDir: path.resolve(pasta),
-    enableCaching: false,
-  });
+  // O webpack recusa caminho com `!`, a sintaxe dos loaders, e a pasta do projeto leva o título
+  // do vídeo: o pacote sai de uma cópia do código numa pasta temporária.
+  const copia = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'shorts-ai-'));
+  const dependencias = path.join(copia, 'node_modules');
+  try {
+    for (const nome of ['src', 'public', 'package.json', 'remotion.config.ts', 'tsconfig.json']) {
+      await fs.promises.cp(nome, path.join(copia, nome), {recursive: true});
+    }
+    // O `node_modules` compartilhado, por symlink; o tipo `junction` só vale no Windows.
+    await fs.promises.symlink(await fs.promises.realpath('node_modules'), dependencias, 'junction');
+    await bundle({
+      entryPoint: path.join(copia, 'src/index.ts'),
+      outDir: path.join(copia, 'pacote'),
+      enableCaching: false,
+    });
+    await fs.promises.cp(path.join(copia, 'pacote'), path.resolve(pasta), {recursive: true});
+  } finally {
+    // O link sai antes, para o `rm` não descer no `node_modules` compartilhado.
+    await fs.promises.unlink(dependencias).catch(() => {});
+    await fs.promises.rm(copia, {recursive: true, force: true});
+  }
 } else if (modo === 'render') {
   const [pacote, chave, dados, saida, escala] = args;
   // Não o fs.cpSync: no Windows, o recursivo derruba o Node 22 (0xc0000409, sem mensagem)

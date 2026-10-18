@@ -721,11 +721,15 @@ fn cancelar_antes_de_comecar_devolve_cancelado() {
     assert!(matches!(resultado, Err(ErroDaProducao::Cancelada)));
 }
 
+/// Copia a pasta; o `node_modules` vira um symlink para o original, como no projeto que o app
+/// monta.
 fn copiar(origem: &Path, destino: &Path) {
     fs::create_dir_all(destino).unwrap();
     for entrada in fs::read_dir(origem).unwrap().map(Result::unwrap) {
         let alvo = destino.join(entrada.file_name());
-        if entrada.path().is_dir() {
+        if entrada.file_name() == "node_modules" {
+            std::os::unix::fs::symlink(entrada.path().canonicalize().unwrap(), alvo).unwrap();
+        } else if entrada.path().is_dir() {
             copiar(&entrada.path(), &alvo);
         } else {
             fs::copy(entrada.path(), alvo).unwrap();
@@ -746,7 +750,8 @@ fn com_os_programas_reais_um_video_de_20_s_gera_um_reel() {
         panic!("defina SHORTS_REMOTION e SHORTS_VIDEO_20S");
     };
     let tmp = tempfile::tempdir().unwrap();
-    let pasta = tmp.path().join("projeto");
+    // A pasta do projeto leva o título do vídeo, e o webpack recusa caminho com `!`.
+    let pasta = tmp.path().join("Não faça isso! (2026-10-18)");
     fs::create_dir_all(pasta.join("edit")).unwrap();
     copiar(Path::new(&remotion), &pasta.join("remotion"));
     let palavras: Vec<Value> = (0..20)
