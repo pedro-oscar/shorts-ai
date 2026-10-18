@@ -4,13 +4,11 @@
 use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::custo::ResumoDeCusto;
-use crate::process::hide_console;
 use crate::producao::{PREVIAS, PUBLICAR, nome_do_reel};
 use crate::roteiro::{ROTEIRO, Roteiro, StatusDoCorte};
 
@@ -173,9 +171,8 @@ pub(crate) fn abrir_endereco(programa: &Path, endereco: &str) -> std::io::Result
 }
 
 fn entregar(programa: &Path, alvo: &OsStr) -> std::io::Result<()> {
-    let mut comando = Command::new(programa);
+    let mut comando = crate::process::comando(programa);
     comando.arg(alvo);
-    hide_console(&mut comando);
     let mut filho = comando.spawn()?;
     // O `xdg-open` pode ficar preso ao programa que abriu, e o Explorador sai com código 1
     // mesmo quando abre: ninguém espera pelo resultado, só colhe o processo para ele não

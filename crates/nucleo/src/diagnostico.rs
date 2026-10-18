@@ -2,13 +2,11 @@
 //! O núcleo só informa os fatos; o texto do relatório é da interface.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use serde::Serialize;
 use specta::Type;
 
 use crate::conta::EstadoDaConta;
-use crate::process::hide_console;
 
 /// Onde os trabalhos pesados rodam: na GPU, por Vulkan, ou só na CPU.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
@@ -148,9 +146,8 @@ fn lista_tem(listagem: &str, nome: &str) -> bool {
 }
 
 fn saida(caminho: &Path, args: &[&str]) -> Option<String> {
-    let mut comando = Command::new(caminho);
+    let mut comando = crate::process::comando(caminho);
     comando.args(args);
-    hide_console(&mut comando);
     let saida = comando.output().ok()?;
     saida
         .status

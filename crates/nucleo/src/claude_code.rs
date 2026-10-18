@@ -5,8 +5,6 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use crate::process::hide_console;
-
 /// Onde procurar o `claude` e onde fica a configuração dele.
 #[derive(Debug, Clone)]
 pub struct ClaudeCode {
@@ -61,9 +59,8 @@ impl ClaudeCode {
 
     /// O `claude` em `exe`, com a configuração do app e sem janela de console.
     pub(crate) fn command(&self, exe: &Path) -> Command {
-        let mut command = Command::new(exe);
+        let mut command = crate::process::comando(exe);
         command.env("CLAUDE_CONFIG_DIR", &self.config_dir);
-        hide_console(&mut command);
         command
     }
 }

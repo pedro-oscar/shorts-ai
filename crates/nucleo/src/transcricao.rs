@@ -373,7 +373,7 @@ impl Transcritor {
     }
 
     fn ffmpeg(&self, args: Vec<OsString>, cancel: &AtomicBool) -> Result<(), ErroDaTranscricao> {
-        let mut command = Command::new(&self.ffmpeg);
+        let mut command = crate::process::comando(&self.ffmpeg);
         command
             .args(["-hide_banner", "-nostats", "-v", "error"])
             .args(args);
@@ -396,7 +396,7 @@ fn run_whisper(
     on_stderr: &mut dyn FnMut(&str),
 ) -> Result<String, ErroDaTranscricao> {
     fs::write(work_dir.join(response_file), args.join("\n"))?;
-    let mut command = Command::new(program);
+    let mut command = crate::process::comando(program);
     command
         .current_dir(work_dir)
         .arg(format!("@{response_file}"));

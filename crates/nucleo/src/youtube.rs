@@ -211,14 +211,14 @@ impl Ytdlp {
     /// permissão na pasta) segue com a versão que tem.
     fn atualizar(&self) {
         self.atualizado.call_once(|| {
-            let mut command = Command::new(&self.programa);
+            let mut command = crate::process::comando(&self.programa);
             command.arg("-U");
             let _ = process::run(command, &AtomicBool::new(false), &mut |_, _| {});
         });
     }
 
     fn comando(&self) -> Command {
-        let mut command = Command::new(&self.programa);
+        let mut command = crate::process::comando(&self.programa);
         // Sem `--encoding`, no Windows ele escreve no código de página do sistema (cp1252), e
         // um caminho com acento chega aqui ilegível.
         command.args(["--no-playlist", "--no-warnings", "--encoding", "utf-8"]);

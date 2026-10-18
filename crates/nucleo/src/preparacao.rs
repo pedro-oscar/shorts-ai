@@ -6,12 +6,9 @@ use std::ffi::OsString;
 use std::fs;
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use serde::{Deserialize, Serialize};
 use specta::Type;
-
-use crate::process::hide_console;
 
 /// Os pacotes que a preparação garante, na ordem em que são baixados: o Node vem antes porque
 /// o `npm` das dependências do Remotion vem com ele.
@@ -200,14 +197,13 @@ impl NodePortatil {
 }
 
 fn extrair(arquivo: &Path, destino: &Path) -> Result<(), String> {
-    let mut comando = Command::new("tar");
+    let mut comando = crate::process::comando("tar");
     comando
         .arg("-xf")
         .arg(arquivo)
         .arg("-C")
         .arg(destino)
         .arg("--strip-components=1");
-    hide_console(&mut comando);
     let saida = comando.output().map_err(|erro| format!("tar: {erro}"))?;
     if saida.status.success() {
         Ok(())

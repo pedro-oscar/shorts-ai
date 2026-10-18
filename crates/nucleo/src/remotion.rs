@@ -6,11 +6,9 @@ use std::ffi::OsString;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use crate::files::copy_dir;
 use crate::preparacao::NodePortatil;
-use crate::process::hide_console;
 
 /// Os arquivos do template que cada projeto recebe, além de `src/` e `public/`.
 const ARQUIVOS: [&str; 3] = ["package.json", "remotion.config.ts", "tsconfig.json"];
@@ -68,12 +66,11 @@ impl Remotion {
 
     /// Garante, com o `node`, o Chrome headless que o Remotion usa para renderizar.
     pub fn garantir_chrome(&self, node: &Path) -> io::Result<()> {
-        let mut comando = Command::new(node);
+        let mut comando = crate::process::comando(node);
         comando
             .arg(self.node_modules().join(CLI))
             .args(["browser", "ensure"])
             .current_dir(&self.base);
-        hide_console(&mut comando);
         let saida = comando.output()?;
         if saida.status.success() {
             Ok(())
@@ -107,14 +104,13 @@ impl Remotion {
             .clone()
             .or_else(|| self.node_portatil.npm())
             .unwrap_or_else(|| PathBuf::from("npm"));
-        let mut comando = Command::new(npm);
+        let mut comando = crate::process::comando(npm);
         comando
             .args(["ci", "--no-audit", "--no-fund"])
             .current_dir(&self.base);
         if let Some(path) = self.node_portatil.path_com_node(self.path_env.clone()) {
             comando.env("PATH", path);
         }
-        hide_console(&mut comando);
         let saida = comando.output()?;
         if saida.status.success() {
             Ok(())

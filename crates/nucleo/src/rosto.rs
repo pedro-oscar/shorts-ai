@@ -4,7 +4,7 @@
 
 use std::io::{self, Read};
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -12,7 +12,6 @@ use serde::Serialize;
 use tract_onnx::prelude::*;
 
 use crate::corte::{ErroDoCorte, Ffmpeg};
-use crate::process::hide_console;
 
 const MODELO: &[u8] = include_bytes!("../assets/face_detection_yunet_2026may.onnx");
 
@@ -562,14 +561,13 @@ impl Ffmpeg {
         let bytes = quadro_l * quadro_a * 3;
         let duracao = self.duracao(corte, cancelar)?;
 
-        let mut comando = Command::new(self.caminho_do_ffmpeg());
+        let mut comando = crate::process::comando(self.caminho_do_ffmpeg());
         comando
             .args(["-hide_banner", "-nostats", "-v", "error", "-i"])
             .arg(corte)
             .arg("-vf")
             .arg(format!("fps={QUADROS_POR_SEGUNDO},scale={quadro_l}:-2"))
             .args(["-f", "rawvideo", "-pix_fmt", "rgb24", "-"]);
-        hide_console(&mut comando);
         let mut filho = comando
             .stdin(Stdio::null())
             .stdout(Stdio::piped())

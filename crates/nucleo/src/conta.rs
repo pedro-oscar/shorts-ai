@@ -256,7 +256,7 @@ impl Conta {
     #[cfg(windows)]
     fn terminal_command(&self, exe: &Path, modo: ModoDeLogin) -> Option<Command> {
         use std::os::windows::process::CommandExt;
-        let mut command = Command::new("cmd");
+        let mut command = crate::process::comando("cmd");
         command.args(["/c", "start", "Claude Code", "cmd", "/k"]);
         command.raw_arg(format!(
             "\"set \"CLAUDE_CONFIG_DIR={}\" && \"{}\" auth login {}\"",
@@ -291,7 +291,7 @@ impl Conta {
                 .find(|candidate| candidate.is_file())
                 .map(|path| (path, flag))
         })?;
-        let mut command = Command::new(program);
+        let mut command = crate::process::comando(program);
         command
             .arg(flag)
             .arg("env")
@@ -337,7 +337,7 @@ fn not_concluded(detalhe: impl Into<String>) -> Erro {
 
 #[cfg(windows)]
 fn installer() -> Command {
-    let mut command = Command::new("powershell");
+    let mut command = crate::process::comando("powershell");
     command.args([
         "-NoProfile",
         "-ExecutionPolicy",
@@ -345,14 +345,13 @@ fn installer() -> Command {
         "-Command",
         "irm https://claude.ai/install.ps1 | iex",
     ]);
-    process::hide_console(&mut command);
     command
 }
 
 /// Baixa o script antes de passá-lo ao `bash`: um `curl` que falha derruba a instalação.
 #[cfg(not(windows))]
 fn installer() -> Command {
-    let mut command = Command::new("/bin/sh");
+    let mut command = crate::process::comando("/bin/sh");
     command.args([
         "-c",
         r#"script=$(curl -fsSL https://claude.ai/install.sh) && printf '%s\n' "$script" | bash"#,

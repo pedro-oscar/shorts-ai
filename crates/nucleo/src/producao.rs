@@ -8,7 +8,6 @@ use std::ffi::OsStr;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use serde_json::json;
@@ -391,7 +390,7 @@ impl Producao {
             .as_ref()
             .and_then(NodePortatil::node)
             .unwrap_or_else(|| self.node.clone());
-        let mut comando = Command::new(node);
+        let mut comando = crate::process::comando(node);
         comando.arg(NOME_DO_SCRIPT).args(args).current_dir(remotion);
         let saida = process::run(comando, cancelar, &mut |stream, linha| {
             if stream == Stream::Stdout

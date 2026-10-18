@@ -35,7 +35,6 @@ use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
@@ -63,7 +62,6 @@ pub use crate::padroes::{Excecoes, IdiomaDoVideo, ModeloDoClaude, Padroes};
 use crate::preferencias::{PreferencesFile, Preferencias};
 use crate::preparacao::NodePortatil;
 pub use crate::preparacao::{Downloads, EstadoDaPreparacao, Pacote, PacoteDaPreparacao};
-use crate::process::hide_console;
 use crate::producao::Producao;
 pub use crate::projeto::{EtapaDoProjeto, Faixa, ModoDeImportacao, Parada};
 use crate::projeto::{Origem, ProjetoJson};
@@ -1796,12 +1794,11 @@ impl Nucleo {
             self.sidecar_dir.as_deref(),
             self.path_env.as_deref(),
         )?;
-        let mut command = Command::new(ffprobe);
+        let mut command = crate::process::comando(ffprobe);
         command
             .args(["-v", "error", "-show_entries", "format=duration"])
             .args(["-of", "csv=p=0"])
             .arg(arquivo);
-        hide_console(&mut command);
         let saida = command.output().ok()?;
         String::from_utf8_lossy(&saida.stdout).trim().parse().ok()
     }

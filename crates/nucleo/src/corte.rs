@@ -440,7 +440,7 @@ impl Ffmpeg {
 
     /// A duração do arquivo em segundos, pelo ffprobe.
     pub(crate) fn duracao(&self, origem: &Path, cancelar: &AtomicBool) -> Result<f64, ErroDoCorte> {
-        let mut comando = Command::new(&self.ffprobe);
+        let mut comando = crate::process::comando(&self.ffprobe);
         comando
             .args([
                 "-v",
@@ -467,7 +467,7 @@ impl Ffmpeg {
         origem: &Path,
         cancelar: &AtomicBool,
     ) -> Result<InfoDoVideo, ErroDoCorte> {
-        let mut comando = Command::new(&self.ffprobe);
+        let mut comando = crate::process::comando(&self.ffprobe);
         comando
             .args([
                 "-v",
@@ -690,7 +690,7 @@ impl Ffmpeg {
         cancelar: &AtomicBool,
         por_linha: &mut dyn FnMut(&str),
     ) -> Result<Output, ErroDoCorte> {
-        let mut comando = Command::new(&self.ffmpeg);
+        let mut comando = crate::process::comando(&self.ffmpeg);
         comando
             .args(["-hide_banner", "-nostats", "-v", "info"])
             .args(args);

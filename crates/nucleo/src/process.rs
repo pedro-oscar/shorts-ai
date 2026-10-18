@@ -1,7 +1,9 @@
 //! Processos externos (ffmpeg, whisper-cli, claude): rodam até o fim, entregam cada linha de saída
 //! enquanto correm e morrem se a tarefa for cancelada.
 
+use std::ffi::{OsStr, OsString};
 use std::io::{self, BufRead, BufReader, Write};
+use std::path::Path;
 use std::process::{Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
@@ -10,6 +12,54 @@ use std::time::Duration;
 
 /// De quanto em quanto tempo se olha se o processo terminou ou se foi cancelado.
 const POLL_INTERVAL: Duration = Duration::from_millis(20);
+
+/// O que o AppImage exporta para o GTK que vai dentro dele (o hook do linuxdeploy-plugin-gtk e
+/// o runtime), apontando para a imagem. Um programa do sistema que herda isso, como o navegador
+/// que o `claude auth login` abre, carrega os módulos do GTK da imagem e não abre.
+const DO_APPIMAGE: [&str; 13] = [
+    "APPDIR",
+    "APPIMAGE",
+    "ARGV0",
+    "OWD",
+    "GTK_DATA_PREFIX",
+    "GTK_THEME",
+    "GTK_EXE_PREFIX",
+    "GTK_PATH",
+    "GTK_IM_MODULE_FILE",
+    "GDK_PIXBUF_MODULE_FILE",
+    "GIO_MODULE_DIR",
+    "GSETTINGS_SCHEMA_DIR",
+    "GI_TYPELIB_PATH",
+];
+
+/// O comando de um programa externo, como todo processo do núcleo nasce: sem a janela de
+/// console no Windows e, dentro do AppImage, sem o ambiente que o AppImage montou para si.
+pub(crate) fn comando(programa: impl AsRef<OsStr>) -> Command {
+    let mut comando = Command::new(programa);
+    if let Some(appdir) = std::env::var_os("APPDIR") {
+        sem_o_ambiente_do_appimage(
+            &mut comando,
+            Path::new(&appdir),
+            std::env::var_os("XDG_DATA_DIRS"),
+        );
+    }
+    hide_console(&mut comando);
+    comando
+}
+
+/// Tira as variáveis do AppImage e, do `XDG_DATA_DIRS`, as pastas de dentro da imagem que ele
+/// pôs na frente das do sistema.
+fn sem_o_ambiente_do_appimage(comando: &mut Command, appdir: &Path, xdg: Option<OsString>) {
+    for variavel in DO_APPIMAGE {
+        comando.env_remove(variavel);
+    }
+    let Some(xdg) = xdg else { return };
+    let do_sistema = std::env::split_paths(&xdg).filter(|pasta| !pasta.starts_with(appdir));
+    match std::env::join_paths(do_sistema) {
+        Ok(pastas) if !pastas.is_empty() => comando.env("XDG_DATA_DIRS", pastas),
+        _ => comando.env_remove("XDG_DATA_DIRS"),
+    };
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Stream {
@@ -43,7 +93,7 @@ impl From<io::Error> for Interrupted {
 
 /// Sem a janela de console que o Windows abre para cada programa de console chamado por um app
 /// de janela.
-pub(crate) fn hide_console(command: &mut Command) {
+fn hide_console(command: &mut Command) {
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -71,7 +121,6 @@ pub(crate) fn run_with_input(
     cancel: &AtomicBool,
     on_line: &mut dyn FnMut(Stream, &str),
 ) -> Result<Output, Interrupted> {
-    hide_console(&mut command);
     let mut child = command
         .stdin(if input.is_some() {
             Stdio::piped()
@@ -164,6 +213,49 @@ fn spawn_reader(
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
+
+    /// O valor que o comando passa ao processo: `Some(None)` quando ele tira a variável.
+    fn variavel(comando: &Command, nome: &str) -> Option<Option<OsString>> {
+        comando
+            .get_envs()
+            .find(|(chave, _)| *chave == nome)
+            .map(|(_, valor)| valor.map(OsStr::to_owned))
+    }
+
+    #[test]
+    fn dentro_do_appimage_o_programa_nao_herda_o_gtk_da_imagem() {
+        let mut comando = Command::new("xdg-open");
+        sem_o_ambiente_do_appimage(
+            &mut comando,
+            Path::new("/tmp/.mount_ShortsAbc"),
+            Some("/tmp/.mount_ShortsAbc//usr/share:/usr/share:/usr/local/share".into()),
+        );
+
+        for nome in [
+            "GTK_PATH",
+            "GIO_MODULE_DIR",
+            "GDK_PIXBUF_MODULE_FILE",
+            "APPDIR",
+        ] {
+            assert_eq!(variavel(&comando, nome), Some(None), "{nome}");
+        }
+        assert_eq!(
+            variavel(&comando, "XDG_DATA_DIRS"),
+            Some(Some("/usr/share:/usr/local/share".into()))
+        );
+    }
+
+    #[test]
+    fn sem_pasta_do_sistema_no_xdg_data_dirs_o_programa_usa_o_padrao() {
+        let mut comando = Command::new("xdg-open");
+        sem_o_ambiente_do_appimage(
+            &mut comando,
+            Path::new("/tmp/.mount_ShortsAbc"),
+            Some("/tmp/.mount_ShortsAbc/usr/share".into()),
+        );
+
+        assert_eq!(variavel(&comando, "XDG_DATA_DIRS"), Some(None));
+    }
 
     #[test]
     fn segue_lendo_depois_de_uma_linha_que_nao_e_utf8() {
