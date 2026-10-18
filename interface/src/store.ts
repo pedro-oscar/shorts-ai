@@ -118,7 +118,18 @@ export interface AndamentoDoPacote {
 
 export interface AppState {
   /** `null` até o núcleo responder. */
-  app: { versao: string; idiomaDaInterface: IdiomaDaInterface } | null;
+  app: {
+    versao: string;
+    idiomaDaInterface: IdiomaDaInterface;
+    /** A página do código-fonte desta versão, que o Sobre mostra. */
+    codigoFonte: string;
+  } | null;
+  /** A versão nova do app, já baixada e pronta para instalar. */
+  atualizacao: string | null;
+  /** Por que a atualização baixada não foi instalada. */
+  erroDaAtualizacao: Erro | null;
+  /** Por que o sistema não abriu a página do código-fonte. */
+  erroDoCodigoFonte: Erro | null;
   /** As preferências não puderam ser lidas: o app não passa da mensagem de erro. */
   erroAoAbrir: Erro | null;
   /** Onde o núcleo guardou, ao abrir, o arquivo de preferências que estava corrompido. */
@@ -204,6 +215,9 @@ export interface AppState {
 export interface AppStore extends AppState {
   /** Começa a ouvir o núcleo e pede o estado inicial; devolve a função que para. */
   connect: () => () => void;
+  /** "Reiniciar e atualizar": instala a versão baixada; o app fecha e abre de novo. */
+  instalarAtualizacao: () => Promise<void>;
+  abrirCodigoFonte: () => Promise<void>;
   /** Pede a pasta da nova Biblioteca e passa a usá-la; a lista de lotes é relida de lá. */
   trocarBiblioteca: () => Promise<void>;
   definirIdioma: (idioma: IdiomaDaInterface) => Promise<void>;
@@ -534,6 +548,9 @@ export function createAppStore(nucleo: Nucleo) {
 
     return {
       app: null,
+      atualizacao: null,
+      erroDaAtualizacao: null,
+      erroDoCodigoFonte: null,
       erroAoAbrir: null,
       backupDasPreferencias: null,
       aceite: null,
@@ -585,6 +602,15 @@ export function createAppStore(nucleo: Nucleo) {
         const stopDropping = nucleo.aoSoltarArquivos((caminhos) => {
           if (connected) void get().adicionarArquivos(caminhos);
         });
+        // A atualização pode ter terminado de baixar antes de a interface ouvir.
+        const stopUpdating = nucleo.aoBaixarAtualizacao((versao) => {
+          if (connected) set({ atualizacao: versao });
+        });
+        void stopUpdating
+          .then(() => nucleo.atualizacaoPronta())
+          .then((versao) => {
+            if (connected && versao !== null) set({ atualizacao: versao });
+          });
         // Só pede o estado depois de ouvir, para nenhum evento cair entre os dois.
         void stopListening
           .then(() => nucleo.estadoInicial())
@@ -596,6 +622,7 @@ export function createAppStore(nucleo: Nucleo) {
               app: {
                 versao: inicial.versao,
                 idiomaDaInterface: inicial.idiomaDaInterface,
+                codigoFonte: inicial.codigoFonte,
               },
               erroAoAbrir: inicial.erro,
               backupDasPreferencias: inicial.backupDasPreferencias,
@@ -624,11 +651,25 @@ export function createAppStore(nucleo: Nucleo) {
           });
         return () => {
           connected = false;
-          for (const stopping of [stopListening, stopDropping])
+          for (const stopping of [stopListening, stopDropping, stopUpdating])
             void stopping.then((stop) => {
               stop();
             });
         };
+      },
+
+      instalarAtualizacao: async () => {
+        const result = await nucleo.instalarAtualizacao();
+        set({
+          erroDaAtualizacao: result.status === "error" ? result.error : null,
+        });
+      },
+
+      abrirCodigoFonte: async () => {
+        const result = await nucleo.abrirCodigoFonte();
+        set({
+          erroDoCodigoFonte: result.status === "error" ? result.error : null,
+        });
       },
 
       trocarBiblioteca: async () => {

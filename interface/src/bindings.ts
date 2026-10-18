@@ -80,12 +80,22 @@ export const commands = {
 	dadosDoProjeto: (id: string) => typedError<DadosDoProjeto, Erro>(__TAURI_INVOKE("dados_do_projeto", { id })),
 	abrirNoSistema: (id: string, alvo: AlvoParaAbrir) => typedError<null, Erro>(__TAURI_INVOKE("abrir_no_sistema", { id, alvo })),
 	gerarVersaoFinal: (ids: string[]) => typedError<null, Erro>(__TAURI_INVOKE("gerar_versao_final", { ids })),
+	/**  A versão nova já baixada, para a interface que abriu depois do evento. */
+	atualizacaoPronta: () => __TAURI_INVOKE<string | null>("atualizacao_pronta"),
+	/**
+	 *  "Reiniciar e atualizar": instala a versão baixada e abre o app de novo. No Windows, o
+	 *  instalador fecha o app; no Linux, o lote para depois de o pacote ser trocado.
+	 */
+	instalarAtualizacao: () => typedError<null, Erro>(__TAURI_INVOKE("instalar_atualizacao")),
+	/**  O link do código-fonte no Sobre. */
+	abrirCodigoFonte: () => typedError<null, Erro>(__TAURI_INVOKE("abrir_codigo_fonte")),
 	/**  "Sair" no Aviso de uso: fecha o app. */
 	sair: () => __TAURI_INVOKE<void>("sair"),
 };
 
 /** Events */
 export const events = {
+	atualizacaoPronta: makeEvent<AtualizacaoPronta>("atualizacao-pronta"),
 	eventoDoNucleo: makeEvent<EventoDoNucleo>("evento-do-nucleo"),
 };
 
@@ -129,6 +139,11 @@ export type ArquivoDoLote = {
 	faixa: Faixa | null,
 	/**  O que este vídeo muda dos padrões do lote; a `faixa` acima vale no lugar da daqui. */
 	excecoes?: Excecoes,
+};
+
+/**  Uma versão nova do app foi baixada e espera o "Reiniciar e atualizar". */
+export type AtualizacaoPronta = {
+	versao: string,
 };
 
 /**  Como o uso do Claude é pago: pela cota da assinatura ou pelo preço de API. */
@@ -187,7 +202,7 @@ export type Diagnostico = {
  *  Os erros do núcleo, como código e parâmetros. `detalhe` é a mensagem do sistema, para
  *  diagnóstico.
  */
-export type Erro = { codigo: "preferenciasIlegiveis"; caminho: string; detalhe: string } | { codigo: "preferenciasNaoGravadas"; caminho: string; detalhe: string } | { codigo: "loginNaoConcluido"; detalhe: string } | { codigo: "instalacaoFalhou"; detalhe: string } | { codigo: "atualizacaoFalhou"; detalhe: string } | { codigo: "aprendizadosNaoGravados"; detalhe: string } | { codigo: "precosNaoAtualizados"; detalhe: string } | { codigo: "multiplicadorInvalido"; motivo: string } | { codigo: "cotacaoInvalida" } | { codigo: "bibliotecaOcupada" } | { codigo: "bibliotecaNaoTrocada"; caminho: string; detalhe: string } | { codigo: "claudeNaoRespondeu"; detalhe: string } | { codigo: "arquivoInvalido"; caminho: string } | { codigo: "projetoNaoCriado"; caminho: string; detalhe: string } | { codigo: "dependenciasDoRemotionNaoInstaladas"; detalhe: string } | { codigo: "projetoNaoLido"; id: string; detalhe: string } | 
+export type Erro = { codigo: "preferenciasIlegiveis"; caminho: string; detalhe: string } | { codigo: "preferenciasNaoGravadas"; caminho: string; detalhe: string } | { codigo: "loginNaoConcluido"; detalhe: string } | { codigo: "instalacaoFalhou"; detalhe: string } | { codigo: "atualizacaoFalhou"; detalhe: string } | { codigo: "aprendizadosNaoGravados"; detalhe: string } | { codigo: "precosNaoAtualizados"; detalhe: string } | { codigo: "appNaoAtualizado"; detalhe: string } | { codigo: "multiplicadorInvalido"; motivo: string } | { codigo: "cotacaoInvalida" } | { codigo: "bibliotecaOcupada" } | { codigo: "bibliotecaNaoTrocada"; caminho: string; detalhe: string } | { codigo: "claudeNaoRespondeu"; detalhe: string } | { codigo: "arquivoInvalido"; caminho: string } | { codigo: "projetoNaoCriado"; caminho: string; detalhe: string } | { codigo: "dependenciasDoRemotionNaoInstaladas"; detalhe: string } | { codigo: "projetoNaoLido"; id: string; detalhe: string } | 
 /**  A pasta do projeto foi apagada ou movida. */
 { codigo: "projetoNaoEncontrado"; id: string } | 
 /**  A ação não existe para o estado em que o projeto está. */
@@ -214,6 +229,8 @@ export type EstadoDaPreparacao = {
 /**  O que a interface precisa para abrir. */
 export type EstadoInicial = {
 	versao: string,
+	/**  A página do código-fonte desta versão, que o Sobre mostra (a GPL do ffmpeg pede). */
+	codigoFonte: string,
 	idiomaDaInterface: IdiomaDaInterface,
 	/**  `None` até a pessoa aceitar a versão atual do Aviso de uso. */
 	aceite: Aceite | null,

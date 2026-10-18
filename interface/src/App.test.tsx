@@ -79,7 +79,7 @@ test("o Aviso diz o que sai do computador", async () => {
 
   await screen.findByRole("heading", { name: "O que sai do seu computador" });
   screen.getByText(
-    "O vídeo e o áudio ficam no seu computador; vão para o Claude o texto da transcrição, o roteiro e imagens de alguns quadros dos reels, usadas na revisão.",
+    "O vídeo e o áudio ficam no seu computador; vão para o Claude o texto da transcrição, o roteiro e imagens de alguns quadros dos reels, usadas na revisão. Ao abrir, o app consulta as Releases do Shorts AI no GitHub para baixar versões novas e a tabela de preços; nada sobre você ou sobre os vídeos vai junto.",
   );
   screen.getByText(
     "As sessões do Claude usam a cota do seu plano, junto com o resto do seu uso; com uma conta do Console, são cobradas pelos preços da API da Anthropic.",
@@ -95,7 +95,7 @@ test("os textos aparecem em inglês quando o idioma da interface é en", async (
 
   await screen.findByRole("heading", { name: "Terms of use" });
   screen.getByText(
-    "The video and audio stay on your computer; Claude receives the transcript text, the script and images of a few frames of the reels, used in the review.",
+    "The video and audio stay on your computer; Claude receives the transcript text, the script and images of a few frames of the reels, used in the review. When it opens, the app checks the Shorts AI Releases on GitHub to download new versions and the price table; nothing about you or your videos is sent.",
   );
   screen.getByRole("button", { name: "Quit" });
   await user.click(
@@ -115,7 +115,10 @@ test("Sobre mostra a versão, o aviso e as licenças, e a data depois do aceite"
   screen.getByText("Você ainda não aceitou o Aviso de uso.");
   screen.getByText("Processe só vídeos que você tem direito de usar.");
   screen.getByText(/^Remotion:.*organizações sem fins lucrativos/);
-  screen.getByText(/SIL Open Font License/);
+  screen.getByText(/^Fontes Montserrat, Anton.*SIL Open Font License 1.1/);
+  screen.getByText(/^yt-dlp: The Unlicense/);
+  screen.getByText(/^whisper.cpp: licença MIT/);
+  screen.getByText(/^YuNet.*licença MIT/);
 
   await user.click(screen.getByRole("button", { name: "Voltar" }));
   await user.click(screen.getByRole("checkbox", { name: "Li e concordo" }));
@@ -180,4 +183,20 @@ test("com as preferências corrompidas, o app diz onde ficou o backup e o Aviso 
   await user.click(screen.getByRole("checkbox", { name: "Li e concordo" }));
   await user.click(screen.getByRole("button", { name: "Continuar" }));
   await screen.findByRole("heading", { name: "Conta" });
+});
+
+test("Sobre traz a GPL do ffmpeg com a página do código-fonte desta versão, que abre no navegador", async () => {
+  const { user, calls } = renderApp({
+    versao: "1.2.3",
+    codigoFonte: "https://github.com/pedro-oscar/shorts-ai/releases/tag/v1.2.3",
+  });
+
+  await user.click(await screen.findByRole("button", { name: "Sobre" }));
+  const ffmpeg = screen.getByText(/^ffmpeg: GNU GPL versão 3/).closest("li");
+  expect(ffmpeg).toHaveTextContent(
+    "https://github.com/pedro-oscar/shorts-ai/releases/tag/v1.2.3",
+  );
+  await user.click(screen.getByRole("button", { name: "Abrir no navegador" }));
+
+  expect(calls.codigoFonte).toBe(1);
 });

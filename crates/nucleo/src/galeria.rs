@@ -1,6 +1,7 @@
 //! A Galeria: o que a pessoa vê de um projeto depois da Produção, lido do roteiro e dos
 //! arquivos publicados, e o que ela pode abrir no sistema.
 
+use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -163,8 +164,17 @@ pub(crate) fn programa_de_abrir() -> PathBuf {
 /// Entrega o caminho, que tem de existir, ao programa de abrir, sem esperar por ele.
 pub(crate) fn abrir_no_sistema(programa: &Path, caminho: &Path) -> std::io::Result<()> {
     fs::metadata(caminho)?;
+    entregar(programa, caminho.as_os_str())
+}
+
+/// Entrega o endereço web ao programa de abrir, que o passa ao navegador padrão.
+pub(crate) fn abrir_endereco(programa: &Path, endereco: &str) -> std::io::Result<()> {
+    entregar(programa, OsStr::new(endereco))
+}
+
+fn entregar(programa: &Path, alvo: &OsStr) -> std::io::Result<()> {
     let mut comando = Command::new(programa);
-    comando.arg(caminho);
+    comando.arg(alvo);
     hide_console(&mut comando);
     let mut filho = comando.spawn()?;
     // O `xdg-open` pode ficar preso ao programa que abriu, e o Explorador sai com código 1

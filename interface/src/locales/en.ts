@@ -25,7 +25,7 @@ export const en: typeof ptBR = {
     },
     privacidadeTitulo: "What leaves your computer",
     privacidade:
-      "The video and audio stay on your computer; Claude receives the transcript text, the script and images of a few frames of the reels, used in the review.",
+      "The video and audio stay on your computer; Claude receives the transcript text, the script and images of a few frames of the reels, used in the review. When it opens, the app checks the Shorts AI Releases on GitHub to download new versions and the price table; nothing about you or your videos is sent.",
     concordo: "I have read and agree",
     continuar: "Continue",
     sair: "Quit",
@@ -40,10 +40,27 @@ export const en: typeof ptBR = {
     licenca:
       "Shorts AI is distributed under the PolyForm Noncommercial 1.0.0 license.",
     terceirosTitulo: "Third-party licenses",
+    ffmpeg:
+      "ffmpeg: GNU GPL version 3. The source code of the build that ships with the app is on this version's page:",
+    abrirPagina: "Open in browser",
+    ytDlp: "yt-dlp: The Unlicense (public domain).",
+    whisper: "whisper.cpp: MIT license.",
+    yunet: "YuNet, the OpenCV Zoo face detector: MIT license.",
     remotion:
       "Remotion: its own license, free for individuals, nonprofit organizations and companies with up to 3 employees.",
-    montserrat: "Montserrat font: SIL Open Font License 1.1.",
+    fontes:
+      "Montserrat, Anton, Bebas Neue, Archivo Black, Bangers, Oswald, Poppins, Inter, Barlow and Barlow Condensed fonts: SIL Open Font License 1.1.",
+    textos:
+      "The full text of each license ships with the app, in the licencas folder.",
     voltar: "Back",
+  },
+  atualizacao: {
+    pronta: "Version {{versao}} ready",
+    reiniciar: "Restart and update",
+    confirmar:
+      "The running batch stops now and comes back Paused when the app reopens.",
+    reiniciarAgora: "Restart now",
+    agoraNao: "Not now",
   },
   configuracoes: {
     abrir: "Settings",
@@ -571,6 +588,8 @@ export const en: typeof ptBR = {
       "The multiplier must be a number greater than zero, and only subscriptions have one.",
     cotacaoInvalida: "The exchange rate must be a number greater than zero.",
     precosNaoAtualizados: "Could not update the price table: {{detalhe}}",
+    appNaoAtualizado:
+      "The new version of the app was not installed. Close and reopen the app to download it again.",
     aprendizadosNaoGravados:
       "Could not read or save the learned rules: {{detalhe}}",
     bibliotecaOcupada:

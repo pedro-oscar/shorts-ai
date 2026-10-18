@@ -537,6 +537,12 @@ dd {
   flex: 1;
 }
 
+/* Um endereço que a pessoa copia, como o do código-fonte no Sobre. */
+.endereco {
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
 .conta-chip {
   min-height: 2.25rem;
   padding: 0 0.6rem;

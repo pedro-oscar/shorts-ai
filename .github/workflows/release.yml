@@ -1,0 +1,175 @@
+# Os instaladores do Windows (NSIS e MSI) e do Linux (AppImage e .deb) numa Release em rascunho,
+# com o latest.json do atualizador, a tabela de preços e o código-fonte de cada ffmpeg. Quem
+# publica o rascunho é o autor (docs/publicar-uma-release.md); até lá, o atualizador não o vê.
+#
+# - push de uma tag v*: a release. A tag tem de ser a versão do Cargo.toml do workspace.
+# - workflow_dispatch: um ensaio, em qualquer branch. Monta os mesmos instaladores, sem a chave
+#   do atualizador e sem Release, e os deixa como artifacts do workflow.
+#
+# As actions vão fixadas por commit, com a versão ao lado: este workflow usa a chave que assina
+# as atualizações.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  rascunho:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    outputs:
+      release_id: ${{ steps.release.outputs.id }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: A tag é a versão do app
+        run: |
+          versao="$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"/\1/p' Cargo.toml)"
+          if [ "$TAG" != "v$versao" ]; then
+            echo "::error::a tag $TAG não é a versão do Cargo.toml (v$versao)"
+            exit 1
+          fi
+
+      # Rodar de novo reusa o rascunho: o GitHub aceita vários rascunhos com a mesma tag.
+      - name: Rascunho da Release
+        id: release
+        run: |
+          if rascunho="$(gh release view "$TAG" --json databaseId,isDraft 2>/dev/null)"; then
+            if [ "$(jq -r .isDraft <<< "$rascunho")" != "true" ]; then
+              echo "::error::a Release $TAG já foi publicada"
+              exit 1
+            fi
+          else
+            gh release create "$TAG" --draft --verify-tag \
+              --title "Shorts AI $TAG" --notes-file .github/release-notas.md
+            rascunho="$(gh release view "$TAG" --json databaseId,isDraft)"
+          fi
+          echo "id=$(jq -r .databaseId <<< "$rascunho")" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+
+      # A GPL pede que o código-fonte de cada ffmpeg acompanhe a build (ADR 0006).
+      - name: Tabela de preços e código-fonte do ffmpeg
+        run: |
+          node scripts/sidecars.mjs --fontes "$RUNNER_TEMP/fontes" --cache "$RUNNER_TEMP/cache"
+          gh release upload "$TAG" --clobber \
+            crates/nucleo/assets/precos.json "$RUNNER_TEMP"/fontes/*
+
+  build:
+    needs: rascunho
+    # No ensaio, o rascunho não roda.
+    if: ${{ !cancelled() && needs.rascunho.result != 'failure' }}
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            bundles: appimage,deb
+          - os: windows-2025
+            bundles: nsis,msi
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+
+      # O rustup instala a versão do rust-toolchain.toml no primeiro cargo.
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      # Os do .sandcastle/Dockerfile, mais o que o whisper.cpp e o AppImage pedem.
+      - name: Pacotes do Linux
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential file libayatana-appindicator3-dev \
+            librsvg2-dev libssl-dev libwebkit2gtk-4.1-dev libxdo-dev patchelf cmake \
+            ninja-build libvulkan1
+
+      # Sem o cache, o whisper.cpp compila duas vezes a cada release.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/sidecars
+          key: sidecars-${{ runner.os }}-${{ hashFiles('scripts/sidecars.json', 'scripts/sidecars.mjs') }}
+
+      - run: npm ci
+
+      - name: Sidecars
+        shell: bash
+        run: npm run sidecars -- --cache "$RUNNER_TEMP/sidecars"
+
+      - name: Notas da Release
+        id: notas
+        shell: bash
+        run: |
+          {
+            echo "corpo<<FIM_DAS_NOTAS"
+            cat .github/release-notas.md
+            echo "FIM_DAS_NOTAS"
+          } >> "$GITHUB_OUTPUT"
+
+      # Na release, o tauri.release.conf.json liga os pacotes assinados do atualizador, e o
+      # latest.json de cada sistema entra no rascunho. As notes dele saem do releaseBody.
+      - uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # action-v1.0.0
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ github.event_name == 'push' && secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ github.event_name == 'push' && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
+        with:
+          releaseId: ${{ needs.rascunho.outputs.release_id }}
+          releaseBody: ${{ steps.notas.outputs.corpo }}
+          uploadUpdaterJson: true
+          updaterJsonPreferNsis: true
+          uploadWorkflowArtifacts: ${{ github.event_name != 'push' }}
+          args: >-
+            --bundles ${{ matrix.bundles }}
+            --config src-tauri/tauri.sidecars.conf.json
+            ${{ github.event_name == 'push' && '--config src-tauri/tauri.release.conf.json' || '' }}
+
+  # Os dois jobs do build gravam o mesmo latest.json, e um pode ter sobrescrito o outro: aí
+  # este falha, e basta rodar de novo o job do sistema que sumiu.
+  conferir:
+    needs: build
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ github.ref_name }}
+    steps:
+      - name: O rascunho tem tudo
+        run: |
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern latest.json \
+            --dir "$RUNNER_TEMP"
+          for plataforma in windows-x86_64 linux-x86_64; do
+            jq -e --arg p "$plataforma" '.platforms[$p].url' "$RUNNER_TEMP/latest.json" \
+              > /dev/null || { echo "::error::o latest.json não tem $plataforma"; exit 1; }
+          done
+          assets="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets \
+            --jq '.assets[].name')"
+          echo "$assets"
+          for sufixo in -setup.exe .msi .AppImage .deb .sig latest.json precos.json \
+            -fonte.tar.xz -fonte.tar.gz; do
+            grep -q -- "$sufixo\$" <<< "$assets" \
+              || { echo "::error::falta um asset terminado em $sufixo"; exit 1; }
+          done

@@ -1,0 +1,30 @@
+# Troca o precos.json da última Release publicada pelo crates/nucleo/assets/precos.json do
+# branch: o app baixa a tabela nova ao abrir, sem versão nova. Ele só a usa se a data dela for
+# mais nova que a da cópia embutida, então mude a data junto com os preços.
+name: Tabela de preços
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  enviar:
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: A tabela tem data e modelos
+        run: |
+          jq -e '(.data | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}$")) and (.modelos | length > 0)' \
+            crates/nucleo/assets/precos.json > /dev/null \
+            || { echo "::error::precos.json sem data AAAA-MM-DD ou sem modelos"; exit 1; }
+
+      - name: Troca o asset da última Release
+        run: |
+          tag="$(gh release view --json tagName --jq .tagName)"
+          gh release upload "$tag" crates/nucleo/assets/precos.json --clobber
+          echo "precos.json de $(jq -r .data crates/nucleo/assets/precos.json) em $tag"

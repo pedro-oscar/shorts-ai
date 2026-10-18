@@ -12,6 +12,8 @@ tauri-build = { version = "2.7", features = [] }
 [dependencies]
 nucleo.workspace = true
 serde.workspace = true
+# O `generate_context!` usa o serde_json para a config dos plugins (a do updater).
+serde_json.workspace = true
 specta.workspace = true
 specta-typescript.workspace = true
 sys-locale = "0.3"
@@ -19,4 +21,7 @@ tauri = { version = "2.12", features = ["protocol-asset"] }
 tauri-plugin-dialog = "2.8.1"
 tauri-plugin-notification = "2"
 tauri-plugin-single-instance = "2.5"
+# Sem o `zip`: os pacotes do updater v2 são o instalador e o AppImage puros, e o crate zip 4 tem
+# avisos de segurança abertos (RUSTSEC-2026-0367 a 0369).
+tauri-plugin-updater = { version = "2.14", default-features = false, features = ["rustls-tls", "system-proxy"] }
 tauri-specta.workspace = true

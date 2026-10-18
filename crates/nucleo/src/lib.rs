@@ -154,6 +154,8 @@ pub struct Nucleo {
 #[serde(rename_all = "camelCase")]
 pub struct EstadoInicial {
     pub versao: String,
+    /// A página do código-fonte desta versão, que o Sobre mostra (a GPL do ffmpeg pede).
+    pub codigo_fonte: String,
     pub idioma_da_interface: IdiomaDaInterface,
     /// `None` até a pessoa aceitar a versão atual do Aviso de uso.
     pub aceite: Option<Aceite>,
@@ -198,7 +200,16 @@ impl IdiomaDaInterface {
 /// A versão do texto do Aviso de uso. Mudou o conteúdo do Aviso (o que ele diz, não a forma)?
 /// Suba a versão: os aceites de versões anteriores deixam de valer, e o Aviso volta para quem
 /// já tinha aceitado.
-pub const VERSAO_DO_AVISO: u32 = 1;
+pub const VERSAO_DO_AVISO: u32 = 2;
+
+/// O repositório público do app: o código, e nas Releases os instaladores, o `latest.json` do
+/// atualizador, a tabela de preços e o código-fonte de cada ffmpeg (ADR 0006).
+pub const REPOSITORIO: &str = "https://github.com/pedro-oscar/shorts-ai";
+
+/// A Release desta versão: o código do app na tag dela e o código-fonte do ffmpeg que vai junto.
+fn pagina_do_codigo_fonte() -> String {
+    format!("{REPOSITORIO}/releases/tag/v{}", env!("CARGO_PKG_VERSION"))
+}
 
 /// O aceite do Aviso de uso.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -529,6 +540,8 @@ pub enum Erro {
     AprendizadosNaoGravados { detalhe: String },
     #[error("tabela de preços não atualizada: {detalhe}")]
     PrecosNaoAtualizados { detalhe: String },
+    #[error("atualização do app não instalada: {detalhe}")]
+    AppNaoAtualizado { detalhe: String },
     #[error("multiplicador do plano inválido: {motivo}")]
     MultiplicadorInvalido { motivo: String },
     #[error("a cotação do real precisa ser maior que zero")]
@@ -687,6 +700,7 @@ impl Nucleo {
         };
         EstadoInicial {
             versao: env!("CARGO_PKG_VERSION").to_owned(),
+            codigo_fonte: pagina_do_codigo_fonte(),
             idioma_da_interface: preferencias.idioma.unwrap_or(self.idioma_do_sistema),
             aceite: preferencias
                 .aceite
@@ -1719,6 +1733,16 @@ impl Nucleo {
             })?;
         galeria::abrir_no_sistema(&self.abrir_com, &caminho).map_err(|error| Erro::NaoAbriu {
             caminho: caminho.display().to_string(),
+            detalhe: error.to_string(),
+        })
+    }
+
+    /// Abre no navegador a página do código-fonte desta versão. O endereço sai daqui, e não da
+    /// interface: o webview não manda o sistema abrir um endereço qualquer.
+    pub fn abrir_codigo_fonte(&self) -> Result<(), Erro> {
+        let pagina = pagina_do_codigo_fonte();
+        galeria::abrir_endereco(&self.abrir_com, &pagina).map_err(|error| Erro::NaoAbriu {
+            caminho: pagina,
             detalhe: error.to_string(),
         })
     }

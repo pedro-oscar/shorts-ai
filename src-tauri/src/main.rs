@@ -14,14 +14,59 @@ use nucleo::{
 use serde::Serialize;
 use specta::Type;
 use std::path::PathBuf;
+use std::sync::{Mutex, PoisonError};
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_notification::NotificationExt;
+use tauri_plugin_updater::{Update, UpdaterExt};
 use tauri_specta::{Builder, Event, collect_commands, collect_events};
 
 /// Os eventos do núcleo num só canal: a interface os aplica em ordem no estado dela.
 #[derive(Clone, Serialize, Type, Event)]
 struct EventoDoNucleo(Evento);
+
+/// Uma versão nova do app foi baixada e espera o "Reiniciar e atualizar".
+#[derive(Clone, Serialize, Type, Event)]
+struct AtualizacaoPronta {
+    versao: String,
+}
+
+/// A atualização baixada: o pacote fica num arquivo, porque o AppImage passa de 400 MB.
+#[derive(Default)]
+struct AtualizacaoBaixada(Mutex<Option<(Update, PathBuf)>>);
+
+impl AtualizacaoBaixada {
+    fn travar(&self) -> std::sync::MutexGuard<'_, Option<(Update, PathBuf)>> {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+/// Procura a versão nova nas Releases e a baixa em segundo plano; a interface só fica sabendo
+/// quando ela está pronta para instalar.
+async fn baixar_atualizacao(app: AppHandle) -> Result<(), Box<dyn std::error::Error>> {
+    let saindo = app.clone();
+    let updater = app
+        .updater_builder()
+        // No Windows, o `install` sai do app para o instalador rodar, e ele não troca um
+        // sidecar que ainda roda: o lote para antes, e o projeto volta Pausado.
+        .on_before_exit(move || {
+            saindo.state::<Nucleo>().interromper();
+            saindo.cleanup_before_exit();
+        })
+        .build()?;
+    let Some(atualizacao) = updater.check().await? else {
+        return Ok(());
+    };
+    let pacote = atualizacao.download(|_, _| {}, || {}).await?;
+    let pasta = app.path().app_cache_dir()?.join("atualizacao");
+    std::fs::create_dir_all(&pasta)?;
+    let arquivo = pasta.join(format!("shorts-ai-{}", atualizacao.version));
+    std::fs::write(&arquivo, pacote)?;
+    let versao = atualizacao.version.clone();
+    *app.state::<AtualizacaoBaixada>().travar() = Some((atualizacao, arquivo));
+    AtualizacaoPronta { versao }.emit(&app)?;
+    Ok(())
+}
 
 /// O título e o corpo da notificação do sistema, no idioma do sistema (português ou inglês).
 fn texto_da_notificacao(
@@ -491,6 +536,48 @@ async fn gerar_versao_final(nucleo: State<'_, Nucleo>, ids: Vec<String>) -> Resu
     nucleo.gerar_versao_final(&ids)
 }
 
+/// A versão nova já baixada, para a interface que abriu depois do evento.
+#[tauri::command]
+#[specta::specta]
+async fn atualizacao_pronta(app: AppHandle) -> Option<String> {
+    app.state::<AtualizacaoBaixada>()
+        .travar()
+        .as_ref()
+        .map(|(atualizacao, _)| atualizacao.version.clone())
+}
+
+/// "Reiniciar e atualizar": instala a versão baixada e abre o app de novo. No Windows, o
+/// instalador fecha o app; no Linux, o lote para depois de o pacote ser trocado.
+#[tauri::command]
+#[specta::specta]
+async fn instalar_atualizacao(app: AppHandle) -> Result<(), Erro> {
+    let falhou = |detalhe: String| Erro::AppNaoAtualizado { detalhe };
+    let (atualizacao, arquivo) = app
+        .state::<AtualizacaoBaixada>()
+        .travar()
+        .take()
+        .ok_or_else(|| falhou("nenhuma atualização baixada".to_owned()))?;
+    let instalando = app.clone();
+    // No .deb, o pkexec pede a senha e espera: fora da thread do runtime async.
+    tauri::async_runtime::spawn_blocking(move || {
+        let pacote = std::fs::read(&arquivo).map_err(|error| falhou(error.to_string()))?;
+        atualizacao
+            .install(pacote)
+            .map_err(|error| falhou(error.to_string()))?;
+        instalando.state::<Nucleo>().interromper();
+        instalando.restart()
+    })
+    .await
+    .map_err(|error| falhou(error.to_string()))?
+}
+
+/// O link do código-fonte no Sobre.
+#[tauri::command]
+#[specta::specta]
+async fn abrir_codigo_fonte(nucleo: State<'_, Nucleo>) -> Result<(), Erro> {
+    nucleo.abrir_codigo_fonte()
+}
+
 /// "Sair" no Aviso de uso: fecha o app.
 #[tauri::command]
 #[specta::specta]
@@ -550,9 +637,12 @@ fn bindings() -> Builder<tauri::Wry> {
             dados_do_projeto,
             abrir_no_sistema,
             gerar_versao_final,
+            atualizacao_pronta,
+            instalar_atualizacao,
+            abrir_codigo_fonte,
             sair
         ])
-        .events(collect_events![EventoDoNucleo])
+        .events(collect_events![EventoDoNucleo, AtualizacaoPronta])
 }
 
 fn main() {
@@ -568,6 +658,9 @@ fn main() {
         }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
+        // Sem permissão na capability: a interface só fala com o atualizador por estes comandos.
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .manage(AtualizacaoBaixada::default())
         .invoke_handler(bindings.invoke_handler())
         .setup(move |app| {
             bindings.mount_events(app);
@@ -593,8 +686,11 @@ fn main() {
                     abrir_com: None,
                     downloads: None,
                     carregadores_do_vulkan: None,
-                    // A publicação da tabela de preços vem com o build distribuível.
-                    precos_url: None,
+                    // Anexada a cada Release e trocável sem versão nova (precos.yml).
+                    precos_url: Some(format!(
+                        "{}/releases/latest/download/precos.json",
+                        nucleo::REPOSITORIO
+                    )),
                 },
                 move |evento| {
                     if let Evento::Notificacao {
@@ -630,6 +726,22 @@ fn main() {
             app.asset_protocol_scope()
                 .allow_directory(&biblioteca, true)?;
             app.manage(nucleo);
+            // A tabela de preços nova vale da próxima sessão em diante; sem rede, fica a de antes.
+            let precos = app.handle().clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                if let Err(error) = precos.state::<Nucleo>().atualizar_precos() {
+                    eprintln!("{error}");
+                }
+            });
+            // No desenvolvimento, a versão é a do Cargo.toml, e não a de uma Release.
+            if !cfg!(debug_assertions) {
+                let atualizar = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(error) = baixar_atualizacao(atualizar).await {
+                        eprintln!("atualização do app não baixada: {error}");
+                    }
+                });
+            }
             Ok(())
         })
         .run(tauri::generate_context!())

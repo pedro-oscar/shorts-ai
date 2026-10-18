@@ -146,6 +146,7 @@ export function createFakeNucleo(
 ) {
   let state: EstadoInicial = {
     versao: "0.1.0",
+    codigoFonte: "https://github.com/pedro-oscar/shorts-ai/releases/tag/v0.1.0",
     idiomaDaInterface: "pt-BR",
     aceite: null,
     erro: null,
@@ -174,6 +175,9 @@ export function createFakeNucleo(
   });
   const listeners = new Set<(evento: Evento) => void>();
   const droppers = new Set<(caminhos: string[]) => void>();
+  const baixadores = new Set<(versao: string) => void>();
+  let atualizacaoBaixada: string | null = null;
+  let installError: Erro | null = null;
   let picked: string[] = [];
   const lotes: LoteResumo[] = [...lotesIniciais];
   let pastaEscolhida: string | null = null;
@@ -246,6 +250,10 @@ export function createFakeNucleo(
     diagnosticos: 0,
     /** O que cada `abrirNoSistema` pediu. */
     abertos: [] as { id: string; alvo: AlvoParaAbrir }[],
+    /** Quantas vezes a pessoa pediu "Reiniciar e atualizar". */
+    atualizacoes: 0,
+    /** Quantas vezes o Sobre abriu a página do código-fonte. */
+    codigoFonte: 0,
   };
   let commandError: Erro | null = null;
   let loginError: Erro | null = null;
@@ -623,6 +631,29 @@ export function createFakeNucleo(
         droppers.delete(listener);
       });
     },
+    aoBaixarAtualizacao: (listener) => {
+      baixadores.add(listener);
+      return Promise.resolve(() => {
+        baixadores.delete(listener);
+      });
+    },
+    atualizacaoPronta: () => Promise.resolve(atualizacaoBaixada),
+    instalarAtualizacao: () => {
+      calls.atualizacoes++;
+      return Promise.resolve(
+        installError
+          ? { status: "error" as const, error: installError }
+          : { status: "ok" as const, data: null },
+      );
+    },
+    abrirCodigoFonte: () => {
+      calls.codigoFonte++;
+      return Promise.resolve(
+        openError
+          ? { status: "error" as const, error: openError }
+          : { status: "ok" as const, data: null },
+      );
+    },
     listen: (listener) => {
       listeners.add(listener);
       return Promise.resolve(() => {
@@ -716,6 +747,19 @@ export function createFakeNucleo(
     /** O que o seletor de arquivos devolve na próxima vez. */
     pick: (caminhos: string[]) => {
       picked = caminhos;
+    },
+    /** A versão nova já estava baixada quando a interface abriu. */
+    atualizacaoJaBaixada: (versao: string) => {
+      atualizacaoBaixada = versao;
+    },
+    /** A versão nova termina de baixar com a interface aberta. */
+    baixarAtualizacao: (versao: string) => {
+      atualizacaoBaixada = versao;
+      for (const baixador of baixadores) baixador(versao);
+    },
+    /** Instalar a atualização falha com este erro. */
+    falharInstalacaoDaAtualizacao: (erro: Erro) => {
+      installError = erro;
     },
     /** A pessoa solta estes arquivos na janela. */
     drop: (caminhos: string[]) => {

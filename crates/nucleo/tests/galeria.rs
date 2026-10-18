@@ -305,6 +305,23 @@ mv "$dir/aberto.tmp" "$dir/aberto"
     }
 
     #[test]
+    fn o_codigo_fonte_abre_a_release_desta_versao_no_navegador() {
+        let (cenario, abrir) = com_abrir_falso();
+
+        cenario.nucleo.abrir_codigo_fonte().unwrap();
+
+        let pagina = aberto(&abrir);
+        assert_eq!(
+            pagina,
+            format!(
+                "https://github.com/pedro-oscar/shorts-ai/releases/tag/v{}",
+                env!("CARGO_PKG_VERSION")
+            )
+        );
+        assert_eq!(cenario.nucleo.estado_inicial().codigo_fonte, pagina);
+    }
+
+    #[test]
     fn o_que_nao_existe_ou_sem_o_programa_de_abrir_e_erro() {
         let (cenario, _) = com_abrir_falso();
         let roteiro = cenario

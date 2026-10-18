@@ -26,7 +26,7 @@ export const ptBR = {
     },
     privacidadeTitulo: "O que sai do seu computador",
     privacidade:
-      "O vídeo e o áudio ficam no seu computador; vão para o Claude o texto da transcrição, o roteiro e imagens de alguns quadros dos reels, usadas na revisão.",
+      "O vídeo e o áudio ficam no seu computador; vão para o Claude o texto da transcrição, o roteiro e imagens de alguns quadros dos reels, usadas na revisão. Ao abrir, o app consulta as Releases do Shorts AI no GitHub para baixar versões novas e a tabela de preços; nada sobre você ou sobre os vídeos vai junto.",
     concordo: "Li e concordo",
     continuar: "Continuar",
     sair: "Sair",
@@ -41,10 +41,27 @@ export const ptBR = {
     licenca:
       "O Shorts AI é distribuído sob a licença PolyForm Noncommercial 1.0.0.",
     terceirosTitulo: "Licenças de terceiros",
+    ffmpeg:
+      "ffmpeg: GNU GPL versão 3. O código-fonte da build que vai com o app está na página desta versão:",
+    abrirPagina: "Abrir no navegador",
+    ytDlp: "yt-dlp: The Unlicense (domínio público).",
+    whisper: "whisper.cpp: licença MIT.",
+    yunet: "YuNet, o detector de rosto do OpenCV Zoo: licença MIT.",
     remotion:
       "Remotion: licença própria, gratuita para pessoas físicas, organizações sem fins lucrativos e empresas de até 3 funcionários.",
-    montserrat: "Fonte Montserrat: SIL Open Font License 1.1.",
+    fontes:
+      "Fontes Montserrat, Anton, Bebas Neue, Archivo Black, Bangers, Oswald, Poppins, Inter, Barlow e Barlow Condensed: SIL Open Font License 1.1.",
+    textos:
+      "O texto completo de cada licença vai junto com o app, na pasta licencas.",
     voltar: "Voltar",
+  },
+  atualizacao: {
+    pronta: "Versão {{versao}} pronta",
+    reiniciar: "Reiniciar e atualizar",
+    confirmar:
+      "O lote em curso para agora e volta Pausado quando o app reabrir.",
+    reiniciarAgora: "Reiniciar agora",
+    agoraNao: "Agora não",
   },
   configuracoes: {
     abrir: "Configurações",
@@ -573,6 +590,8 @@ export const ptBR = {
     cotacaoInvalida: "A cotação precisa ser um número maior que zero.",
     precosNaoAtualizados:
       "Não foi possível atualizar a tabela de preços: {{detalhe}}",
+    appNaoAtualizado:
+      "A versão nova do app não foi instalada. Feche e abra o app para baixá-la de novo.",
     aprendizadosNaoGravados:
       "Não foi possível ler ou gravar as regras aprendidas: {{detalhe}}",
     bibliotecaOcupada:

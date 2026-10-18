@@ -15,6 +15,10 @@ export type Nucleo = typeof commands & {
   aoSoltarArquivos: (
     listener: (caminhos: string[]) => void,
   ) => Promise<() => void>;
+  /** Passa ao ouvinte a versão nova do app quando ela termina de baixar. */
+  aoBaixarAtualizacao: (
+    listener: (versao: string) => void,
+  ) => Promise<() => void>;
 };
 
 export const tauriNucleo: Nucleo = {
@@ -27,5 +31,9 @@ export const tauriNucleo: Nucleo = {
   aoSoltarArquivos: (listener) =>
     getCurrentWebview().onDragDropEvent((event) => {
       if (event.payload.type === "drop") listener(event.payload.paths);
+    }),
+  aoBaixarAtualizacao: (listener) =>
+    events.atualizacaoPronta.listen((event) => {
+      listener(event.payload.versao);
     }),
 };

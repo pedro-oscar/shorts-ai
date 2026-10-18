@@ -2,6 +2,7 @@ import { use, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import type { Erro } from "../bindings";
 import { NavegacaoContext, useAppStore } from "../context";
+import { resumir } from "./formatos";
 
 /**
  * Uma tela com o título dela. O título recebe o foco ao abrir, para quem usa teclado ou
@@ -49,7 +50,10 @@ function Engrenagem() {
   );
 }
 
-/** O topo de toda tela: a marca, os Lotes, a conta, as Configurações e o Sobre. */
+/**
+ * O topo de toda tela: a marca, os Lotes, a versão nova do app quando ela já baixou, a conta,
+ * as Configurações e o Sobre.
+ */
 export function Topo({ onOpenSobre }: { onOpenSobre: () => void }) {
   const { t } = useTranslation();
   const navegar = use(NavegacaoContext);
@@ -70,6 +74,7 @@ export function Topo({ onOpenSobre }: { onOpenSobre: () => void }) {
         </button>
       )}
       <span className="espaco" />
+      <AtualizacaoPronta />
       <ContaChip />
       {navegar && (
         <button
@@ -88,6 +93,77 @@ export function Topo({ onOpenSobre }: { onOpenSobre: () => void }) {
         {t("sobre.abrir")}
       </button>
     </header>
+  );
+}
+
+/**
+ * A versão nova do app, já baixada: "Reiniciar e atualizar". Com projeto rodando ou na fila, a
+ * pessoa confirma antes, porque o lote para e só volta (Pausado) quando ela o retomar.
+ */
+function AtualizacaoPronta() {
+  const { t } = useTranslation();
+  const versao = useAppStore((store) => store.atualizacao);
+  const erro = useAppStore((store) => store.erroDaAtualizacao);
+  const instalar = useAppStore((store) => store.instalarAtualizacao);
+  const loteEmCurso = useAppStore(
+    (store) =>
+      store.projetos.some((projeto) => {
+        const { estado } = resumir(projeto);
+        return estado === "emAndamento" || estado === "naFila";
+      }) ||
+      Object.values(store.versoesFinais).some(
+        (versaoFinal) =>
+          versaoFinal.estado === "emAndamento" ||
+          versaoFinal.estado === "pendente",
+      ),
+  );
+  const [confirmando, setConfirmando] = useState(false);
+  if (versao === null) return null;
+  return (
+    <>
+      <span className="chip acento">{t("atualizacao.pronta", { versao })}</span>
+      <button
+        type="button"
+        onClick={() => {
+          if (loteEmCurso) setConfirmando(true);
+          else void instalar();
+        }}
+      >
+        {t("atualizacao.reiniciar")}
+      </button>
+      {erro && <ErrorMessage erro={erro} />}
+      {confirmando && (
+        <Dialogo
+          alerta
+          titulo={t("atualizacao.reiniciar")}
+          onFechar={() => {
+            setConfirmando(false);
+          }}
+        >
+          <p>{t("atualizacao.confirmar")}</p>
+          <div className="actions fim">
+            <button
+              type="button"
+              onClick={() => {
+                setConfirmando(false);
+              }}
+            >
+              {t("atualizacao.agoraNao")}
+            </button>
+            <button
+              type="button"
+              className="primary"
+              onClick={() => {
+                setConfirmando(false);
+                void instalar();
+              }}
+            >
+              {t("atualizacao.reiniciarAgora")}
+            </button>
+          </div>
+        </Dialogo>
+      )}
+    </>
   );
 }
 

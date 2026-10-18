@@ -56,7 +56,13 @@
     "active": true,
     "targets": "all",
     "resources": {
-      "../assets/": "assets/"
+      "../assets/": "assets/",
+      "../licencas/": "licencas/"
+    },
+    "linux": {
+      "deb": {
+        "depends": ["libvulkan1"]
+      }
     },
     "icon": [
       "icons/32x32.png",
@@ -65,5 +71,17 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEYzRkFBQjFDQUEyNTk3NUEKUldSYWx5V3FIS3Y2ODRTYmhmN1d0cS9IR3dLdGllcnNKTHFlOG5TV0lGemZvcmFOL01HT3ZCSWgK",
+      "endpoints": [
+        "https://github.com/pedro-oscar/shorts-ai/releases/latest/download/latest.json"
+      ],
+      "requireSignedVersion": true,
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }
