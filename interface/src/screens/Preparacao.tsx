@@ -5,8 +5,9 @@ import type { AndamentoDoPacote } from "../store";
 import { formatarTamanho } from "./formatos";
 
 /**
- * A preparação da primeira execução: mostra o que falta e quanto vai ocupar, baixa tudo e
- * deixa cada pacote contar o próprio andamento. O fluxo segue sozinho quando nada mais falta.
+ * A preparação da primeira execução e das atualizações que mudam as dependências do Remotion:
+ * mostra o que falta e quanto vai ocupar, baixa tudo e deixa cada pacote contar o próprio
+ * andamento. O fluxo segue sozinho quando nada mais falta.
  */
 export function Preparacao({ onOpenSobre }: { onOpenSobre: () => void }) {
   const { t, i18n } = useTranslation();

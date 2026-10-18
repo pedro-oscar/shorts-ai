@@ -227,7 +227,7 @@ export const ptBR = {
   preparacao: {
     titulo: "Preparação",
     introducao:
-      "Na primeira execução o Shorts AI baixa o que falta para funcionar. Isso é feito uma vez só.",
+      "Na primeira execução, e quando uma atualização muda o que ele usa, o Shorts AI baixa o que falta para funcionar.",
     pacotes: {
       nodePortatil: "Node portátil",
       dependenciasDoRemotion: "Dependências do render (com o Chrome headless)",

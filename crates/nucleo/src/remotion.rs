@@ -14,6 +14,9 @@ use crate::preparacao::NodePortatil;
 const ARQUIVOS: [&str; 3] = ["package.json", "remotion.config.ts", "tsconfig.json"];
 /// Os arquivos que definem as dependências instaladas.
 const DEPENDENCIAS: [&str; 2] = ["package.json", "package-lock.json"];
+/// Fixa a versão de tudo o que o `npm ci` instala. O `packages[""]` dele repete as dependências
+/// do `package.json`, e o `npm ci` recusa os dois fora de sincronia.
+const LOCKFILE: &str = "package-lock.json";
 /// O `npm` grava este arquivo ao terminar de instalar.
 const MARCA_DA_INSTALACAO: &str = ".package-lock.json";
 /// Onde o Remotion guarda o Chrome headless que baixa.
@@ -54,9 +57,14 @@ impl Remotion {
         self.dependencias_prontas() && self.chrome_pronto()
     }
 
-    /// O `npm` terminou de instalar as dependências.
+    /// O `npm` terminou de instalar as dependências, e são as do template: uma atualização do
+    /// app que muda o `package-lock.json` pede outra instalação. Sem o template, não há com o
+    /// que comparar.
     pub fn dependencias_prontas(&self) -> bool {
-        self.node_modules().join(MARCA_DA_INSTALACAO).is_file()
+        self.marca_da_instalacao().is_file()
+            && self.template().is_none_or(|template| {
+                same_contents(&template.join(LOCKFILE), &self.base.join(LOCKFILE))
+            })
     }
 
     /// O Chrome headless do Remotion já foi baixado.
@@ -84,7 +92,8 @@ impl Remotion {
         }
     }
 
-    /// Instala as dependências do template na pasta compartilhada, se ainda não estiverem lá.
+    /// Instala as dependências do template na pasta compartilhada, se ainda não forem as dele.
+    /// O `npm ci` apaga o `node_modules` inteiro, com o Chrome headless junto.
     pub fn instalar_dependencias(&self) -> io::Result<()> {
         let Some(template) = self.template() else {
             return Err(io::Error::new(
@@ -92,8 +101,14 @@ impl Remotion {
                 "os assets do app não foram encontrados",
             ));
         };
-        if self.node_modules().join(MARCA_DA_INSTALACAO).is_file() {
+        if self.dependencias_prontas() {
             return Ok(());
+        }
+        // Sem a marca, um `npm ci` que falha antes de apagar o `node_modules` não deixa as
+        // dependências de antes valendo pelas do template.
+        match fs::remove_file(self.marca_da_instalacao()) {
+            Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error),
+            _ => {}
         }
         fs::create_dir_all(&self.base)?;
         for nome in DEPENDENCIAS {
@@ -146,6 +161,14 @@ impl Remotion {
     fn node_modules(&self) -> PathBuf {
         self.base.join("node_modules")
     }
+
+    fn marca_da_instalacao(&self) -> PathBuf {
+        self.node_modules().join(MARCA_DA_INSTALACAO)
+    }
+}
+
+fn same_contents(a: &Path, b: &Path) -> bool {
+    matches!((fs::read(a), fs::read(b)), (Ok(a), Ok(b)) if a == b)
 }
 
 /// Symlink no Linux e no macOS.

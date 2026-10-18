@@ -988,8 +988,8 @@ impl Nucleo {
             .collect()
     }
 
-    /// Instala, uma vez, as dependências do Remotion nos dados do app; os projetos as enxergam
-    /// pelo `node_modules` ligado (ADR 0003).
+    /// Instala as dependências do Remotion nos dados do app, se ainda não forem as do template;
+    /// os projetos as enxergam pelo `node_modules` ligado (ADR 0003).
     pub fn instalar_dependencias_do_remotion(&self) -> Result<(), Erro> {
         self.remotion.instalar_dependencias().map_err(|error| {
             Erro::DependenciasDoRemotionNaoInstaladas {

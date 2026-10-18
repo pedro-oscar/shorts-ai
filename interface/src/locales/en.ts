@@ -226,7 +226,7 @@ export const en: typeof ptBR = {
   preparacao: {
     titulo: "Setup",
     introducao:
-      "On the first run Shorts AI downloads what it needs to work. This happens only once.",
+      "On the first run, and when an update changes what it uses, Shorts AI downloads what it needs to work.",
     pacotes: {
       nodePortatil: "Portable Node",
       dependenciasDoRemotion: "Render dependencies (with headless Chrome)",
