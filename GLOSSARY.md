@@ -72,6 +72,10 @@ _Evitar_: lote, esteira
 Uma permissão limitada de usar um recurso disputado: a GPU na transcrição, o render ou uma sessão do Claude.
 _Evitar_: slot, semáforo
 
+**Vídeos ao mesmo tempo**:
+Quantos projetos da Fila andam juntos, cada um em uma etapa, disputando as vagas.
+_Evitar_: paralelismo, simultâneos, workers
+
 **Pausa**:
 A parada de um projeto ao fim da etapa em andamento, que libera a vaga.
 _Evitar_: cancelamento

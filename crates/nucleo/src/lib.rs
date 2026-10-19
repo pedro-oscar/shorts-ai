@@ -1073,12 +1073,17 @@ impl Nucleo {
                 .or_else(|| self.duracao(&json.origem.video(pasta)))
                 .map(|segundos| segundos / 60.0)
         });
+        let paralelismo = Paralelismo::das(&self.preferences_file().read().unwrap_or_default());
         Ok(estimativa::estimar(
             padroes,
             duracoes_em_segundos,
             &TabelaDePrecos::atual(&self.app_data_dir),
             &historico,
             diagnostico::gpu(whisper.is_some(), &self.carregadores_do_vulkan),
+            estimativa::Fila {
+                videos: paralelismo.limite(),
+                sessoes: paralelismo.vagas.claude,
+            },
         ))
     }
 

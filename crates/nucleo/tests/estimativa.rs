@@ -3,7 +3,7 @@
 
 use std::fs;
 
-use nucleo::{Config, ModeloDoClaude, Nucleo, Padroes};
+use nucleo::{Config, ModeloDoClaude, NivelDoPlano, Nucleo, Padroes, PeriodoDeCobranca};
 use serde_json::{Value, json};
 
 struct Cenario {
@@ -170,6 +170,40 @@ fn o_modelo_escolhido_muda_os_precos() {
     assert!(sonnet.lote.ate_usd < opus.lote.ate_usd);
     assert_eq!(padrao.lote, opus.lote);
     assert!(!opus.sem_preco);
+}
+
+#[test]
+fn com_varios_videos_ao_mesmo_tempo_o_lote_leva_menos_que_a_soma_dos_videos() {
+    let cenario = Cenario::novo();
+    let videos = [Some(600.0), Some(900.0), Some(1200.0)];
+    let tempo = |videos: &[Option<f64>]| {
+        cenario
+            .nucleo
+            .estimar(&padroes(6, 1), videos)
+            .unwrap()
+            .tempo
+    };
+
+    // Sem plano confirmado, um vídeo de cada vez: o lote é a soma dos vídeos.
+    let um_a_um = tempo(&videos);
+    let soma: f64 = videos.iter().map(|video| tempo(&[*video]).ate_s).sum();
+    assert!((um_a_um.ate_s - soma).abs() < 1e-6, "{um_a_um:?} {soma}");
+
+    cenario
+        .nucleo
+        .confirmar_plano(NivelDoPlano::Max20x, PeriodoDeCobranca::Mensal)
+        .unwrap();
+    let juntos = tempo(&videos);
+    assert!(juntos.ate_s < um_a_um.ate_s, "{juntos:?} {um_a_um:?}");
+    assert!(juntos.de_s < juntos.ate_s);
+    // O primeiro vídeo leva o tempo dele inteiro.
+    assert!(juntos.ate_s > tempo(&videos[..1]).ate_s);
+
+    cenario
+        .nucleo
+        .definir_videos_ao_mesmo_tempo(Some(1))
+        .unwrap();
+    assert_eq!(tempo(&videos), um_a_um);
 }
 
 #[test]

@@ -257,13 +257,25 @@ fn calibrar(historico: &[Execucao], tabela: &TabelaDePrecos) -> Calibragem {
     }
 }
 
-/// Estima o lote: `duracoes_s` tem a duração de cada vídeo (`None` quando não se sabe).
+/// Quantos vídeos a fila roda ao mesmo tempo e quantas sessões do Claude cabem juntas.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Fila {
+    pub videos: u8,
+    pub sessoes: u8,
+}
+
+/// Estima o lote: `duracoes_s` tem a duração de cada vídeo (`None` quando não se sabe). Com
+/// mais de um vídeo ao mesmo tempo, o primeiro leva o tempo dele inteiro e cada um dos outros
+/// leva o do recurso mais disputado: o render, a GPU, as sessões do Claude divididas pelas
+/// vagas, ou o vídeo inteiro dividido pelos vídeos ao mesmo tempo. Com um vídeo de cada vez,
+/// isso é a soma dos vídeos.
 pub(crate) fn estimar(
     padroes: &Padroes,
     duracoes_s: &[Option<f64>],
     tabela: &TabelaDePrecos,
     historico: &[Execucao],
     gpu: Gpu,
+    fila: Fila,
 ) -> Estimativa {
     let calibragem = calibrar(historico, tabela);
     let modelo = match padroes.modelo {
@@ -290,16 +302,41 @@ pub(crate) fn estimar(
     } * f64::from(cortes);
 
     let mut custo_previsto_total = 0.0;
-    let mut sessoes_s = 0.0;
-    let mut fixo_s = 0.0;
+    // O tempo de cada vídeo: as sessões do Claude, a transcrição e o render.
+    let mut tempos = Vec::new();
     for duracao in duracoes_s {
         let segundos = duracao.unwrap_or(media_s);
         let minutos = segundos / 60.0;
         custo_previsto_total +=
             precos.map_or(0.0, |p| custo_previsto(minutos, cortes, revisoes, p));
-        sessoes_s += tempo_previsto_das_sessoes(minutos, cortes, revisoes);
-        fixo_s += transcricao_fixa + transcricao_por_s * segundos + render;
+        tempos.push((
+            tempo_previsto_das_sessoes(minutos, cortes, revisoes),
+            transcricao_fixa + transcricao_por_s * segundos,
+            render,
+        ));
     }
+    let tempo_do_lote = |fator_das_sessoes: f64, fator_fixo: f64| {
+        tempos
+            .iter()
+            .enumerate()
+            .map(|(indice, &(sessoes, transcricao, render))| {
+                let (sessoes, transcricao, render) = (
+                    sessoes * fator_das_sessoes,
+                    transcricao * fator_fixo,
+                    render * fator_fixo,
+                );
+                let inteiro = sessoes + transcricao + render;
+                if indice == 0 {
+                    inteiro
+                } else {
+                    (sessoes / f64::from(fila.sessoes.max(1)))
+                        .max(transcricao)
+                        .max(render)
+                        .max(inteiro / f64::from(fila.videos.max(1)))
+                }
+            })
+            .sum::<f64>()
+    };
     let videos = duracoes_s.len().max(1) as f64;
     let lote = FaixaDeCusto {
         de_usd: custo_previsto_total * calibragem.custo.0,
@@ -313,8 +350,8 @@ pub(crate) fn estimar(
         lote,
         sessoes: u32::try_from(duracoes_s.len()).unwrap_or(u32::MAX) * (1 + revisoes),
         tempo: FaixaDeTempo {
-            de_s: sessoes_s * calibragem.sessoes.0 + fixo_s * FAIXA_DO_TEMPO_FIXO.0,
-            ate_s: sessoes_s * calibragem.sessoes.1 + fixo_s * FAIXA_DO_TEMPO_FIXO.1,
+            de_s: tempo_do_lote(calibragem.sessoes.0, FAIXA_DO_TEMPO_FIXO.0),
+            ate_s: tempo_do_lote(calibragem.sessoes.1, FAIXA_DO_TEMPO_FIXO.1),
         },
         inicial: calibragem.execucoes < EXECUCOES_PARA_CALIBRAR,
         execucoes: u32::try_from(calibragem.execucoes).unwrap_or(u32::MAX),
