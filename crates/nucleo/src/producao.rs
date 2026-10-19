@@ -16,6 +16,7 @@ use sha2::{Digest, Sha256};
 use crate::corte::{ErroDoCorte, Ffmpeg, Trecho};
 use crate::preparacao::NodePortatil;
 use crate::process::{self, Interrupted, Stream};
+use crate::remotion::MARCA_DA_INSTALACAO;
 use crate::revisao;
 use crate::rosto::Pin;
 use crate::roteiro::{Plano, REGISTRO_DE_CENAS, ROTEIRO, cenas_registradas, validar_na_pasta};
@@ -468,8 +469,8 @@ fn bytes_dos_trechos(trechos: &[(f64, f64)]) -> Vec<u8> {
 }
 
 /// O hash do código do Remotion do projeto: `src/`, `public/` (menos os dados dos reels em
-/// `clips/`) e os arquivos de configuração, mais o script de render. O pacote depende de tudo;
-/// o render de um reel, do código comum e só das cenas que ele cita.
+/// `clips/`) e os arquivos de configuração, mais o script de render. O pacote depende de tudo e
+/// das dependências instaladas; o render de um reel, do código comum e só das cenas que ele cita.
 struct HashDoCodigo {
     do_pacote: String,
     /// Tudo menos o registro de cenas e os arquivos das cenas registradas.
@@ -521,8 +522,17 @@ impl HashDoCodigo {
                 .iter()
                 .filter(|(relativo, _)| relativo.starts_with(CENAS)),
         );
+        // As dependências instaladas entram só no pacote, para que nenhum pacote feito com as
+        // de antes rode com o `@remotion/renderer` novo; os reels prontos ficam como estão. Sem
+        // elas, quem diz o que falta é o `node`.
+        let instaladas = Path::new("node_modules").join(MARCA_DA_INSTALACAO);
+        let instaladas = match fs::read(remotion.join(&instaladas)) {
+            Ok(conteudo) => Some((instaladas, hex(&Sha256::digest(conteudo)))),
+            Err(erro) if erro.kind() == io::ErrorKind::NotFound => None,
+            Err(erro) => return Err(erro),
+        };
         Ok(Self {
-            do_pacote: hash_dos_arquivos(&arquivos),
+            do_pacote: hash_dos_arquivos(arquivos.iter().chain(&instaladas)),
             comum: hash_dos_arquivos(comum),
             das_cenas,
             da_pasta_de_cenas,

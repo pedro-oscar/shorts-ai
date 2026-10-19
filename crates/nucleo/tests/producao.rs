@@ -98,7 +98,10 @@ impl Cenario {
         fs::create_dir_all(pasta.join("remotion/public/clips/demo")).unwrap();
         fs::write(pasta.join("remotion/src/Root.tsx"), "root").unwrap();
         fs::write(pasta.join("remotion/src/scenes/index.ts"), "cenas").unwrap();
-        fs::create_dir_all(pasta.join("remotion/node_modules")).unwrap();
+        // O `node_modules` compartilhado, ligado ao projeto como o app o liga.
+        let node_modules = tmp.path().join("dados/remotion/node_modules");
+        fs::create_dir_all(&node_modules).unwrap();
+        std::os::unix::fs::symlink(&node_modules, pasta.join("remotion/node_modules")).unwrap();
         fs::write(pasta.join("remotion/package.json"), "{}").unwrap();
         fs::write(pasta.join("remotion/public/clips/demo/clip.json"), "{}").unwrap();
         fs::write(pasta.join("original.mp4"), b"video").unwrap();
@@ -125,7 +128,18 @@ impl Cenario {
             ("c01", "Negociar salário tem regra", (0.0, 2.4)),
             ("c02", "Dois / três: o que importa?", (2.5, 4.9)),
         ]);
+        cenario.instalar_dependencias("4.0.533");
         cenario
+    }
+
+    /// Grava o `.package-lock.json` que o `npm` deixa no `node_modules` ao terminar de instalar.
+    fn instalar_dependencias(&self, versao_do_remotion: &str) {
+        fs::write(
+            self.pasta.join("remotion/node_modules/.package-lock.json"),
+            json!({"packages": {"node_modules/remotion": {"version": versao_do_remotion}}})
+                .to_string(),
+        )
+        .unwrap();
     }
 
     fn roteiro(&self, cortes: &[(&str, &str, (f64, f64))]) {
@@ -608,6 +622,18 @@ fn os_dados_do_reel_gerados_nao_contam_como_codigo_do_remotion() {
 }
 
 #[test]
+fn trocar_as_dependencias_do_remotion_empacota_de_novo_sem_renderizar_os_reels() {
+    let cenario = Cenario::novo();
+    cenario.produzir(Qualidade::Final).unwrap();
+
+    cenario.instalar_dependencias("4.0.600");
+    cenario.produzir(Qualidade::Final).unwrap();
+
+    assert_eq!(cenario.pacotes(), 2);
+    assert_eq!(cenario.renders().len(), 2);
+}
+
+#[test]
 fn a_previa_e_a_versao_final_tem_caches_separados() {
     let cenario = Cenario::novo();
     cenario.produzir(Qualidade::Previa).unwrap();
@@ -671,7 +697,7 @@ fn erro_nao_tratado_do_node_mostra_a_linha_do_erro_e_nao_a_versao() {
 fn sem_o_node_modules_compartilhado_falha_antes_de_chamar_o_node() {
     let cenario = Cenario::novo();
     let node_modules = cenario.pasta.join("remotion/node_modules");
-    fs::remove_dir(&node_modules).unwrap();
+    fs::remove_file(&node_modules).unwrap();
     std::os::unix::fs::symlink(cenario.tmp.path().join("nao-existe"), &node_modules).unwrap();
 
     let Err(erro) = cenario.produzir(Qualidade::Final) else {

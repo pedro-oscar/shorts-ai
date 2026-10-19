@@ -17,8 +17,8 @@ const DEPENDENCIAS: [&str; 2] = ["package.json", "package-lock.json"];
 /// Fixa a versão de tudo o que o `npm ci` instala. O `packages[""]` dele repete as dependências
 /// do `package.json`, e o `npm ci` recusa os dois fora de sincronia.
 const LOCKFILE: &str = "package-lock.json";
-/// O `npm` grava este arquivo ao terminar de instalar.
-const MARCA_DA_INSTALACAO: &str = ".package-lock.json";
+/// O `npm` grava este arquivo ao terminar de instalar, com o que ficou instalado de fato.
+pub(crate) const MARCA_DA_INSTALACAO: &str = ".package-lock.json";
 /// Onde o Remotion guarda o Chrome headless que baixa.
 const PASTA_DO_CHROME: &str = ".remotion";
 /// O programa do Remotion, que o `npm` liga como `remotion` em `.bin`.
