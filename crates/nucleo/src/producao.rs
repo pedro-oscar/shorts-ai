@@ -20,6 +20,7 @@ use crate::remotion::MARCA_DA_INSTALACAO;
 use crate::revisao;
 use crate::rosto::Pin;
 use crate::roteiro::{Plano, REGISTRO_DE_CENAS, ROTEIRO, cenas_registradas, validar_na_pasta};
+use crate::tempos::{self, Passo};
 
 /// O script que empacota e renderiza; o núcleo o grava em `remotion/` antes de chamá-lo.
 const SCRIPT: &str = include_str!("../../../assets/remotion/render.mjs");
@@ -152,7 +153,7 @@ impl Producao {
         let remotion = pedido.pasta.join("remotion");
         let hash_do_codigo = HashDoCodigo::ler(&remotion)?;
         let video = identidade(pedido.video)?;
-        self.empacotar(&remotion, &hash_do_codigo.do_pacote, cancelar)?;
+        self.empacotar(pedido.pasta, &hash_do_codigo.do_pacote, cancelar)?;
         let total = planos.len();
         let mut reels = Vec::new();
         for (indice, plano) in planos.iter().enumerate() {
@@ -222,10 +223,11 @@ impl Producao {
     /// Empacota o projeto, se o pacote não existe ou o código do Remotion mudou desde então.
     fn empacotar(
         &self,
-        remotion: &Path,
+        pasta: &Path,
         codigo: &str,
         cancelar: &AtomicBool,
     ) -> Result<(), ErroDaProducao> {
+        let remotion = pasta.join("remotion");
         let pacote = remotion.join(PACOTE);
         let marca = remotion.join(HASH_DO_PACOTE);
         if pacote.is_dir() && fs::read_to_string(&marca).is_ok_and(|hash| hash == codigo) {
@@ -233,12 +235,19 @@ impl Producao {
         }
         let _ = fs::remove_file(&marca);
         let _ = fs::remove_dir_all(&pacote);
-        self.node(
-            remotion,
-            &["pacote".as_ref(), pacote.as_os_str()],
-            cancelar,
-            &mut |_| {},
-        )?;
+        let passo = Passo {
+            etapa: None,
+            nome: "pacote",
+            reel: None,
+        };
+        tempos::medir(&pasta.join("edit"), passo, || {
+            self.node(
+                &remotion,
+                &["pacote".as_ref(), pacote.as_os_str()],
+                cancelar,
+                &mut |_| {},
+            )
+        })?;
         fs::write(marca, codigo)?;
         Ok(())
     }
@@ -252,6 +261,7 @@ impl Producao {
         cancelar: &AtomicBool,
         progresso: &mut dyn FnMut(f64),
     ) -> Result<Reel, ErroDaProducao> {
+        let edit = pedido.pasta.join("edit");
         let pasta = pedido.pasta.join(CORTES).join(&plano.chave);
         fs::create_dir_all(&pasta)?;
         let corte = pasta.join("corte.mp4");
@@ -263,14 +273,16 @@ impl Producao {
                 .iter()
                 .map(|&(inicio, fim)| Trecho { inicio, fim })
                 .collect();
-            self.ffmpeg.montar(
-                pedido.video,
-                &trechos,
-                &corte,
-                &trabalho,
-                cancelar,
-                &mut |f| progresso(f * FIM_DO_CORTE),
-            )?;
+            tempos::medir(&edit, Passo::do_reel("corte", &plano.id), || {
+                self.ffmpeg.montar(
+                    pedido.video,
+                    &trechos,
+                    &corte,
+                    &trabalho,
+                    cancelar,
+                    &mut |f| progresso(f * FIM_DO_CORTE),
+                )
+            })?;
             let _ = fs::remove_dir_all(&trabalho);
             fs::write(pasta.join("corte.hash"), &hash_do_corte)?;
         }
@@ -280,11 +292,12 @@ impl Producao {
         let pins: Vec<Pin> = plano.pins.iter().filter_map(|p| Pin::analisar(p)).collect();
         let hash_do_rosto = hash(&[hash_do_corte.as_bytes(), plano.pins.join("\n").as_bytes()]);
         if !em_dia(&pasta.join("face.hash"), &hash_do_rosto) || !rosto.is_file() {
-            let rastro = self
-                .ffmpeg
-                .rastrear_rosto(&corte, &pins, cancelar, &mut |f| {
-                    progresso(FIM_DO_CORTE + f * (FIM_DO_ROSTO - FIM_DO_CORTE));
-                })?;
+            let rastro = tempos::medir(&edit, Passo::do_reel("rosto", &plano.id), || {
+                self.ffmpeg
+                    .rastrear_rosto(&corte, &pins, cancelar, &mut |f| {
+                        progresso(FIM_DO_CORTE + f * (FIM_DO_ROSTO - FIM_DO_CORTE));
+                    })
+            })?;
             fs::write(&rosto, rastro.para_json())?;
             fs::write(pasta.join("face.hash"), &hash_do_rosto)?;
         }
@@ -348,19 +361,21 @@ impl Producao {
         fs::create_dir_all(&pasta_final)?;
         let parcial = pasta.join(format!("render-{}.mp4", pedido.qualidade.nome()));
         let pacote = pedido.pasta.join("remotion").join(PACOTE);
-        self.node(
-            &pedido.pasta.join("remotion"),
-            &[
-                "render".as_ref(),
-                pacote.as_os_str(),
-                plano.chave.as_ref(),
-                dados.as_os_str(),
-                parcial.as_os_str(),
-                pedido.qualidade.escala().as_ref(),
-            ],
-            cancelar,
-            &mut |fracao| progresso(FIM_DO_ROSTO + fracao * (1.0 - FIM_DO_ROSTO)),
-        )?;
+        tempos::medir(&edit, Passo::do_reel("render", &plano.id), || {
+            self.node(
+                &pedido.pasta.join("remotion"),
+                &[
+                    "render".as_ref(),
+                    pacote.as_os_str(),
+                    plano.chave.as_ref(),
+                    dados.as_os_str(),
+                    parcial.as_os_str(),
+                    pedido.qualidade.escala().as_ref(),
+                ],
+                cancelar,
+                &mut |fracao| progresso(FIM_DO_ROSTO + fracao * (1.0 - FIM_DO_ROSTO)),
+            )
+        })?;
         fs::rename(&parcial, &arquivo)?;
         if let Some(antigo) = nome_publicado(&marca).filter(|antigo| *antigo != nome) {
             let _ = fs::remove_file(pasta_final.join(antigo));

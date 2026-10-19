@@ -443,6 +443,39 @@ echo "whisper_print_progress_callback: progress = 100%" >&2
     }
 
     #[test]
+    fn grava_em_tempos_quanto_levaram_o_audio_a_deteccao_e_o_whisper() {
+        let cenario = Cenario::novo();
+
+        cenario.transcrever(None, &mut Vec::new()).unwrap();
+
+        let linhas: Vec<serde_json::Value> = fs::read_to_string(cenario.edit.join("tempos.jsonl"))
+            .unwrap()
+            .lines()
+            .map(|linha| serde_json::from_str(linha).unwrap())
+            .collect();
+        let passos: Vec<(&str, &str)> = linhas
+            .iter()
+            .map(|linha| {
+                (
+                    linha["etapa"].as_str().unwrap(),
+                    linha["passo"].as_str().unwrap(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            passos,
+            [
+                ("transcricao", "audio"),
+                ("transcricao", "idioma"),
+                ("transcricao", "whisper")
+            ]
+        );
+        for linha in &linhas {
+            assert!(linha["inicio"].as_str() <= linha["fim"].as_str(), "{linha}");
+        }
+    }
+
+    #[test]
     fn o_trecho_de_deteccao_e_cortado_na_saida_e_recodificado() {
         let cenario = Cenario::novo();
 

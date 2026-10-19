@@ -15,6 +15,7 @@ use crate::lote::{self, LoteJson};
 use crate::producao::{self, Producao, Qualidade};
 use crate::projeto::{ModoDeImportacao, Origem, Parada, ProjetoJson};
 use crate::sessao::{self, ErroDoRoteiro, EventoDaSessao, ResultadoDaRevisao, Roteirista};
+use crate::tempos::{self, Passo};
 use crate::transcricao::{Pedido, Transcritor};
 use crate::youtube::Ytdlp;
 use crate::{EstadoDaEtapa, Etapa, Evento, LigarArquivo, MotivoDeNotificacao, nome_do_arquivo};
@@ -423,20 +424,27 @@ fn renderizar_versao_final(
         });
     };
     mudou(EstadoDaEtapa::EmAndamento, None);
+    let passo = Passo {
+        etapa: None,
+        nome: "versaoFinal",
+        reel: None,
+    };
     let resultado = match (ProjetoJson::ler(pasta), producao) {
-        (Ok(projeto), Some(producao)) => produzir_em(
-            pasta,
-            &projeto,
-            producao,
-            Qualidade::Final,
-            cancelar,
-            &mut |percentual| {
-                emit(Evento::ProgressoDaVersaoFinal {
-                    projeto: id.clone(),
-                    percentual,
-                });
-            },
-        ),
+        (Ok(projeto), Some(producao)) => tempos::medir(&pasta.join("edit"), passo, || {
+            produzir_em(
+                pasta,
+                &projeto,
+                producao,
+                Qualidade::Final,
+                cancelar,
+                &mut |percentual| {
+                    emit(Evento::ProgressoDaVersaoFinal {
+                        projeto: id.clone(),
+                        percentual,
+                    });
+                },
+            )
+        }),
         (Err(error), _) => Err(error.to_string()),
         (_, None) => Err("a Produção não está disponível".to_owned()),
     };
@@ -695,12 +703,15 @@ fn importar(
                 return Ok(());
             }
             let ytdlp = ytdlp.ok_or("o yt-dlp não está disponível")?;
-            ytdlp.baixar(url, faixa, &bruto, cancelar, &mut |percentual| {
-                emit(Evento::ProgressoDaEtapa {
-                    projeto: id.to_owned(),
-                    etapa: Etapa::Importacao,
-                    percentual,
-                });
+            let passo = Passo::da_etapa(Etapa::Importacao, "download");
+            tempos::medir(&pasta.join("edit"), passo, || {
+                ytdlp.baixar(url, faixa, &bruto, cancelar, &mut |percentual| {
+                    emit(Evento::ProgressoDaEtapa {
+                        projeto: id.to_owned(),
+                        etapa: Etapa::Importacao,
+                        percentual,
+                    });
+                })
             })?;
             Ok(())
         }
@@ -767,8 +778,9 @@ fn roteirizar(
         .as_deref()
         .ok_or("o idioma do vídeo não foi detectado")?;
     let modelo = (projeto.opcoes.modelo != "padrao").then_some(projeto.opcoes.modelo.as_str());
-    roteirista
-        .roteirizar(
+    let passo = Passo::da_etapa(Etapa::Roteiro, "sessao");
+    tempos::medir(&pasta.join("edit"), passo, || {
+        roteirista.roteirizar(
             &sessao::Pedido {
                 pasta,
                 video: nome,
@@ -780,7 +792,8 @@ fn roteirizar(
             cancelar,
             &mut |evento| emit(evento_da_sessao(id, Etapa::Roteiro, evento)),
         )
-        .map_err(Falha::from)
+    })
+    .map_err(Falha::from)
 }
 
 fn evento_da_sessao(id: &str, etapa: Etapa, evento: EventoDaSessao) -> Evento {
@@ -832,18 +845,21 @@ fn revisar(
         video: &video,
         qualidade,
     };
+    let edit = pasta.join("edit");
     let produzir = || {
-        producao
-            .produzir(&pedido_da_producao, cancelar, &mut |_| {})
-            .map_err(|error| error.to_string())
+        tempos::medir(&edit, Passo::da_etapa(Etapa::Revisao, "producao"), || {
+            producao.produzir(&pedido_da_producao, cancelar, &mut |_| {})
+        })
+        .map_err(|error| error.to_string())
     };
     let mut reels = produzir()?;
     for _ in 0..projeto.opcoes.revisoes {
-        producao
-            .preparar_revisao(&pedido_da_producao, &reels, cancelar)
-            .map_err(|error| error.to_string())?;
-        let resultado = roteirista
-            .revisar(
+        tempos::medir(&edit, Passo::da_etapa(Etapa::Revisao, "folhas"), || {
+            producao.preparar_revisao(&pedido_da_producao, &reels, cancelar)
+        })
+        .map_err(|error| error.to_string())?;
+        let resultado = tempos::medir(&edit, Passo::da_etapa(Etapa::Revisao, "sessao"), || {
+            roteirista.revisar(
                 &sessao::Pedido {
                     pasta,
                     video: nome,
@@ -855,7 +871,8 @@ fn revisar(
                 cancelar,
                 &mut |evento| emit(evento_da_sessao(id, Etapa::Revisao, evento)),
             )
-            .map_err(Falha::from)?;
+        })
+        .map_err(Falha::from)?;
         if resultado == ResultadoDaRevisao::SemMudancas {
             break;
         }
@@ -879,20 +896,23 @@ fn produzir(
     } else {
         Qualidade::Final
     };
-    produzir_em(
-        pasta,
-        projeto,
-        producao,
-        qualidade,
-        cancelar,
-        &mut |percentual| {
-            emit(Evento::ProgressoDaEtapa {
-                projeto: id.to_owned(),
-                etapa: Etapa::Producao,
-                percentual,
-            });
-        },
-    )
+    let passo = Passo::da_etapa(Etapa::Producao, "producao");
+    tempos::medir(&pasta.join("edit"), passo, || {
+        produzir_em(
+            pasta,
+            projeto,
+            producao,
+            qualidade,
+            cancelar,
+            &mut |percentual| {
+                emit(Evento::ProgressoDaEtapa {
+                    projeto: id.to_owned(),
+                    etapa: Etapa::Producao,
+                    percentual,
+                });
+            },
+        )
+    })
 }
 
 /// Produz os reels do projeto na `qualidade`; `progresso` recebe o percentual (0 a 100) cada

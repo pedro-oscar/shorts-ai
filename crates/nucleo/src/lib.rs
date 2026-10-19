@@ -27,6 +27,7 @@ mod revisao;
 pub mod rosto;
 pub mod roteiro;
 pub mod sessao;
+mod tempos;
 pub mod transcricao;
 mod youtube;
 

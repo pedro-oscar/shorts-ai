@@ -17,9 +17,11 @@ use std::sync::atomic::AtomicBool;
 
 use serde::{Deserialize, Serialize};
 
+use crate::Etapa;
 use crate::files::write_json;
 use crate::process::{self, Interrupted, Stream};
 use crate::projeto::Faixa;
+use crate::tempos::{self, Passo};
 
 /// O modelo do Whisper escolhido no spike (ADR 0005), que a preparação baixa.
 pub const MODEL_FILE: &str = "ggml-large-v3-q5_0.bin";
@@ -168,13 +170,19 @@ impl Transcritor {
         cancelar: &AtomicBool,
         progresso: &mut dyn FnMut(f64),
     ) -> Result<Transcricao, ErroDaTranscricao> {
+        let edit = pedido.pasta_de_saida;
+        let passo = |nome| Passo::da_etapa(Etapa::Transcricao, nome);
         let audio = work_dir.join(AUDIO);
-        self.extract_audio(pedido.video, pedido.faixa, &audio, cancelar)?;
+        tempos::medir(edit, passo("audio"), || {
+            self.extract_audio(pedido.video, pedido.faixa, &audio, cancelar)
+        })?;
         // Se o Vulkan falha uma vez, o resto desta transcrição vai direto para a CPU.
         let mut cpu_only = false;
         let idioma = match pedido.idioma {
             Some(idioma) => idioma.to_owned(),
-            None => self.detectar_idioma(&audio, work_dir, cancelar, &mut cpu_only)?,
+            None => tempos::medir(edit, passo("idioma"), || {
+                self.detectar_idioma(&audio, work_dir, cancelar, &mut cpu_only)
+            })?,
         };
 
         let mut args = vec![
@@ -210,18 +218,20 @@ impl Transcritor {
             "-nfa".to_owned(),
             "-pp".to_owned(),
         ]);
-        let stderr = self.whisper(
-            &args,
-            work_dir,
-            "whisper.txt",
-            cancelar,
-            &mut cpu_only,
-            &mut |line| {
-                if let Some(percent) = progress_percent(line) {
-                    progresso(percent / 100.0);
-                }
-            },
-        )?;
+        let stderr = tempos::medir(edit, passo("whisper"), || {
+            self.whisper(
+                &args,
+                work_dir,
+                "whisper.txt",
+                cancelar,
+                &mut cpu_only,
+                &mut |line| {
+                    if let Some(percent) = progress_percent(line) {
+                        progresso(percent / 100.0);
+                    }
+                },
+            )
+        })?;
         let whisper = read_whisper_json(&work_dir.join(TRANSCRICAO))?;
         let vad = vad_segments(&stderr);
         let idioma = whisper.result.language.unwrap_or(idioma);

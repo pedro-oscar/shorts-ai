@@ -248,6 +248,9 @@ fn a_versao_final_vai_para_publicar_e_a_previa_continua_em_previas() {
     );
     let dados = cenario.nucleo.dados_do_projeto(ID).unwrap();
     assert!(dados.reels.iter().all(|reel| !reel.previa));
+    let tempos = fs::read_to_string(cenario.projeto.join("edit/tempos.jsonl")).unwrap();
+    let ultimo: serde_json::Value = serde_json::from_str(tempos.lines().last().unwrap()).unwrap();
+    assert_eq!(ultimo["passo"], "versaoFinal", "{tempos}");
 }
 
 #[test]

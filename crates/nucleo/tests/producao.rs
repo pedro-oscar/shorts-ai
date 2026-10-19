@@ -260,6 +260,22 @@ impl Cenario {
             .count()
     }
 
+    /// Os passos medidos em `edit/tempos.jsonl`, com o reel de cada um.
+    fn tempos(&self) -> Vec<(String, Option<String>)> {
+        fs::read_to_string(self.pasta.join("edit/tempos.jsonl"))
+            .unwrap_or_default()
+            .lines()
+            .map(|linha| {
+                let linha: Value = serde_json::from_str(linha).unwrap();
+                assert!(linha["inicio"].as_str() <= linha["fim"].as_str(), "{linha}");
+                (
+                    linha["passo"].as_str().unwrap().to_owned(),
+                    linha["reel"].as_str().map(str::to_owned),
+                )
+            })
+            .collect()
+    }
+
     fn ffmpeg_de_corte(&self) -> usize {
         self.chamadas("ffmpeg")
             .iter()
@@ -386,6 +402,48 @@ fn refazer_sem_mudar_nada_nao_corta_nem_renderiza_de_novo() {
     assert_eq!(cenario.ffmpeg_de_corte(), cortes);
     assert_eq!(cenario.renders().len(), 2);
     assert_eq!(cenario.pacotes(), 1);
+}
+
+#[test]
+fn grava_em_tempos_o_pacote_e_o_corte_o_rosto_e_o_render_de_cada_reel() {
+    let cenario = Cenario::novo();
+
+    cenario.produzir(Qualidade::Final).unwrap();
+
+    let reel = |passo: &str, id: &str| (passo.to_owned(), Some(id.to_owned()));
+    assert_eq!(
+        cenario.tempos(),
+        [
+            ("pacote".to_owned(), None),
+            reel("corte", "c01"),
+            reel("rosto", "c01"),
+            reel("render", "c01"),
+            reel("corte", "c02"),
+            reel("rosto", "c02"),
+            reel("render", "c02"),
+        ]
+    );
+}
+
+#[test]
+fn o_que_vem_do_cache_nao_grava_tempo() {
+    let cenario = Cenario::novo();
+    cenario.produzir(Qualidade::Final).unwrap();
+    let medidos = cenario.tempos().len();
+
+    cenario.produzir(Qualidade::Final).unwrap();
+
+    assert_eq!(cenario.tempos().len(), medidos);
+}
+
+#[test]
+fn sem_poder_gravar_os_tempos_a_producao_segue() {
+    let cenario = Cenario::novo();
+    fs::create_dir(cenario.pasta.join("edit/tempos.jsonl")).unwrap();
+
+    let reels = cenario.produzir(Qualidade::Final).unwrap();
+
+    assert_eq!(reels.len(), 2);
 }
 
 #[test]
