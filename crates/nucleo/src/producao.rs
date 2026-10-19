@@ -149,11 +149,24 @@ impl Producao {
         cancelar: &AtomicBool,
         progresso: &mut dyn FnMut(f64),
     ) -> Result<Vec<Reel>, ErroDaProducao> {
+        self.produzir_na_vez(pedido, cancelar, &|| Ok(()), progresso)
+    }
+
+    /// Como [`Self::produzir`], mas chama `vez` antes de cada processo que o cache não evita
+    /// (empacotar, cortar, seguir o rosto, renderizar): é ali que a fila espera a vaga do
+    /// render. Uma produção que só acerta o cache não espera nada; um erro de `vez` a para.
+    pub(crate) fn produzir_na_vez(
+        &self,
+        pedido: &Pedido,
+        cancelar: &AtomicBool,
+        vez: &(dyn Fn() -> Result<(), ErroDaProducao> + Sync),
+        progresso: &mut dyn FnMut(f64),
+    ) -> Result<Vec<Reel>, ErroDaProducao> {
         let planos = planos(pedido.pasta)?;
         let remotion = pedido.pasta.join("remotion");
         let hash_do_codigo = HashDoCodigo::ler(&remotion)?;
         let video = identidade(pedido.video)?;
-        self.empacotar(pedido.pasta, &hash_do_codigo.do_pacote, cancelar)?;
+        self.empacotar(pedido.pasta, &hash_do_codigo.do_pacote, cancelar, vez)?;
         let total = planos.len();
         let mut reels = Vec::new();
         for (indice, plano) in planos.iter().enumerate() {
@@ -169,6 +182,7 @@ impl Producao {
                 &video,
                 &hash_do_codigo,
                 cancelar,
+                vez,
                 &mut parcial,
             )?);
             progresso((indice + 1) as f64 / total as f64);
@@ -226,6 +240,7 @@ impl Producao {
         pasta: &Path,
         codigo: &str,
         cancelar: &AtomicBool,
+        vez: &(dyn Fn() -> Result<(), ErroDaProducao> + Sync),
     ) -> Result<(), ErroDaProducao> {
         let remotion = pasta.join("remotion");
         let pacote = remotion.join(PACOTE);
@@ -233,6 +248,7 @@ impl Producao {
         if pacote.is_dir() && fs::read_to_string(&marca).is_ok_and(|hash| hash == codigo) {
             return Ok(());
         }
+        vez()?;
         let _ = fs::remove_file(&marca);
         let _ = fs::remove_dir_all(&pacote);
         let passo = Passo {
@@ -252,6 +268,7 @@ impl Producao {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn produzir_reel(
         &self,
         pedido: &Pedido,
@@ -259,6 +276,7 @@ impl Producao {
         video: &str,
         hash_do_codigo: &HashDoCodigo,
         cancelar: &AtomicBool,
+        vez: &(dyn Fn() -> Result<(), ErroDaProducao> + Sync),
         progresso: &mut dyn FnMut(f64),
     ) -> Result<Reel, ErroDaProducao> {
         let edit = pedido.pasta.join("edit");
@@ -273,6 +291,7 @@ impl Producao {
                 .iter()
                 .map(|&(inicio, fim)| Trecho { inicio, fim })
                 .collect();
+            vez()?;
             tempos::medir(&edit, Passo::do_reel("corte", &plano.id), || {
                 self.ffmpeg.montar(
                     pedido.video,
@@ -292,6 +311,7 @@ impl Producao {
         let pins: Vec<Pin> = plano.pins.iter().filter_map(|p| Pin::analisar(p)).collect();
         let hash_do_rosto = hash(&[hash_do_corte.as_bytes(), plano.pins.join("\n").as_bytes()]);
         if !em_dia(&pasta.join("face.hash"), &hash_do_rosto) || !rosto.is_file() {
+            vez()?;
             let rastro = tempos::medir(&edit, Passo::do_reel("rosto", &plano.id), || {
                 self.ffmpeg
                     .rastrear_rosto(&corte, &pins, cancelar, &mut |f| {
@@ -335,6 +355,7 @@ impl Producao {
             return Ok(reel);
         }
 
+        vez()?;
         let dados = pasta.join("clip");
         let info = self.ffmpeg.sondar(&corte, cancelar)?;
         let (largura, altura) = match info.rotacao {

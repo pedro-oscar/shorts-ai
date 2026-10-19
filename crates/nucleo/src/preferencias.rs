@@ -30,6 +30,14 @@ pub(crate) struct Preferencias {
     /// Os kits de marca que a pessoa salvou, além do Padrão.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub kits: Vec<Kit>,
+    /// Quantos vídeos andam ao mesmo tempo, escolhido em Configurações; sem ele vale o
+    /// automático.
+    #[serde(
+        default,
+        rename = "videosAoMesmoTempo",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub videos_ao_mesmo_tempo: Option<u8>,
 }
 
 pub(crate) struct PreferencesFile {

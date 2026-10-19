@@ -3,7 +3,7 @@
 //! a orquestração com `ffmpeg` e `whisper-cli` falsos que devolvem a gravação do spike
 //! (KGfmaHnBQx4). O teste lento (`--ignored`) usa o motor real num vídeo de 20 s.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use nucleo::transcricao::{
     PalavraTranscrita, VadSegment, compactar, progress_percent, prompt, to_original_time,
@@ -14,6 +14,34 @@ mod comum;
 
 fn gravado(nome: &str) -> PathBuf {
     comum::referencia("whisper-gravado").join(nome)
+}
+
+/// Grava o executável falso uma vez por processo, numa pasta que ninguém mais escreve, e o liga
+/// em `bin` por um link: gravar e executar o mesmo arquivo enquanto outros testes criam
+/// processos dá "Text file busy". O arquivo leva o hash do conteúdo, porque o mesmo nome pode
+/// ter scripts diferentes.
+#[cfg(unix)]
+fn executavel(bin: &Path, nome: &str, conteudo: &str) {
+    use std::hash::{DefaultHasher, Hash, Hasher};
+    use std::os::unix::fs::PermissionsExt;
+    use std::sync::{Mutex, OnceLock, PoisonError};
+
+    static COMPARTILHADOS: OnceLock<tempfile::TempDir> = OnceLock::new();
+    static TRAVA: Mutex<()> = Mutex::new(());
+    let mut hash = DefaultHasher::new();
+    conteudo.hash(&mut hash);
+    let original = COMPARTILHADOS
+        .get_or_init(|| tempfile::tempdir().unwrap())
+        .path()
+        .join(format!("{:016x}", hash.finish()));
+    {
+        let _trava = TRAVA.lock().unwrap_or_else(PoisonError::into_inner);
+        if !original.exists() {
+            std::fs::write(&original, conteudo).unwrap();
+            std::fs::set_permissions(&original, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+    }
+    std::os::unix::fs::symlink(original, bin.join(nome)).unwrap();
 }
 
 fn vad_gravado() -> Vec<VadSegment> {
@@ -122,7 +150,6 @@ fn a_transcricao_compactada_separa_as_frases_por_pausas_de_meio_segundo() {
 #[cfg(unix)]
 mod orquestracao {
     use std::fs;
-    use std::os::unix::fs::PermissionsExt;
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::time::{Duration, Instant};
@@ -130,7 +157,7 @@ mod orquestracao {
     use nucleo::Faixa;
     use nucleo::transcricao::{ErroDaTranscricao, Pedido, Transcricao, Transcritor};
 
-    use super::gravado;
+    use super::{executavel, gravado};
 
     /// O ffmpeg falso grava um arquivo no último argumento; o `sleep-forever` o trava, e a
     /// marca `sem-audio` o faz sair sem gravar nada.
@@ -198,9 +225,7 @@ echo "whisper_print_progress_callback: progress = 100%" >&2
                 ("whisper-cli", WHISPER),
                 ("whisper-cli-cpu", WHISPER),
             ] {
-                let caminho = bin.join(nome);
-                fs::write(&caminho, conteudo).unwrap();
-                fs::set_permissions(&caminho, fs::Permissions::from_mode(0o755)).unwrap();
+                executavel(&bin, nome, conteudo);
             }
             fs::copy(gravado("transcricao.json"), bin.join("gravado.json")).unwrap();
             fs::copy(gravado("whisper.log"), bin.join("gravado.log")).unwrap();
@@ -784,14 +809,13 @@ echo "whisper_print_progress_callback: progress = 100%" >&2
 #[cfg(unix)]
 mod na_fila {
     use std::fs;
-    use std::os::unix::fs::PermissionsExt;
     use std::sync::Mutex;
     use std::sync::mpsc;
     use std::time::Duration;
 
     use nucleo::{Config, EstadoDaEtapa, Etapa, Evento, Nucleo, Padroes, Parada};
 
-    use super::gravado;
+    use super::{executavel, gravado};
 
     /// O núcleo acha o ffmpeg e o whisper-cli na pasta dos sidecars e os modelos nos dados do
     /// app. Roda a etapa com whisper-cli e ffmpeg falsos; devolve o que ela avisou e onde ficou.
@@ -799,14 +823,15 @@ mod na_fila {
         let tmp = tempfile::tempdir().unwrap();
         let bin = tmp.path().join("bin");
         fs::create_dir(&bin).unwrap();
-        fs::write(
-            bin.join("ffmpeg"),
+        executavel(
+            &bin,
+            "ffmpeg",
             "#!/bin/sh\nfor u; do :; done\nhead -c 3200000 /dev/zero > \"$u\"\n",
-        )
-        .unwrap();
-        fs::write(
-            bin.join("whisper-cli"),
-            format!(
+        );
+        executavel(
+            &bin,
+            "whisper-cli",
+            &format!(
                 "#!/bin/sh\nresposta=\"${{1#@}}\"\n\
                  cp \"$resposta\" \"$(dirname \"$0\")/resposta.txt\"\n\
                  saida=\"$(grep -A1 '^-of$' \"$resposta\" | tail -1)\"\n\
@@ -815,11 +840,7 @@ mod na_fila {
                 gravado("transcricao.json").display(),
                 gravado("whisper.log").display()
             ),
-        )
-        .unwrap();
-        for nome in ["ffmpeg", "whisper-cli"] {
-            fs::set_permissions(bin.join(nome), fs::Permissions::from_mode(0o755)).unwrap();
-        }
+        );
         let (envio, eventos) = mpsc::channel();
         let envio = Mutex::new(envio);
         let dados = tmp.path().join("dados");
@@ -883,11 +904,8 @@ mod na_fila {
         let bin = tmp.path().join("bin");
         fs::create_dir(&bin).unwrap();
         // O ffmpeg falso trava: só para se o núcleo o matar.
-        fs::write(bin.join("ffmpeg"), "#!/bin/sh\nexec sleep 30\n").unwrap();
-        fs::write(bin.join("whisper-cli"), "#!/bin/sh\nexit 1\n").unwrap();
-        for nome in ["ffmpeg", "whisper-cli"] {
-            fs::set_permissions(bin.join(nome), fs::Permissions::from_mode(0o755)).unwrap();
-        }
+        executavel(&bin, "ffmpeg", "#!/bin/sh\nexec sleep 30\n");
+        executavel(&bin, "whisper-cli", "#!/bin/sh\nexit 1\n");
         let (envio, eventos) = mpsc::channel();
         let envio = Mutex::new(envio);
         let nucleo = Nucleo::new(

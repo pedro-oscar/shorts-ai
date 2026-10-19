@@ -24,6 +24,7 @@ export const commands = {
 	/**  O dia em que a cotação foi digitada, `AAAA-MM-DD`. */
 	data: string,
 } | null, Erro>(__TAURI_INVOKE("definir_cotacao", { valor })),
+	definirVideosAoMesmoTempo: (videos: number | null) => typedError<Paralelismo, Erro>(__TAURI_INVOKE("definir_videos_ao_mesmo_tempo", { videos })),
 	testarClaude: () => typedError<null, Erro>(__TAURI_INVOKE("testar_claude")),
 	/**  O seletor de arquivos do sistema, só com os vídeos que o app aceita. */
 	escolherArquivos: () => __TAURI_INVOKE<string[]>("escolher_arquivos"),
@@ -146,6 +147,17 @@ export type AtualizacaoPronta = {
 	versao: string,
 };
 
+/**  Quantos projetos usam cada recurso ao mesmo tempo. */
+export type CapacidadeDasVagas = {
+	gpu: number,
+	/**
+	 *  Duas sessões nos planos Max, Team Premium, Enterprise e Console; uma no Pro e no Team
+	 *  Padrão, que rendem menos cota.
+	 */
+	claude: number,
+	render: number,
+};
+
 /**  Como o uso do Claude é pago: pela cota da assinatura ou pelo preço de API. */
 export type Cobranca = "assinatura" | 
 /**  Conta do Console e plano Enterprise contam como preço de API. */
@@ -226,6 +238,13 @@ export type EstadoDaPreparacao = {
 	poucoEspaco: boolean,
 };
 
+/**  Como um projeto está em relação a uma vaga. */
+export type EstadoDaVaga = 
+/**  Quer a vaga e espera ela abrir. */
+"esperando" | "usando" | 
+/**  Soltou a vaga, ou desistiu de esperar. */
+"livre";
+
 /**  O que a interface precisa para abrir. */
 export type EstadoInicial = {
 	versao: string,
@@ -242,6 +261,8 @@ export type EstadoInicial = {
 	chaveDeApiNoAmbiente: boolean,
 	/**  A pasta da Biblioteca, onde ficam os projetos. */
 	biblioteca: string,
+	/**  Quantos vídeos andam ao mesmo tempo e quantas vagas tem cada recurso. */
+	paralelismo: Paralelismo,
 	/**  Por que as preferências não puderam ser lidas; o idioma da interface é o do sistema. */
 	erro: Erro | null,
 	/**
@@ -306,6 +327,13 @@ export type Evento = { tipo: "avisoAceito"; aceite: Aceite } | { tipo: "planoCon
 { tipo: "versaoFinalMudou"; projeto: string; estado: EstadoDaEtapa; falha: string | null } | 
 /**  O progresso do render da versão final, de 0 a 100. */
 { tipo: "progressoDaVersaoFinal"; projeto: string; percentual: number } | 
+/**  O projeto passou a esperar, a usar ou soltou a vaga de um recurso. */
+{ tipo: "vagaMudou"; projeto: string; recurso: Recurso; estado: EstadoDaVaga } | 
+/**
+ *  Mudou quantos vídeos andam ao mesmo tempo ou quantas vagas tem um recurso: a pessoa
+ *  escolheu outro número ou confirmou outro plano.
+ */
+{ tipo: "paralelismoMudou"; paralelismo: Paralelismo } | 
 /**
  *  Uma ação do Claude numa sessão: a ferramenta (`Read`, `Bash`...) ou `texto`, e o que ela
  *  toca.
@@ -501,6 +529,18 @@ export type Parada =
 /**  A cota do plano acabou no meio de uma sessão do Claude; a fila retoma quando ela libera. */
 "aguardandoCota";
 
+/**  Quantos vídeos andam ao mesmo tempo na fila e quantos projetos usam cada recurso. */
+export type Paralelismo = {
+	/**  O que a pessoa escolheu em Configurações, de 1 a 6; `None` é o automático. */
+	videosAoMesmoTempo: number | null,
+	/**
+	 *  O número do automático: as vagas do Claude mais duas (uma vai para o render, outra
+	 *  para a Transcrição ou a Importação). Sem plano confirmado, um vídeo de cada vez.
+	 */
+	automatico: number,
+	vagas: CapacidadeDasVagas,
+};
+
 /**  Como a assinatura é paga. */
 export type PeriodoDeCobranca = "mensal" | "anual";
 
@@ -555,6 +595,18 @@ export type QuandoAparece =
 "inicio" | 
 /**  Só nos 3 últimos segundos. */
 "fim";
+
+/**  Um recurso disputado pelos projetos. */
+export type Recurso = 
+/**
+ *  A Transcrição, mesmo quando roda na CPU: dois whisper na mesma GPU dobram a memória
+ *  de vídeo sem ganho.
+ */
+"gpu" | 
+/**  Uma sessão do Claude, no Roteiro ou na Revisão. */
+"claude" | 
+/**  O trabalho local da Produção (corte, rosto e render), da Revisão e da Versão final. */
+"render";
 
 /**  Um corte a produzir, com o arquivo publicado dele se já existe. */
 export type ReelDoProjeto = {

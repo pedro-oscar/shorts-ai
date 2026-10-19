@@ -8,7 +8,7 @@ use nucleo::{
     Aceite, AlvoParaAbrir, ArquivoDeVideo, ArquivoDoLote, Config, Cotacao, DadosDoProjeto,
     Diagnostico, Erro, EstadoDaConta, EstadoDaPreparacao, EstadoInicial, Estimativa, Evento,
     Excecoes, IdiomaDaInterface, InfoDoLink, Kit, LinkDoLote, LoteResumo, ModoDeLogin,
-    MotivoDeNotificacao, Movimento, NivelDoPlano, Nucleo, Padroes, PeriodoDeCobranca,
+    MotivoDeNotificacao, Movimento, NivelDoPlano, Nucleo, Padroes, Paralelismo, PeriodoDeCobranca,
     PlanoConfirmado, ProjetoResumo, Regra,
 };
 use serde::Serialize;
@@ -210,6 +210,15 @@ async fn definir_cotacao(
     valor: Option<f64>,
 ) -> Result<Option<Cotacao>, Erro> {
     nucleo.definir_cotacao(valor)
+}
+
+#[tauri::command]
+#[specta::specta]
+async fn definir_videos_ao_mesmo_tempo(
+    nucleo: State<'_, Nucleo>,
+    videos: Option<u8>,
+) -> Result<Paralelismo, Erro> {
+    nucleo.definir_videos_ao_mesmo_tempo(videos)
 }
 
 #[tauri::command]
@@ -618,6 +627,7 @@ fn bindings() -> Builder<tauri::Wry> {
             confirmar_plano,
             definir_multiplicador,
             definir_cotacao,
+            definir_videos_ao_mesmo_tempo,
             testar_claude,
             escolher_arquivos,
             escolher_pasta,

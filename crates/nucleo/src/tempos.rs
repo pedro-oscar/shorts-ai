@@ -68,8 +68,18 @@ struct Linha<'a> {
 pub(crate) fn medir<T>(edit: &Path, passo: Passo<'_>, trabalho: impl FnOnce() -> T) -> T {
     let inicio = OffsetDateTime::now_utc();
     let resultado = trabalho();
-    let _ = gravar(edit, passo, inicio, OffsetDateTime::now_utc());
+    registrar(edit, passo, inicio, OffsetDateTime::now_utc());
     resultado
+}
+
+/// Acrescenta a `<edit>/tempos.jsonl` um passo já medido. Sem gravar, a medição se perde.
+pub(crate) fn registrar(
+    edit: &Path,
+    passo: Passo<'_>,
+    inicio: OffsetDateTime,
+    fim: OffsetDateTime,
+) {
+    let _ = gravar(edit, passo, inicio, fim);
 }
 
 fn gravar(

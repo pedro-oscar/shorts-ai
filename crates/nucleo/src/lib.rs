@@ -29,6 +29,7 @@ pub mod roteiro;
 pub mod sessao;
 mod tempos;
 pub mod transcricao;
+mod vagas;
 mod youtube;
 
 use std::env::consts::EXE_SUFFIX;
@@ -69,6 +70,7 @@ use crate::projeto::{Origem, ProjetoJson};
 use crate::remotion::Remotion;
 use crate::sessao::Roteirista;
 use crate::transcricao::Transcritor;
+pub use crate::vagas::{EstadoDaVaga, Recurso};
 use crate::youtube::Ytdlp;
 pub use crate::youtube::{InfoDoLink, LinkDoLote};
 
@@ -166,6 +168,8 @@ pub struct EstadoInicial {
     pub chave_de_api_no_ambiente: bool,
     /// A pasta da Biblioteca, onde ficam os projetos.
     pub biblioteca: String,
+    /// Quantos vídeos andam ao mesmo tempo e quantas vagas tem cada recurso.
+    pub paralelismo: Paralelismo,
     /// Por que as preferências não puderam ser lidas; o idioma da interface é o do sistema.
     pub erro: Option<Erro>,
     /// Onde ficou, ao abrir, o `preferencias.json` que não era JSON válido. As preferências
@@ -204,6 +208,13 @@ pub const VERSAO_DO_AVISO: u32 = 2;
 /// O repositório público do app: o código, e nas Releases os instaladores, o `latest.json` do
 /// atualizador, a tabela de preços e o código-fonte de cada ffmpeg (ADR 0006).
 pub const REPOSITORIO: &str = "https://github.com/pedro-oscar/shorts-ai";
+
+/// Passa à fila quantos vídeos rodam ao mesmo tempo e quantas sessões do Claude cabem.
+fn aplicar_paralelismo(fila: &Fila, paralelismo: &Paralelismo) {
+    fila.definir_limite(usize::from(paralelismo.limite()));
+    fila.vagas()
+        .definir_capacidade(Recurso::Claude, usize::from(paralelismo.vagas.claude));
+}
 
 /// A Release desta versão: o código do app na tag dela e o código-fonte do ffmpeg que vai junto.
 fn pagina_do_codigo_fonte() -> String {
@@ -344,6 +355,59 @@ pub struct Cotacao {
     pub valor: f64,
     /// O dia em que a cotação foi digitada, `AAAA-MM-DD`.
     pub data: String,
+}
+
+/// O máximo de vídeos ao mesmo tempo que a pessoa pode escolher.
+pub const MAXIMO_DE_VIDEOS_AO_MESMO_TEMPO: u8 = 6;
+
+/// Quantos vídeos andam ao mesmo tempo na fila e quantos projetos usam cada recurso.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct Paralelismo {
+    /// O que a pessoa escolheu em Configurações, de 1 a 6; `None` é o automático.
+    pub videos_ao_mesmo_tempo: Option<u8>,
+    /// O número do automático: as vagas do Claude mais duas (uma vai para o render, outra
+    /// para a Transcrição ou a Importação). Sem plano confirmado, um vídeo de cada vez.
+    pub automatico: u8,
+    pub vagas: CapacidadeDasVagas,
+}
+
+impl Paralelismo {
+    fn das(preferencias: &Preferencias) -> Self {
+        let claude = match preferencias.plano.as_ref().map(|plano| plano.nivel) {
+            None | Some(NivelDoPlano::Pro | NivelDoPlano::TeamPadrao) => 1,
+            Some(_) => 2,
+        };
+        Self {
+            videos_ao_mesmo_tempo: preferencias.videos_ao_mesmo_tempo,
+            automatico: if preferencias.plano.is_some() {
+                claude + 2
+            } else {
+                1
+            },
+            vagas: CapacidadeDasVagas {
+                gpu: 1,
+                claude,
+                render: 1,
+            },
+        }
+    }
+
+    /// Quantos vídeos a fila deixa rodar: o escolhido ou, sem escolha, o automático.
+    fn limite(&self) -> u8 {
+        self.videos_ao_mesmo_tempo.unwrap_or(self.automatico)
+    }
+}
+
+/// Quantos projetos usam cada recurso ao mesmo tempo.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CapacidadeDasVagas {
+    pub gpu: u8,
+    /// Duas sessões nos planos Max, Team Premium, Enterprise e Console; uma no Pro e no Team
+    /// Padrão, que rendem menos cota.
+    pub claude: u8,
+    pub render: u8,
 }
 
 /// As etapas por que passa cada projeto, nesta ordem.
@@ -499,6 +563,17 @@ pub enum Evento {
         projeto: String,
         percentual: u8,
     },
+    /// O projeto passou a esperar, a usar ou soltou a vaga de um recurso.
+    VagaMudou {
+        projeto: String,
+        recurso: Recurso,
+        estado: EstadoDaVaga,
+    },
+    /// Mudou quantos vídeos andam ao mesmo tempo ou quantas vagas tem um recurso: a pessoa
+    /// escolheu outro número ou confirmou outro plano.
+    ParalelismoMudou {
+        paralelismo: Paralelismo,
+    },
     /// Uma ação do Claude numa sessão: a ferramenta (`Read`, `Bash`...) ou `texto`, e o que ela
     /// toca.
     AcaoDoClaude {
@@ -594,14 +669,18 @@ impl Nucleo {
         // Ler aqui, e não só em `estado_inicial`, faz o arquivo corrompido ir para o backup
         // antes de a Biblioteca ser escolhida; sem preferências legíveis vale a padrão.
         let mut preferencias = PreferencesFile::in_dir(&config.app_data_dir);
-        let guardada = preferencias.read().unwrap_or_default().biblioteca;
-        let biblioteca = guardada.map(PathBuf::from).unwrap_or_else(|| {
-            config
-                .pasta_de_videos
-                .or_else(|| config.home_dir.as_ref().map(|home| home.join("Videos")))
-                .unwrap_or_else(|| config.app_data_dir.clone())
-                .join("Shorts AI")
-        });
+        let lidas = preferencias.read().unwrap_or_default();
+        let biblioteca = lidas
+            .biblioteca
+            .clone()
+            .map(PathBuf::from)
+            .unwrap_or_else(|| {
+                config
+                    .pasta_de_videos
+                    .or_else(|| config.home_dir.as_ref().map(|home| home.join("Videos")))
+                    .unwrap_or_else(|| config.app_data_dir.clone())
+                    .join("Shorts AI")
+            });
         let claude = ClaudeCode::new(
             config.path_env.clone(),
             config.home_dir.clone(),
@@ -653,16 +732,18 @@ impl Nucleo {
             )
         });
         lote::pausar_interrompidos(&biblioteca);
+        let fila = Fila::new(
+            Arc::clone(&emit),
+            ligar,
+            transcritor,
+            roteirista,
+            producao,
+            ytdlp.clone(),
+        );
+        aplicar_paralelismo(&fila, &Paralelismo::das(&lidas));
         Self {
             biblioteca: Mutex::new(biblioteca),
-            fila: Fila::new(
-                Arc::clone(&emit),
-                ligar,
-                transcritor,
-                roteirista,
-                producao,
-                ytdlp.clone(),
-            ),
+            fila,
             ytdlp,
             aprendizados: Aprendizados::new(&config.app_data_dir, config.assets_dir.as_deref()),
             remotion: Remotion::new(
@@ -697,6 +778,7 @@ impl Nucleo {
             Ok(preferencias) => (preferencias, None),
             Err(erro) => (Preferencias::default(), Some(erro)),
         };
+        let paralelismo = Paralelismo::das(&preferencias);
         EstadoInicial {
             versao: env!("CARGO_PKG_VERSION").to_owned(),
             codigo_fonte: pagina_do_codigo_fonte(),
@@ -708,6 +790,7 @@ impl Nucleo {
             cotacao: preferencias.cotacao,
             chave_de_api_no_ambiente: self.chave_de_api_no_ambiente,
             biblioteca: self.biblioteca().display().to_string(),
+            paralelismo,
             erro,
             backup_das_preferencias: file.backup(),
         }
@@ -772,7 +855,29 @@ impl Nucleo {
         (self.emit)(Evento::PlanoConfirmado {
             plano: plano.clone(),
         });
+        self.mudar_paralelismo(&preferencias);
         Ok(plano)
+    }
+
+    /// Grava quantos vídeos andam ao mesmo tempo, de 1 a 6, ou volta ao automático com
+    /// `None`. Vale na hora: acima do número novo, quem roda termina o que faz.
+    pub fn definir_videos_ao_mesmo_tempo(&self, videos: Option<u8>) -> Result<Paralelismo, Erro> {
+        let mut file = self.preferences_file();
+        let mut preferencias = file.read()?;
+        preferencias.videos_ao_mesmo_tempo =
+            videos.map(|videos| videos.clamp(1, MAXIMO_DE_VIDEOS_AO_MESMO_TEMPO));
+        file.write(&preferencias)?;
+        Ok(self.mudar_paralelismo(&preferencias))
+    }
+
+    /// Passa à fila o paralelismo das preferências e avisa a interface.
+    fn mudar_paralelismo(&self, preferencias: &Preferencias) -> Paralelismo {
+        let paralelismo = Paralelismo::das(preferencias);
+        aplicar_paralelismo(&self.fila, &paralelismo);
+        (self.emit)(Evento::ParalelismoMudou {
+            paralelismo: paralelismo.clone(),
+        });
+        paralelismo
     }
 
     /// Grava o multiplicador do plano que a pessoa editou, ou volta ao padrão com `None`. Só a
@@ -1469,8 +1574,12 @@ impl Nucleo {
     /// da última etapa concluída.
     pub fn retomar(&self, id: &str) -> Result<(), Erro> {
         let (pasta, mut projeto) = self.projeto_em_curso(id, "retomar")?;
-        if projeto.parada.take().is_none() {
+        let Some(parada) = projeto.parada.take() else {
             return Err(acao_indisponivel(id, "retomar"));
+        };
+        if parada == Parada::AguardandoCota {
+            // "Retomar agora": a pessoa quer tentar antes da hora que o Claude deu.
+            self.fila.vagas().reabrir(Recurso::Claude);
         }
         self.gravar_projeto(&pasta, &projeto)?;
         (self.emit)(Evento::ParadaMudou {
@@ -1636,6 +1745,7 @@ impl Nucleo {
             }
         );
         let liberado = files::tamanho_da_pasta(pasta, ligado.then_some("bruto"));
+        self.fila.esquecer(id);
         fs::remove_dir_all(pasta).map_err(|error| Erro::ProjetoNaoExcluido {
             id: id.to_owned(),
             detalhe: error.to_string(),

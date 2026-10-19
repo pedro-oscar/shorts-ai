@@ -522,12 +522,21 @@ fn confirmar_plano_grava_nas_preferencias_e_avisa() {
         fator_de_custo: 0.2,
     };
     assert_eq!(plano, esperado);
+    let eventos = eventos.lock().unwrap();
+    let [.., confirmado, paralelismo] = eventos.as_slice() else {
+        panic!("{eventos:?}");
+    };
     assert_eq!(
-        eventos.lock().unwrap().last(),
-        Some(&Evento::PlanoConfirmado {
+        confirmado,
+        &Evento::PlanoConfirmado {
             plano: esperado.clone()
-        })
+        }
     );
+    // O Max deixa duas sessões do Claude ao mesmo tempo, e o automático passa a quatro vídeos.
+    let Evento::ParalelismoMudou { paralelismo } = paralelismo else {
+        panic!("{paralelismo:?}");
+    };
+    assert_eq!((paralelismo.automatico, paralelismo.vagas.claude), (4, 2));
     assert_eq!(cenario.nucleo().estado_inicial().plano, Some(esperado));
 }
 

@@ -155,6 +155,11 @@ export function createFakeNucleo(
     cotacao: null,
     chaveDeApiNoAmbiente: false,
     biblioteca: "/home/ana/Vídeos/Shorts AI",
+    paralelismo: {
+      videosAoMesmoTempo: null,
+      automatico: 1,
+      vagas: { gpu: 1, claude: 1, render: 1 },
+    },
     ...initial,
   };
   const faltando = new Set<Pacote>();
@@ -414,6 +419,16 @@ export function createFakeNucleo(
       const cotacao = valor === null ? null : { valor, data: "2026-10-12" };
       state = { ...state, cotacao };
       return Promise.resolve({ status: "ok", data: cotacao });
+    },
+    definirVideosAoMesmoTempo: (videos) => {
+      const paralelismo = {
+        ...state.paralelismo,
+        videosAoMesmoTempo:
+          videos === null ? null : Math.min(6, Math.max(1, videos)),
+      };
+      state = { ...state, paralelismo };
+      emit({ tipo: "paralelismoMudou", paralelismo });
+      return Promise.resolve({ status: "ok", data: paralelismo });
     },
     entrarNoClaudeCode: (modo, porTerminal) => {
       calls.entrar++;
