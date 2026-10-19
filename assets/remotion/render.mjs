@@ -1,6 +1,6 @@
 // Empacota o Remotion do projeto e renderiza um reel do pacote. Roda dentro de `remotion/`,
 // chamado pelo núcleo (a Produção): `node render.mjs pacote <pasta>` e
-// `node render.mjs render <pacote> <chave> <dados> <saída> <escala>`.
+// `node render.mjs render <pacote> <chave> <dados> <saída> <escala> <abas do Chrome>`.
 import {bundle} from '@remotion/bundler';
 import {renderMedia, selectComposition} from '@remotion/renderer';
 import fs from 'node:fs';
@@ -33,7 +33,7 @@ if (modo === 'pacote') {
     await fs.promises.rm(copia, {recursive: true, force: true});
   }
 } else if (modo === 'render') {
-  const [pacote, chave, dados, saida, escala] = args;
+  const [pacote, chave, dados, saida, escala, concurrency] = args;
   // Não o fs.cpSync: no Windows, o recursivo derruba o Node 22 (0xc0000409, sem mensagem)
   // quando o caminho tem acento, e a pasta do projeto leva o título do vídeo.
   await fs.promises.cp(dados, path.join(pacote, 'public', 'clips', chave), {recursive: true});
@@ -48,7 +48,7 @@ if (modo === 'pacote') {
     pixelFormat: 'yuv420p',
     imageFormat: 'jpeg',
     jpegQuality: 92,
-    concurrency: 4,
+    concurrency: Number(concurrency),
     scale: Number(escala),
     outputLocation: saida,
     overwrite: true,

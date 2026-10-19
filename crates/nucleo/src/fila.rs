@@ -210,22 +210,12 @@ impl Fila {
         });
         let do_despachante = Arc::clone(&compartilhado);
         thread::spawn(move || {
-            while let Some(proxima) = proximo(&do_despachante) {
-                match proxima {
-                    Proximo::Cota(pasta) => {
-                        voltar_da_espera(&pasta, &oficina.emit);
-                        travar(&do_despachante)
-                            .pendentes
-                            .push_back(Trabalho::Etapas(pasta));
-                    }
-                    Proximo::Trabalho(trabalho, controle, ordem) => {
-                        let oficina = Arc::clone(&oficina);
-                        let compartilhado = Arc::clone(&do_despachante);
-                        thread::spawn(move || {
-                            trabalhar(&oficina, &compartilhado, &trabalho, &controle, ordem);
-                        });
-                    }
-                }
+            while let Some((trabalho, controle, ordem)) = proximo(&do_despachante, &oficina.emit) {
+                let oficina = Arc::clone(&oficina);
+                let compartilhado = Arc::clone(&do_despachante);
+                thread::spawn(move || {
+                    trabalhar(&oficina, &compartilhado, &trabalho, &controle, ordem);
+                });
             }
         });
         Self {
@@ -393,18 +383,11 @@ impl Fila {
     }
 }
 
-/// O que o despachante faz a seguir.
-enum Proximo {
-    /// O trabalho começa, com a posição dele na fila.
-    Trabalho(Trabalho, Controle, u64),
-    /// A cota deve ter liberado para o projeto: ele volta para a fila.
-    Cota(PathBuf),
-}
-
 /// Espera o próximo trabalho que pode começar: há lugar abaixo do limite e o projeto dele não
-/// está rodando. `None` quando a fila foi largada. O trabalho que começa entra no
-/// `em_andamento`.
-fn proximo(compartilhado: &Compartilhado) -> Option<Proximo> {
+/// está rodando. Devolve o trabalho com a posição dele na fila, ou `None` quando a fila foi
+/// largada. O trabalho que começa entra no `em_andamento`; o projeto cuja cota deve ter
+/// liberado volta para o fim da fila.
+fn proximo(compartilhado: &Compartilhado, emit: &Emitir) -> Option<(Trabalho, Controle, u64)> {
     let mut estado = travar(compartilhado);
     loop {
         if estado.encerrar {
@@ -416,7 +399,13 @@ fn proximo(compartilhado: &Compartilhado) -> Option<Proximo> {
             .iter()
             .position(|(_, libera)| *libera <= agora)
         {
-            return Some(Proximo::Cota(estado.aguardando.remove(lugar).0));
+            // Sob a trava, junto com a saída da espera: quem cancela o projeto ao mesmo tempo
+            // o acha ainda na espera ou já de volta à fila, e nunca grava por cima desta volta.
+            let pasta = estado.aguardando.remove(lugar).0;
+            if voltar_da_espera(&pasta, emit) {
+                estado.pendentes.push_back(Trabalho::Etapas(pasta));
+            }
+            continue;
         }
         let livre = estado.em_andamento.len() < estado.limite;
         if let Some(lugar) = estado
@@ -437,7 +426,7 @@ fn proximo(compartilhado: &Compartilhado) -> Option<Proximo> {
                     etapas: trabalho.projeto().is_some(),
                 },
             );
-            return Some(Proximo::Trabalho(trabalho, controle, ordem));
+            return Some((trabalho, controle, ordem));
         }
         let proxima_liberacao = estado.aguardando.iter().map(|(_, libera)| *libera).min();
         estado = match proxima_liberacao {
@@ -567,13 +556,14 @@ fn instante_da_liberacao(libera_em: Option<i64>) -> Instant {
     Instant::now() + espera
 }
 
-/// A cota liberou: o projeto deixa de aguardar e volta ao fim da fila.
-fn voltar_da_espera(pasta: &Path, emit: &Emitir) {
+/// A cota liberou: o projeto deixa de aguardar. Devolve se ele ainda aguardava, isto é, se
+/// volta para a fila.
+fn voltar_da_espera(pasta: &Path, emit: &Emitir) -> bool {
     let Ok(mut projeto) = ProjetoJson::ler(pasta) else {
-        return;
+        return false;
     };
     if projeto.parada != Some(Parada::AguardandoCota) {
-        return;
+        return false;
     }
     projeto.parada = None;
     // Sem gravar, a parada some só até o app fechar; a reabertura pausa o projeto do mesmo jeito.
@@ -582,6 +572,7 @@ fn voltar_da_espera(pasta: &Path, emit: &Emitir) {
         projeto: nome_do_arquivo(pasta),
         parada: None,
     });
+    true
 }
 
 /// O render da versão final de um projeto cuja Produção já rodou. Os cortes e os rostos vêm do

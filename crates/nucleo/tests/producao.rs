@@ -39,11 +39,18 @@ case "$*" in
 *"-f null"*) exit 0 ;;
 esac
 for ultimo; do :; done
+case "$ultimo" in
+*original-c02*)
+  [ -f "$dir/corte-c02-falha" ] && { echo "corte quebrou" >&2; exit 1; }
+  touch "$dir/cortou-c02" ;;
+esac
 echo dados > "$ultimo"
 "#;
 
 /// Registra os argumentos. `pacote` cria a pasta do pacote; `render` anuncia o progresso e
-/// grava a saída (o penúltimo argumento é a saída, o último, a escala).
+/// grava a saída (o quinto argumento depois do script é a saída, o sexto, a escala, e o sétimo,
+/// as abas do Chrome). Com a marca `render-espera-corte`, o render do c01 espera o corte do c02
+/// começar.
 const NODE: &str = r#"#!/bin/sh
 dir="$(dirname "$0")"
 echo "$PWD: $@" >> "$dir/node.log"
@@ -55,6 +62,11 @@ echo "$PWD: $@" >> "$dir/node.log"
 case "$2" in
 pacote) mkdir -p "$3" ;;
 render)
+  if [ -f "$dir/render-espera-corte" ] && [ "$4" = original-c01 ]; then
+    i=0
+    while [ $i -lt 100 ] && [ ! -f "$dir/cortou-c02" ]; do sleep 0.1; i=$((i+1)); done
+    [ -f "$dir/cortou-c02" ] && touch "$dir/render-viu-corte"
+  fi
   echo "progresso 0.250"
   echo "progresso 1.000"
   saida="$6"
@@ -342,7 +354,11 @@ fn a_previa_sai_em_publicar_previas_em_escala_meia() {
             .exists()
     );
     let renders = cenario.renders();
-    assert!(renders.iter().all(|c| c.ends_with(" 0.5")), "{renders:?}");
+    // A escala vem antes das abas do Chrome, o último argumento.
+    assert!(
+        renders.iter().all(|c| c.rsplit(' ').nth(1) == Some("0.5")),
+        "{renders:?}"
+    );
 }
 
 #[test]
@@ -356,7 +372,7 @@ fn o_projeto_e_empacotado_uma_vez_e_cada_corte_e_renderizado_do_pacote() {
     assert_eq!(renders.len(), 2);
     assert!(renders[0].contains("remotion: "), "{renders:?}");
     assert!(renders[0].contains("render.mjs render "), "{renders:?}");
-    assert!(renders[0].ends_with(" 1"), "{renders:?}");
+    assert_eq!(renders[0].rsplit(' ').nth(1), Some("1"), "{renders:?}");
 }
 
 #[test]
@@ -718,11 +734,46 @@ fn o_progresso_avanca_por_reel_e_termina_em_um() {
         fracoes.windows(2).all(|par| par[0] <= par[1]),
         "{fracoes:?}"
     );
-    assert!(
-        fracoes.iter().any(|f| (*f - 0.5).abs() < 1e-9),
-        "{fracoes:?}"
-    );
+    // O preparo de um reel e o render do outro se misturam: não há mais um ponto exato por
+    // reel, só o caminho do começo ao fim.
+    assert!(fracoes.iter().any(|f| *f > 0.1 && *f < 0.9), "{fracoes:?}");
     assert!((fracoes.last().unwrap() - 1.0).abs() < 1e-9, "{fracoes:?}");
+}
+
+#[test]
+fn o_corte_do_reel_seguinte_comeca_antes_de_o_render_do_atual_terminar() {
+    let cenario = Cenario::novo();
+    fs::write(cenario.bin().join("render-espera-corte"), "").unwrap();
+
+    cenario.produzir(Qualidade::Final).unwrap();
+
+    assert!(
+        cenario.bin().join("render-viu-corte").exists(),
+        "o render do c01 terminou sem o corte do c02 começar"
+    );
+    assert_eq!(cenario.renders().len(), 2);
+}
+
+#[test]
+fn a_falha_no_preparo_do_reel_seguinte_vira_o_erro_da_producao() {
+    let cenario = Cenario::novo();
+    fs::write(cenario.bin().join("corte-c02-falha"), "").unwrap();
+
+    let erro = cenario.produzir(Qualidade::Final).unwrap_err();
+
+    assert!(matches!(erro, ErroDaProducao::Corte(_)), "{erro}");
+    assert!(cenario.renders_de("c02") == 0, "{:?}", cenario.renders());
+}
+
+#[test]
+fn o_render_recebe_as_abas_do_chrome() {
+    let cenario = Cenario::novo();
+
+    cenario.produzir(Qualidade::Final).unwrap();
+
+    let render = &cenario.renders()[0];
+    let abas: usize = render.rsplit(' ').next().unwrap().parse().unwrap();
+    assert!(abas >= 1, "{render}");
 }
 
 #[test]

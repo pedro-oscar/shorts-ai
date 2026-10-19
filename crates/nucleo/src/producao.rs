@@ -9,6 +9,10 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{self, RecvTimeoutError};
+use std::sync::{Mutex, PoisonError};
+use std::thread;
+use std::time::Duration;
 
 use serde_json::json;
 use sha2::{Digest, Sha256};
@@ -44,6 +48,9 @@ const TITULO_MAXIMO: usize = 50;
 /// Que parte do progresso de cada reel é o corte, o rosto e o render.
 const FIM_DO_CORTE: f64 = 0.25;
 const FIM_DO_ROSTO: f64 = 0.35;
+/// De quanto em quanto tempo o render, enquanto espera o preparo do próximo reel, avisa o
+/// progresso e confere o cancelamento.
+const ESPERA_PELO_PREPARO: Duration = Duration::from_millis(100);
 
 /// A versão final (1080×1920) ou a prévia, em meia escala.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -119,12 +126,44 @@ impl From<Interrupted> for ErroDaProducao {
     }
 }
 
+/// O que o preparo de um reel deixa para o render: o corte e o rosto em dia, com os hashes que
+/// os geraram.
+struct Preparado<'a> {
+    plano: &'a Plano,
+    /// `edit/cortes/<chave>/`.
+    pasta: PathBuf,
+    corte: PathBuf,
+    rosto: PathBuf,
+    hash_do_corte: String,
+    hash_do_rosto: String,
+    rosto_raro: bool,
+}
+
+fn travar<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// A fração feita da produção: o preparo vale até `FIM_DO_ROSTO` de cada reel, e o render, o
+/// resto.
+fn fracao_feita(preparo: &Mutex<Vec<f64>>, renderizado: &[f64]) -> f64 {
+    let preparo = travar(preparo);
+    let feito: f64 = preparo
+        .iter()
+        .zip(renderizado)
+        .map(|(preparo, render)| preparo * FIM_DO_ROSTO + render * (1.0 - FIM_DO_ROSTO))
+        .sum();
+    feito / preparo.len().max(1) as f64
+}
+
 pub struct Producao {
     ffmpeg: Ffmpeg,
     node: PathBuf,
     /// O Node que a preparação baixou; vale no lugar de `node` quando já existe, mesmo que
     /// tenha sido baixado depois de o app abrir.
     node_portatil: Option<NodePortatil>,
+    /// Quantas abas do Chrome o Remotion abre num render: metade das threads da máquina, o
+    /// padrão dele, porque o preparo do reel seguinte roda junto.
+    concurrency: usize,
 }
 
 impl Producao {
@@ -133,6 +172,7 @@ impl Producao {
             ffmpeg,
             node,
             node_portatil: None,
+            concurrency: crate::nucleos().div_ceil(2),
         }
     }
 
@@ -167,25 +207,86 @@ impl Producao {
         let hash_do_codigo = HashDoCodigo::ler(&remotion)?;
         let video = identidade(pedido.video)?;
         self.empacotar(pedido.pasta, &hash_do_codigo.do_pacote, cancelar, vez)?;
-        let total = planos.len();
-        let mut reels = Vec::new();
-        for (indice, plano) in planos.iter().enumerate() {
-            if cancelar.load(Ordering::Relaxed) {
-                return Err(ErroDaProducao::Cancelada);
-            }
-            let mut parcial = |fracao: f64| {
-                progresso((indice as f64 + fracao.clamp(0.0, 1.0)) / total as f64);
-            };
-            reels.push(self.produzir_reel(
+        // O preparo (corte e rosto) do reel seguinte roda numa thread enquanto esta renderiza
+        // o atual; ele publica aqui quanto já fez de cada reel.
+        let preparo = Mutex::new(vec![0.0; planos.len()]);
+        // Para o preparo quando o render falha ou a produção é cancelada.
+        let parar_o_preparo = AtomicBool::new(false);
+        thread::scope(|escopo| {
+            let (envio, preparados) = mpsc::sync_channel(1);
+            let (planos, video, preparo_do_reel, parar) =
+                (&planos, &video, &preparo, &parar_o_preparo);
+            escopo.spawn(move || {
+                for (indice, plano) in planos.iter().enumerate() {
+                    let preparado =
+                        self.preparar_reel(pedido, plano, video, parar, vez, &mut |fracao| {
+                            travar(preparo_do_reel)[indice] = fracao.clamp(0.0, 1.0);
+                        });
+                    let falhou = preparado.is_err();
+                    if envio.send(preparado).is_err() || falhou {
+                        break;
+                    }
+                }
+            });
+            let reels = self.renderizar_preparados(
                 pedido,
-                plano,
-                &video,
+                &preparados,
+                &preparo,
                 &hash_do_codigo,
                 cancelar,
                 vez,
-                &mut parcial,
+                progresso,
+            );
+            // Sem o render, ninguém espera o preparo: ele para no processo em que está.
+            if reels.is_err() {
+                parar_o_preparo.store(true, Ordering::SeqCst);
+            }
+            reels
+        })
+    }
+
+    /// Renderiza cada reel que o preparo entrega, na ordem do roteiro. Enquanto espera o
+    /// próximo, avisa o progresso e passa o cancelamento adiante.
+    #[allow(clippy::too_many_arguments)]
+    fn renderizar_preparados(
+        &self,
+        pedido: &Pedido,
+        preparados: &mpsc::Receiver<Result<Preparado, ErroDaProducao>>,
+        preparo: &Mutex<Vec<f64>>,
+        hash_do_codigo: &HashDoCodigo,
+        cancelar: &AtomicBool,
+        vez: &(dyn Fn() -> Result<(), ErroDaProducao> + Sync),
+        progresso: &mut dyn FnMut(f64),
+    ) -> Result<Vec<Reel>, ErroDaProducao> {
+        let total = travar(preparo).len();
+        let mut renderizado = vec![0.0; total];
+        let mut reels = Vec::with_capacity(total);
+        for indice in 0..total {
+            let preparado = loop {
+                match preparados.recv_timeout(ESPERA_PELO_PREPARO) {
+                    Ok(preparado) => break preparado?,
+                    Err(RecvTimeoutError::Timeout) => {
+                        if cancelar.load(Ordering::Relaxed) {
+                            return Err(ErroDaProducao::Cancelada);
+                        }
+                        progresso(fracao_feita(preparo, &renderizado));
+                    }
+                    Err(RecvTimeoutError::Disconnected) => return Err(ErroDaProducao::Cancelada),
+                }
+            };
+            reels.push(self.renderizar_reel(
+                pedido,
+                &preparado,
+                hash_do_codigo,
+                cancelar,
+                vez,
+                &mut |fracao| {
+                    renderizado[indice] = fracao.clamp(0.0, 1.0);
+                    progresso(fracao_feita(preparo, &renderizado));
+                },
             )?);
-            progresso((indice + 1) as f64 / total as f64);
+            renderizado[indice] = 1.0;
+            progresso(fracao_feita(preparo, &renderizado));
         }
         Ok(reels)
     }
@@ -268,17 +369,18 @@ impl Producao {
         Ok(())
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn produzir_reel(
+    /// O corte e o rosto do reel, cada um só se o que o gerou mudou. `progresso` recebe a
+    /// fração (0 a 1) do preparo.
+    fn preparar_reel<'a>(
         &self,
         pedido: &Pedido,
-        plano: &Plano,
+        plano: &'a Plano,
         video: &str,
-        hash_do_codigo: &HashDoCodigo,
         cancelar: &AtomicBool,
         vez: &(dyn Fn() -> Result<(), ErroDaProducao> + Sync),
         progresso: &mut dyn FnMut(f64),
-    ) -> Result<Reel, ErroDaProducao> {
+    ) -> Result<Preparado<'a>, ErroDaProducao> {
+        let fim_do_corte = FIM_DO_CORTE / FIM_DO_ROSTO;
         let edit = pedido.pasta.join("edit");
         let pasta = pedido.pasta.join(CORTES).join(&plano.chave);
         fs::create_dir_all(&pasta)?;
@@ -299,13 +401,13 @@ impl Producao {
                     &corte,
                     &trabalho,
                     cancelar,
-                    &mut |f| progresso(f * FIM_DO_CORTE),
+                    &mut |f| progresso(f * fim_do_corte),
                 )
             })?;
             let _ = fs::remove_dir_all(&trabalho);
             fs::write(pasta.join("corte.hash"), &hash_do_corte)?;
         }
-        progresso(FIM_DO_CORTE);
+        progresso(fim_do_corte);
 
         let rosto = pasta.join("face.json");
         let pins: Vec<Pin> = plano.pins.iter().filter_map(|p| Pin::analisar(p)).collect();
@@ -315,15 +417,46 @@ impl Producao {
             let rastro = tempos::medir(&edit, Passo::do_reel("rosto", &plano.id), || {
                 self.ffmpeg
                     .rastrear_rosto(&corte, &pins, cancelar, &mut |f| {
-                        progresso(FIM_DO_CORTE + f * (FIM_DO_ROSTO - FIM_DO_CORTE));
+                        progresso(fim_do_corte + f * (1.0 - fim_do_corte));
                     })
             })?;
             fs::write(&rosto, rastro.para_json())?;
             fs::write(pasta.join("face.hash"), &hash_do_rosto)?;
         }
         let rosto_raro = rosto_raro(&rosto);
-        progresso(FIM_DO_ROSTO);
+        progresso(1.0);
+        Ok(Preparado {
+            plano,
+            pasta,
+            corte,
+            rosto,
+            hash_do_corte,
+            hash_do_rosto,
+            rosto_raro,
+        })
+    }
 
+    /// O render do reel preparado, só se algo que entra nele mudou desde o último. `progresso`
+    /// recebe a fração (0 a 1) do render.
+    fn renderizar_reel(
+        &self,
+        pedido: &Pedido,
+        preparado: &Preparado,
+        hash_do_codigo: &HashDoCodigo,
+        cancelar: &AtomicBool,
+        vez: &(dyn Fn() -> Result<(), ErroDaProducao> + Sync),
+        progresso: &mut dyn FnMut(f64),
+    ) -> Result<Reel, ErroDaProducao> {
+        let Preparado {
+            plano,
+            pasta,
+            corte,
+            rosto,
+            hash_do_corte,
+            hash_do_rosto,
+            rosto_raro,
+        } = preparado;
+        let edit = pedido.pasta.join("edit");
         let legendas =
             serde_json::to_string_pretty(&plano.legendas).expect("as legendas serializam");
         let motion = serde_json::to_string_pretty(&plano.motion).expect("o motion serializa");
@@ -346,7 +479,7 @@ impl Producao {
         let reel = Reel {
             id: plano.id.clone(),
             arquivo: arquivo.clone(),
-            rosto_raro,
+            rosto_raro: *rosto_raro,
         };
         if let Some(anterior) = render_em_dia(&marca, &hash_do_render, &pasta_final)
             && (anterior == nome || fs::rename(pasta_final.join(&anterior), &arquivo).is_ok())
@@ -357,7 +490,7 @@ impl Producao {
 
         vez()?;
         let dados = pasta.join("clip");
-        let info = self.ffmpeg.sondar(&corte, cancelar)?;
+        let info = self.ffmpeg.sondar(corte, cancelar)?;
         let (largura, altura) = match info.rotacao {
             90 | 270 => (info.altura, info.largura),
             _ => (info.largura, info.altura),
@@ -373,15 +506,16 @@ impl Producao {
         });
         fs::write(dados.join("clip.json"), clip.to_string())?;
         fs::write(dados.join("captions.json"), legendas)?;
-        fs::write(dados.join("face.json"), fs::read(&rosto)?)?;
+        fs::write(dados.join("face.json"), fs::read(rosto)?)?;
         fs::write(dados.join("motion.json"), motion)?;
-        if fs::hard_link(&corte, dados.join("corte.mp4")).is_err() {
-            fs::copy(&corte, dados.join("corte.mp4"))?;
+        if fs::hard_link(corte, dados.join("corte.mp4")).is_err() {
+            fs::copy(corte, dados.join("corte.mp4"))?;
         }
 
         fs::create_dir_all(&pasta_final)?;
         let parcial = pasta.join(format!("render-{}.mp4", pedido.qualidade.nome()));
         let pacote = pedido.pasta.join("remotion").join(PACOTE);
+        let concurrency = self.concurrency.to_string();
         tempos::medir(&edit, Passo::do_reel("render", &plano.id), || {
             self.node(
                 &pedido.pasta.join("remotion"),
@@ -392,9 +526,10 @@ impl Producao {
                     dados.as_os_str(),
                     parcial.as_os_str(),
                     pedido.qualidade.escala().as_ref(),
+                    concurrency.as_ref(),
                 ],
                 cancelar,
-                &mut |fracao| progresso(FIM_DO_ROSTO + fracao * (1.0 - FIM_DO_ROSTO)),
+                progresso,
             )
         })?;
         fs::rename(&parcial, &arquivo)?;

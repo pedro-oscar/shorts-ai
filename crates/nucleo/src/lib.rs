@@ -209,6 +209,11 @@ pub const VERSAO_DO_AVISO: u32 = 2;
 /// atualizador, a tabela de preços e o código-fonte de cada ffmpeg (ADR 0006).
 pub const REPOSITORIO: &str = "https://github.com/pedro-oscar/shorts-ai";
 
+/// Quantas threads a máquina tem; os processos pesados recebem uma parte delas.
+pub(crate) fn nucleos() -> usize {
+    std::thread::available_parallelism().map_or(4, std::num::NonZero::get)
+}
+
 /// Passa à fila quantos vídeos rodam ao mesmo tempo e quantas sessões do Claude cabem.
 fn aplicar_paralelismo(fila: &Fila, paralelismo: &Paralelismo) {
     fila.definir_limite(usize::from(paralelismo.limite()));
@@ -1551,7 +1556,11 @@ impl Nucleo {
             Some(Parada::Cancelado) => Err(acao_indisponivel(id, "cancelar")),
             Some(Parada::Pausado) => self.registrar_parada(&pasta, projeto, Parada::Cancelado),
             Some(Parada::AguardandoCota) => {
-                self.fila.tirar(id);
+                // A cota pode ter acabado de liberar e o projeto, saído da espera: fora da fila,
+                // ele é cancelado onde estiver.
+                if !self.fila.tirar(id) && self.fila.cancelar(id) == Parou::EmAndamento {
+                    return Ok(());
+                }
                 self.registrar_parada(&pasta, projeto, Parada::Cancelado)
             }
             None => match self.fila.cancelar(id) {

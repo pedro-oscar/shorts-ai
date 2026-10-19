@@ -39,6 +39,8 @@ const SENTENCE_END: &str = ".。!！?？";
 const DURACAO_MINIMA: f64 = 0.05;
 /// Uma pausa de 0,5 s ou mais separa as frases da transcrição compactada.
 const PAUSA_ENTRE_FRASES: f64 = 0.5;
+/// As threads do whisper-cli quando ele roda na GPU.
+const THREADS_NA_GPU: u32 = 4;
 /// Quanto áudio a detecção de idioma escuta.
 const LANGUAGE_DETECTION_SECONDS: u32 = 30;
 /// O áudio de 16 kHz, mono, 16 bits: bytes por segundo.
@@ -358,9 +360,12 @@ impl Transcritor {
             );
         };
         if !*cpu_only {
+            // Na GPU o whisper.cpp pouco usa a CPU: quatro threads, o padrão dele, deixam o
+            // resto para o render de outro projeto.
+            let args = com_threads(args, self.threads.min(THREADS_NA_GPU));
             match run_whisper(
                 &self.whisper,
-                args,
+                &args,
                 work_dir,
                 response_file,
                 cancel,
@@ -389,6 +394,17 @@ impl Transcritor {
             .args(args);
         run_program("ffmpeg", command, cancel, &mut |_, _| {}).map(drop)
     }
+}
+
+/// Os argumentos com o `-t` trocado por `threads`.
+fn com_threads(args: &[String], threads: u32) -> Vec<String> {
+    let mut args = args.to_vec();
+    if let Some(posicao) = args.iter().position(|arg| arg == "-t")
+        && let Some(valor) = args.get_mut(posicao + 1)
+    {
+        *valor = threads.to_string();
+    }
+    args
 }
 
 /// Um whisper-cli com os argumentos num arquivo de resposta, rodando na pasta de trabalho. No

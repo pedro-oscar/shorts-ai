@@ -22,11 +22,13 @@ case "$*" in
 esac
 "#;
 
+/// Imita o corte; para o rosto, entrega só dois quadros, porque o YuNet em debug é lento e o
+/// rosto não importa aqui.
 const FFMPEG: &str = r#"#!/bin/sh
 dir="$(dirname "$0")"
 case "$*" in
 *rawvideo*)
-  for i in 1 2 3 4 5 6 7 8 9 10; do cat "$dir/quadro.rgb"; done
+  cat "$dir/quadro.rgb" "$dir/quadro.rgb"
   exit 0 ;;
 *signalstats*)
   echo "lavfi.signalstats.YAVG=120"
@@ -299,9 +301,10 @@ impl Cenario {
         }
     }
 
-    /// Recebe eventos até `condicao` valer para os que já vieram, ou falha depois de 20 s.
+    /// Recebe eventos até `condicao` valer para os que já vieram, ou falha depois de 60 s (com
+    /// a suíte inteira rodando junto, a Produção em debug demora).
     fn ate(&mut self, condicao: impl Fn(&[Evento]) -> bool) {
-        let limite = Instant::now() + Duration::from_secs(20);
+        let limite = Instant::now() + Duration::from_secs(60);
         while !condicao(&self.vistos) {
             let resta = limite.saturating_duration_since(Instant::now());
             let evento = self

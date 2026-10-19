@@ -287,7 +287,10 @@ fn a_versao_final_nao_abre_sessao_do_claude_e_reaproveita_cortes_e_rostos() {
         .filter(|c| c.contains(" render "))
         .collect();
     assert_eq!(renders.len(), 4);
-    assert!(renders[2].ends_with(" 1") && renders[3].ends_with(" 1"));
+    // Em escala cheia; a escala vem antes das abas do Chrome, o último argumento.
+    let escala = |render: &String| render.rsplit(' ').nth(1).map(str::to_owned);
+    assert_eq!(escala(&renders[2]).as_deref(), Some("1"), "{renders:?}");
+    assert_eq!(escala(&renders[3]).as_deref(), Some("1"), "{renders:?}");
 }
 
 #[test]

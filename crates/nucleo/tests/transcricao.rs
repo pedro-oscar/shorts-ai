@@ -640,12 +640,28 @@ echo "whisper_print_progress_callback: progress = 100%" >&2
             "{}",
             chamadas[1]
         );
-        // O mesmo pedido, só que sem GPU.
+        // O mesmo pedido, só que sem GPU e com as threads da CPU: na GPU, quatro bastam.
+        let threads = |chamada: &str| -> u32 {
+            chamada
+                .split(" -t ")
+                .nth(1)
+                .unwrap()
+                .split(' ')
+                .next()
+                .unwrap()
+                .parse()
+                .unwrap()
+        };
+        let (na_gpu, na_cpu) = (threads(&chamadas[0]), threads(&chamadas[1]));
+        assert!(na_gpu <= 4 && na_gpu <= na_cpu, "{chamadas:?}");
         assert_eq!(
             chamadas[1].trim_end(),
             format!(
                 "whisper-cli-cpu {} -ng",
-                chamadas[0].trim_end().trim_start_matches("whisper-cli ")
+                chamadas[0]
+                    .trim_end()
+                    .trim_start_matches("whisper-cli ")
+                    .replacen(&format!(" -t {na_gpu} "), &format!(" -t {na_cpu} "), 1)
             )
         );
     }

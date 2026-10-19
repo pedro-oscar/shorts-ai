@@ -5,8 +5,8 @@
 use std::io::{self, Read};
 use std::path::Path;
 use std::process::Stdio;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, PoisonError};
 
 use serde::Serialize;
 use tract_onnx::prelude::*;
@@ -229,6 +229,10 @@ fn decodificar(saidas: &[SaidaDoStride]) -> Vec<Caixa> {
 /// A rede carregada para um tamanho de quadro.
 type Rede = Arc<TypedSimplePlan>;
 
+/// As redes já otimizadas, por tamanho de quadro, para todos os detectores: otimizar o YuNet
+/// leva segundos, e os reels de todos os projetos repetem os mesmos poucos tamanhos.
+static REDES: Mutex<Vec<((usize, usize), Rede)>> = Mutex::new(Vec::new());
+
 /// O YuNet em CPU.
 pub struct Detector {
     redes: Vec<((usize, usize), Rede)>,
@@ -243,9 +247,19 @@ impl Detector {
         if let Some(i) = self.redes.iter().position(|(t, _)| *t == (largura, altura)) {
             return Ok(&self.redes[i].1);
         }
-        let mut modelo = tract_onnx::onnx().model_for_read(&mut &MODELO[..])?;
-        modelo.set_input_fact(0, f32::fact([1, 3, altura, largura]).into())?;
-        let rede = modelo.into_optimized()?.into_runnable()?;
+        let rede = {
+            let mut redes = REDES.lock().unwrap_or_else(PoisonError::into_inner);
+            match redes.iter().find(|(t, _)| *t == (largura, altura)) {
+                Some((_, rede)) => Arc::clone(rede),
+                None => {
+                    let mut modelo = tract_onnx::onnx().model_for_read(&mut &MODELO[..])?;
+                    modelo.set_input_fact(0, f32::fact([1, 3, altura, largura]).into())?;
+                    let rede = modelo.into_optimized()?.into_runnable()?;
+                    redes.push(((largura, altura), Arc::clone(&rede)));
+                    rede
+                }
+            }
+        };
         self.redes.push(((largura, altura), rede));
         Ok(&self.redes.last().expect("acabou de entrar").1)
     }

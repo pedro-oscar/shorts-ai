@@ -362,11 +362,18 @@ fn executar(
 pub struct Ffmpeg {
     ffmpeg: PathBuf,
     ffprobe: PathBuf,
+    /// As threads da codificação de cada trecho: um quarto das da máquina, porque o corte do
+    /// reel seguinte roda junto com o render do atual.
+    threads: usize,
 }
 
 impl Ffmpeg {
     pub fn new(ffmpeg: PathBuf, ffprobe: PathBuf) -> Self {
-        Self { ffmpeg, ffprobe }
+        Self {
+            ffmpeg,
+            ffprobe,
+            threads: (crate::nucleos() / 4).max(2),
+        }
     }
 
     /// Monta o vídeo horizontal do corte em `saida`. `progresso` recebe a fração (0 a 1) já
@@ -538,6 +545,8 @@ impl Ffmpeg {
             "fast".into(),
             "-crf".into(),
             "18".into(),
+            "-threads".into(),
+            self.threads.to_string().into(),
             "-c:a".into(),
             "aac".into(),
             "-ar".into(),
