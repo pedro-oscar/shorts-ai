@@ -10,9 +10,12 @@ import { RegrasAprendidas } from "./RegrasAprendidas";
 import { ErrorMessage, Screen, Topo } from "./common";
 
 const IDIOMAS: IdiomaDaInterface[] = ["pt-BR", "en"];
+/** Quantos vídeos ao mesmo tempo a pessoa pode escolher, além do automático. */
+const VIDEOS = [1, 2, 3, 4, 5, 6];
 const SECOES = [
   "biblioteca",
   "idioma",
+  "videos",
   "conta",
   "moeda",
   "kits",
@@ -42,6 +45,8 @@ export function Configuracoes({
   const erro = useAppStore((store) => store.erroDasConfiguracoes);
   const trocarBiblioteca = useAppStore((store) => store.trocarBiblioteca);
   const definirIdioma = useAppStore((store) => store.definirIdioma);
+  const paralelismo = useAppStore((store) => store.paralelismo);
+  const definirVideos = useAppStore((store) => store.definirVideosAoMesmoTempo);
   const conta = useAppStore((store) => store.conta);
   const verificarConta = useAppStore((store) => store.verificarConta);
   const [diagnostico, setDiagnostico] = useState(false);
@@ -106,6 +111,32 @@ export function Configuracoes({
                   ))}
                 </select>
               </label>
+            </section>
+
+            <section className="cartao" id="configuracoes-videos">
+              <h2>{t("configuracoes.videosTitulo")}</h2>
+              <label className="campo">
+                <span>{t("configuracoes.videos")}</span>
+                <select
+                  value={paralelismo?.videosAoMesmoTempo ?? ""}
+                  onChange={(event) => {
+                    const valor = event.target.value;
+                    void definirVideos(valor === "" ? null : Number(valor));
+                  }}
+                >
+                  <option value="">
+                    {t("configuracoes.videosAutomatico", {
+                      count: paralelismo?.automatico ?? 1,
+                    })}
+                  </option>
+                  {VIDEOS.map((videos) => (
+                    <option key={videos} value={videos}>
+                      {videos}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <p className="muted">{t("configuracoes.videosDica")}</p>
             </section>
 
             <section className="cartao" id="configuracoes-conta">

@@ -70,6 +70,7 @@ export const en: typeof ptBR = {
     secoes: {
       biblioteca: "Library",
       idioma: "Language",
+      videos: "Videos at once",
       conta: "Account and plan",
       moeda: "Currency",
       kits: "Brand kits",
@@ -85,6 +86,11 @@ export const en: typeof ptBR = {
     idiomaTitulo: "Interface language",
     idioma: "Language",
     idiomas: { "pt-BR": "Português (Brasil)", en: "English" },
+    videosTitulo: "Videos at once",
+    videos: "Videos at once",
+    videosAutomatico: "Automatic ({{count}})",
+    videosDica:
+      "Each stage waits for the slot of what it uses: the GPU in Transcription, Claude in Script and Review, the render in Production. With more than one video, one video's Claude session runs while another renders. Automatic adds two to the Claude sessions your plan allows.",
     diagnosticoTitulo: "Diagnostics",
     diagnosticoDica:
       "What the computer has and what is missing: the graphics card, free space, dependencies and Claude Code.",
@@ -423,6 +429,11 @@ export const en: typeof ptBR = {
     },
     arrasteParaReordenar: "Drag to reorder",
     etapaNdeM: "stage {{n}}/{{m}}",
+    esperandoVaga: {
+      gpu: "waiting for the GPU",
+      claude: "waiting for a Claude slot",
+      render: "waiting for the render slot",
+    },
     percentual: "{{percentual}}%",
     progresso: "Progress of {{nome}}",
     acoesDoClaude: "Claude's actions",
@@ -509,7 +520,10 @@ export const en: typeof ptBR = {
     render: "Render",
     livre: "free",
     emUso: "{{etapa}} of {{nome}}",
-    versaoFinal: "final version",
+    versaoFinalDe: "final version of {{nome}}",
+    ocupacao: "{{usadas}}/{{total}}",
+    esperando_one: "{{count}} waiting",
+    esperando_other: "{{count}} waiting",
     naFila_one: "{{count}} queued",
     naFila_other: "{{count}} queued",
   },

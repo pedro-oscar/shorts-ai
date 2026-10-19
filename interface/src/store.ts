@@ -21,9 +21,11 @@ import type {
   NivelDoPlano,
   Pacote,
   Padroes,
+  Paralelismo,
   PeriodoDeCobranca,
   PlanoConfirmado,
   ProjetoResumo,
+  Recurso,
   Regra,
   VerificacaoDaLogo,
 } from "./bindings";
@@ -108,6 +110,18 @@ export interface VersaoFinalDoProjeto {
   falha: string | null;
 }
 
+/** Quem usa e quem espera a vaga de um recurso, pelos ids dos projetos, na ordem em que chegaram. */
+export interface UsoDaVaga {
+  usando: string[];
+  esperando: string[];
+}
+
+const VAGAS_LIVRES: Record<Recurso, UsoDaVaga> = {
+  gpu: { usando: [], esperando: [] },
+  claude: { usando: [], esperando: [] },
+  render: { usando: [], esperando: [] },
+};
+
 /** O que a preparação informa de um pacote enquanto baixa. */
 export interface AndamentoDoPacote {
   estado: EstadoDaEtapa;
@@ -162,6 +176,10 @@ export interface AppState {
   chaveDeApiNoAmbiente: boolean;
   /** A Biblioteca, onde ficam os projetos. */
   biblioteca: string;
+  /** Quantos vídeos andam ao mesmo tempo e quantas vagas tem cada recurso; `null` até o núcleo dizer. */
+  paralelismo: Paralelismo | null;
+  /** Quem usa e quem espera cada vaga, pelos eventos do núcleo. */
+  vagas: Record<Recurso, UsoDaVaga>;
   /** Por que a última troca da Biblioteca ou do idioma não foi feita. */
   erroDasConfiguracoes: Erro | null;
   /** O que o Diagnóstico achou; `null` até ele terminar de conferir. */
@@ -221,6 +239,8 @@ export interface AppStore extends AppState {
   /** Pede a pasta da nova Biblioteca e passa a usá-la; a lista de lotes é relida de lá. */
   trocarBiblioteca: () => Promise<void>;
   definirIdioma: (idioma: IdiomaDaInterface) => Promise<void>;
+  /** Escolhe quantos vídeos andam ao mesmo tempo, de 1 a 6, ou volta ao automático com `null`. */
+  definirVideosAoMesmoTempo: (videos: number | null) => Promise<void>;
   carregarRegrasAprendidas: () => Promise<void>;
   carregarKits: () => Promise<void>;
   /** Abre o seletor da logo; o caminho escolhido, ou `null` se a pessoa cancelou. */
@@ -524,6 +544,31 @@ export function createAppStore(nucleo: Nucleo) {
             tokens: { entrada: evento.entrada, cache: evento.cache },
           }));
           break;
+        case "vagaMudou":
+          set((current) => {
+            const fora = (ids: string[]) =>
+              ids.filter((id) => id !== evento.projeto);
+            const uso = current.vagas[evento.recurso];
+            return {
+              vagas: {
+                ...current.vagas,
+                [evento.recurso]: {
+                  usando:
+                    evento.estado === "usando"
+                      ? [...fora(uso.usando), evento.projeto]
+                      : fora(uso.usando),
+                  esperando:
+                    evento.estado === "esperando"
+                      ? [...fora(uso.esperando), evento.projeto]
+                      : fora(uso.esperando),
+                },
+              },
+            };
+          });
+          break;
+        case "paralelismoMudou":
+          set({ paralelismo: evento.paralelismo });
+          break;
       }
     }
 
@@ -568,6 +613,8 @@ export function createAppStore(nucleo: Nucleo) {
       cotacao: null,
       chaveDeApiNoAmbiente: false,
       biblioteca: "",
+      paralelismo: null,
+      vagas: VAGAS_LIVRES,
       erroDasConfiguracoes: null,
       diagnostico: null,
       regrasAprendidas: null,
@@ -632,6 +679,8 @@ export function createAppStore(nucleo: Nucleo) {
               cotacao: inicial.cotacao,
               chaveDeApiNoAmbiente: inicial.chaveDeApiNoAmbiente,
               biblioteca: inicial.biblioteca,
+              // Um paralelismo que chegou por evento vale mais que o do estado inicial.
+              paralelismo: current.paralelismo ?? inicial.paralelismo,
               preparacao: current.preparacao ?? preparacao,
               lotes,
               // Um projeto que chegou por evento vale mais que o do disco.
@@ -705,6 +754,15 @@ export function createAppStore(nucleo: Nucleo) {
           erroDasConfiguracoes: null,
           app: current.app && { ...current.app, idiomaDaInterface: idioma },
         }));
+      },
+
+      definirVideosAoMesmoTempo: async (videos) => {
+        const result = await nucleo.definirVideosAoMesmoTempo(videos);
+        if (result.status === "error") {
+          set({ erroDasConfiguracoes: result.error });
+          return;
+        }
+        set({ erroDasConfiguracoes: null, paralelismo: result.data });
       },
 
       carregarRegrasAprendidas: async () => {

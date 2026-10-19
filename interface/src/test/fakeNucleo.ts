@@ -1,13 +1,14 @@
 import type {
-  ArquivoDoLote,
   Aceite,
   AlvoParaAbrir,
   ArquivoDeVideo,
+  ArquivoDoLote,
   DadosDoProjeto,
   Diagnostico,
   Erro,
   EstadoDaConta,
   EstadoDaPreparacao,
+  EstadoDaVaga,
   EstadoInicial,
   Estimativa,
   Evento,
@@ -21,6 +22,7 @@ import type {
   Padroes,
   PlanoConfirmado,
   ProjetoResumo,
+  Recurso,
   Regra,
   ResumoDeCusto,
   VerificacaoDaLogo,
@@ -236,6 +238,8 @@ export function createFakeNucleo(
     logins: [] as { modo: ModoDeLogin; porTerminal: boolean }[],
     /** Os projetos de cada `gerarVersaoFinal`. */
     versoesFinais: [] as string[][],
+    /** O número de cada `definirVideosAoMesmoTempo`; `null` é o automático. */
+    videosAoMesmoTempo: [] as (number | null)[],
     /** Cada ação do ciclo de vida pedida, como `pausar:<id>` ou `retomarLote:<lote>`. */
     ciclo: [] as string[],
     /** O projeto e as exceções de cada `definirExcecoes`. */
@@ -421,6 +425,7 @@ export function createFakeNucleo(
       return Promise.resolve({ status: "ok", data: cotacao });
     },
     definirVideosAoMesmoTempo: (videos) => {
+      calls.videosAoMesmoTempo.push(videos);
       const paralelismo = {
         ...state.paralelismo,
         videosAoMesmoTempo:
@@ -790,6 +795,10 @@ export function createFakeNucleo(
       falha: string | null = null,
     ) => {
       emit({ tipo: "etapaMudou", projeto, etapa, estado, falha });
+    },
+    /** O núcleo avisa que o projeto passou a esperar, a usar ou soltou a vaga do recurso. */
+    vaga: (projeto: string, recurso: Recurso, estado: EstadoDaVaga) => {
+      emit({ tipo: "vagaMudou", projeto, recurso, estado });
     },
   };
 }

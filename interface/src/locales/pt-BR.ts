@@ -71,6 +71,7 @@ export const ptBR = {
     secoes: {
       biblioteca: "Biblioteca",
       idioma: "Idioma",
+      videos: "Vídeos ao mesmo tempo",
       conta: "Conta e plano",
       moeda: "Moeda",
       kits: "Kits de marca",
@@ -86,6 +87,11 @@ export const ptBR = {
     idiomaTitulo: "Idioma da interface",
     idioma: "Idioma",
     idiomas: { "pt-BR": "Português (Brasil)", en: "English" },
+    videosTitulo: "Vídeos ao mesmo tempo",
+    videos: "Vídeos ao mesmo tempo",
+    videosAutomatico: "Automático ({{count}})",
+    videosDica:
+      "Cada etapa espera a vaga do que usa: a GPU na Transcrição, o Claude no Roteiro e na Revisão, o render na Produção. Com mais de um vídeo, o Claude de um roda enquanto outro renderiza. O automático soma dois às sessões do Claude que o seu plano aguenta.",
     diagnosticoTitulo: "Diagnóstico",
     diagnosticoDica:
       "O que o computador tem e o que falta: a placa de vídeo, o espaço livre, as dependências e o Claude Code.",
@@ -424,6 +430,11 @@ export const ptBR = {
     },
     arrasteParaReordenar: "Arraste para reordenar",
     etapaNdeM: "etapa {{n}}/{{m}}",
+    esperandoVaga: {
+      gpu: "esperando a GPU",
+      claude: "esperando vaga do Claude",
+      render: "esperando vaga do render",
+    },
     percentual: "{{percentual}}%",
     progresso: "Progresso de {{nome}}",
     acoesDoClaude: "Ações do Claude",
@@ -510,7 +521,10 @@ export const ptBR = {
     render: "Render",
     livre: "livre",
     emUso: "{{etapa}} de {{nome}}",
-    versaoFinal: "versão final",
+    versaoFinalDe: "versão final de {{nome}}",
+    ocupacao: "{{usadas}}/{{total}}",
+    esperando_one: "{{count}} esperando",
+    esperando_other: "{{count}} esperando",
     naFila_one: "{{count}} na fila",
     naFila_other: "{{count}} na fila",
   },

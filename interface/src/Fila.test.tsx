@@ -2,7 +2,7 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { act } from "react";
 import { expect, test, vi } from "vitest";
-import type { LoteResumo, ProjetoResumo } from "./bindings";
+import type { EstadoInicial, LoteResumo, ProjetoResumo } from "./bindings";
 import { App } from "./App";
 import { PADROES_INICIAIS } from "./store";
 import {
@@ -49,7 +49,11 @@ function projeto(
   };
 }
 
-function renderApp(projetos: ProjetoResumo[], ausentes: string[] = []) {
+function renderApp(
+  projetos: ProjetoResumo[],
+  ausentes: string[] = [],
+  inicial: Partial<EstadoInicial> = {},
+) {
   const lote: LoteResumo = {
     id: LOTE_ID,
     nome: "Lote de 08/10 14:32",
@@ -60,7 +64,7 @@ function renderApp(projetos: ProjetoResumo[], ausentes: string[] = []) {
     aberto: true,
     custo: SEM_CUSTO,
   };
-  const fake = createFakeNucleo(INICIAL, LOGADO, [lote]);
+  const fake = createFakeNucleo({ ...INICIAL, ...inicial }, LOGADO, [lote]);
   render(<App nucleo={fake.nucleo} />);
   return { ...fake, user: userEvent.setup() };
 }
@@ -236,8 +240,62 @@ test("as vagas dizem quem usa a GPU, o Claude e o render", async () => {
   expect(vagas).toHaveTextContent("1 na fila");
 
   app.etapa("aula", "roteiro", "emAndamento");
+  app.vaga("aula", "claude", "usando");
 
   await within(vagas).findByText("Roteiro de aula");
   expect(vagas).toHaveTextContent(/GPU\s*livre/);
   expect(vagas).toHaveTextContent(/Render\s*livre/);
+});
+
+test("com duas vagas do Claude, o rodapé mostra quem as usa e quantos esperam, e o cartão de quem espera diz o quê", async () => {
+  const app = renderApp(
+    [projeto("aula", 2), projeto("live", 2), projeto("podcast", 2)],
+    [],
+    {
+      paralelismo: {
+        videosAoMesmoTempo: null,
+        automatico: 4,
+        vagas: { gpu: 1, claude: 2, render: 1 },
+      },
+    },
+  );
+  const vagas = await screen.findByRole("contentinfo", { name: "Vagas" });
+
+  for (const nome of ["aula", "live"]) {
+    app.etapa(nome, "roteiro", "emAndamento");
+    app.vaga(nome, "claude", "usando");
+  }
+  app.vaga("podcast", "claude", "esperando");
+
+  await within(vagas).findByText(
+    "Roteiro de aula · Roteiro de live (2/2) · 1 esperando",
+  );
+  expect(screen.getByRole("listitem", { name: "podcast" })).toHaveTextContent(
+    "esperando vaga do Claude",
+  );
+
+  app.vaga("aula", "claude", "livre");
+  app.etapa("aula", "roteiro", "concluida");
+  app.vaga("podcast", "claude", "usando");
+  app.etapa("podcast", "roteiro", "emAndamento");
+
+  await within(vagas).findByText("Roteiro de live · Roteiro de podcast (2/2)");
+  expect(
+    screen.getByRole("listitem", { name: "podcast" }),
+  ).not.toHaveTextContent("esperando vaga");
+});
+
+test("o render da versão final aparece na vaga do render", async () => {
+  const app = renderApp([projeto("aula", 5)]);
+  const vagas = await screen.findByRole("contentinfo", { name: "Vagas" });
+
+  app.emitir({
+    tipo: "versaoFinalMudou",
+    projeto: "aula",
+    estado: "emAndamento",
+    falha: null,
+  });
+  app.vaga("aula", "render", "usando");
+
+  await within(vagas).findByText("versão final de aula");
 });

@@ -6,7 +6,7 @@ import {
   type ReactNode,
 } from "react";
 import { useTranslation } from "react-i18next";
-import type { Etapa, LoteResumo, ProjetoResumo } from "../bindings";
+import type { LoteResumo, ProjetoResumo, Recurso } from "../bindings";
 import { useAppStore } from "../context";
 import type { AcaoDoClaude, ProjetoNaFila } from "../store";
 import {
@@ -269,6 +269,11 @@ function Cartao({
   const tentarDeNovo = useAppStore((store) => store.tentarDeNovo);
   const mover = useAppStore((store) => store.moverNaFila);
   const remover = useAppStore((store) => store.removerProjeto);
+  const esperando = useAppStore((store) =>
+    RECURSOS.find((recurso) =>
+      store.vagas[recurso].esperando.includes(projeto.id),
+    ),
+  );
   const [confirmando, setConfirmando] = useState(false);
   const resumo = resumir(projeto);
   const { estado } = resumo;
@@ -488,6 +493,7 @@ function Cartao({
           })}`}
         {projeto.percentual !== null &&
           ` · ${t("linha.percentual", { percentual: projeto.percentual })}`}
+        {esperando && ` · ${t(`linha.esperandoVaga.${esperando}`)}`}
       </span>
       {estado !== "naFila" && estado !== "pronto" && (
         <progress
@@ -554,55 +560,58 @@ function Cartao({
   );
 }
 
-/** As vagas da linha: a GPU, o Claude e o render, e quem está usando cada uma. */
+const RECURSOS: Recurso[] = ["gpu", "claude", "render"];
+
+/**
+ * As vagas da linha: a GPU, o Claude e o render, quem está usando cada uma (com a ocupação,
+ * quando cabe mais de um) e quantos esperam.
+ */
 function Vagas({ projetos }: { projetos: ProjetoNaFila[] }) {
   const { t } = useTranslation();
+  const vagas = useAppStore((store) => store.vagas);
+  const capacidade = useAppStore((store) => store.paralelismo?.vagas);
   const versoesFinais = useAppStore((store) => store.versoesFinais);
-  const rodando = projetos.flatMap((projeto) =>
-    projeto.etapas
-      .filter((item) => item.estado === "emAndamento")
-      .map((item) => ({ projeto, etapa: item.etapa })),
-  );
-  const usando = (etapas: Etapa[]) =>
-    rodando.find((item) => etapas.includes(item.etapa));
-  const render =
-    usando(["producao"]) ??
-    (Object.entries(versoesFinais).some(
-      ([, versao]) => versao.estado === "emAndamento",
-    )
-      ? "versaoFinal"
-      : undefined);
-  const vaga = (
-    chave: "gpu" | "claude" | "render",
-    uso: { projeto: ProjetoNaFila; etapa: Etapa } | "versaoFinal" | undefined,
-  ) => (
-    <span className="vaga">
-      <span className="vaga-nome">{t(`vagas.${chave}`)}</span>
-      <span
-        className={`vaga-luz ${chave}${uso ? " ocupada" : ""}`}
-        aria-hidden="true"
-      />
-      <span>
-        {uso === undefined
-          ? t("vagas.livre")
-          : uso === "versaoFinal"
-            ? t("vagas.versaoFinal")
-            : t("vagas.emUso", {
-                etapa: t(`linha.etapas.${uso.etapa}`),
-                nome: uso.projeto.titulo,
-              })}
+  const todos = useAppStore((store) => store.projetos);
+  /** O que o projeto faz com a vaga: a etapa em andamento ou a versão final. */
+  const uso = (id: string) => {
+    const projeto = todos.find((item) => item.id === id);
+    const nome = projeto?.titulo ?? id;
+    if (versoesFinais[id]?.estado === "emAndamento")
+      return t("vagas.versaoFinalDe", { nome });
+    const etapa = projeto?.etapas.find(
+      (item) => item.estado === "emAndamento",
+    )?.etapa;
+    return etapa
+      ? t("vagas.emUso", { etapa: t(`linha.etapas.${etapa}`), nome })
+      : nome;
+  };
+  const vaga = (recurso: Recurso) => {
+    const { usando, esperando } = vagas[recurso];
+    const total = capacidade?.[recurso] ?? 1;
+    return (
+      <span key={recurso} className="vaga">
+        <span className="vaga-nome">{t(`vagas.${recurso}`)}</span>
+        <span
+          className={`vaga-luz ${recurso}${usando.length > 0 ? " ocupada" : ""}`}
+          aria-hidden="true"
+        />
+        <span>
+          {usando.length === 0 ? t("vagas.livre") : usando.map(uso).join(" · ")}
+          {total > 1 &&
+            ` (${t("vagas.ocupacao", { usadas: usando.length, total })})`}
+          {esperando.length > 0 &&
+            ` · ${t("vagas.esperando", { count: esperando.length })}`}
+        </span>
       </span>
-    </span>
-  );
+    );
+  };
   const naFila = projetos.filter(
     (projeto) => resumir(projeto).estado === "naFila",
   ).length;
   return (
     <footer className="vagas" aria-label={t("vagas.titulo")}>
       <span className="rotulo">{t("vagas.titulo")}</span>
-      {vaga("gpu", usando(["transcricao"]))}
-      {vaga("claude", usando(["roteiro", "revisao"]))}
-      {vaga("render", render)}
+      {RECURSOS.map(vaga)}
       <span className="espaco" />
       <span className="muted">{t("vagas.naFila", { count: naFila })}</span>
     </footer>

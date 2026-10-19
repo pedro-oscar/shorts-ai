@@ -116,6 +116,21 @@ test("trocar o idioma passa a interface para o inglês", async () => {
   expect(calls.idiomas).toEqual(["en"]);
 });
 
+test("Vídeos ao mesmo tempo mostra o automático e grava o número escolhido", async () => {
+  const app = await abrirConfiguracoes();
+  const campo = await screen.findByRole("combobox", {
+    name: "Vídeos ao mesmo tempo",
+  });
+  expect(campo).toHaveDisplayValue("Automático (1)");
+
+  await app.user.selectOptions(campo, "2");
+  expect(campo).toHaveDisplayValue("2");
+  await app.user.selectOptions(campo, "Automático (1)");
+
+  expect(campo).toHaveDisplayValue("Automático (1)");
+  expect(app.calls.videosAoMesmoTempo).toEqual([2, null]);
+});
+
 test("o Diagnóstico mostra a GPU, o disco, as dependências e o Claude Code", async () => {
   const { user } = await abrirConfiguracoes();
 
