@@ -16,6 +16,7 @@ use std::process::Command;
 use std::sync::atomic::AtomicBool;
 
 use serde::{Deserialize, Serialize};
+use time::OffsetDateTime;
 
 use crate::Etapa;
 use crate::files::write_json;
@@ -39,8 +40,6 @@ const SENTENCE_END: &str = ".。!！?？";
 const DURACAO_MINIMA: f64 = 0.05;
 /// Uma pausa de 0,5 s ou mais separa as frases da transcrição compactada.
 const PAUSA_ENTRE_FRASES: f64 = 0.5;
-/// As threads do whisper-cli quando ele roda na GPU.
-const THREADS_NA_GPU: u32 = 4;
 /// Quanto áudio a detecção de idioma escuta.
 const LANGUAGE_DETECTION_SECONDS: u32 = 30;
 /// O áudio de 16 kHz, mono, 16 bits: bytes por segundo.
@@ -180,11 +179,23 @@ impl Transcritor {
         })?;
         // Se o Vulkan falha uma vez, o resto desta transcrição vai direto para a CPU.
         let mut cpu_only = false;
+        // O passo do whisper diz se ele rodou na GPU ou caiu para a CPU.
+        let medir_o_whisper = |nome: &'static str, inicio, cpu_only: bool| {
+            let nome = match (nome, cpu_only) {
+                ("idioma", true) => "idiomaNaCpu",
+                ("whisper", true) => "whisperNaCpu",
+                (nome, _) => nome,
+            };
+            tempos::registrar(edit, passo(nome), inicio, OffsetDateTime::now_utc());
+        };
         let idioma = match pedido.idioma {
             Some(idioma) => idioma.to_owned(),
-            None => tempos::medir(edit, passo("idioma"), || {
-                self.detectar_idioma(&audio, work_dir, cancelar, &mut cpu_only)
-            })?,
+            None => {
+                let inicio = OffsetDateTime::now_utc();
+                let idioma = self.detectar_idioma(&audio, work_dir, cancelar, &mut cpu_only);
+                medir_o_whisper("idioma", inicio, cpu_only);
+                idioma?
+            }
         };
 
         let mut args = vec![
@@ -220,20 +231,21 @@ impl Transcritor {
             "-nfa".to_owned(),
             "-pp".to_owned(),
         ]);
-        let stderr = tempos::medir(edit, passo("whisper"), || {
-            self.whisper(
-                &args,
-                work_dir,
-                "whisper.txt",
-                cancelar,
-                &mut cpu_only,
-                &mut |line| {
-                    if let Some(percent) = progress_percent(line) {
-                        progresso(percent / 100.0);
-                    }
-                },
-            )
-        })?;
+        let inicio = OffsetDateTime::now_utc();
+        let stderr = self.whisper(
+            &args,
+            work_dir,
+            "whisper.txt",
+            cancelar,
+            &mut cpu_only,
+            &mut |line| {
+                if let Some(percent) = progress_percent(line) {
+                    progresso(percent / 100.0);
+                }
+            },
+        );
+        medir_o_whisper("whisper", inicio, cpu_only);
+        let stderr = stderr?;
         let whisper = read_whisper_json(&work_dir.join(TRANSCRICAO))?;
         let vad = vad_segments(&stderr);
         let idioma = whisper.result.language.unwrap_or(idioma);
@@ -360,12 +372,9 @@ impl Transcritor {
             );
         };
         if !*cpu_only {
-            // Na GPU o whisper.cpp pouco usa a CPU: quatro threads, o padrão dele, deixam o
-            // resto para o render de outro projeto.
-            let args = com_threads(args, self.threads.min(THREADS_NA_GPU));
             match run_whisper(
                 &self.whisper,
-                &args,
+                args,
                 work_dir,
                 response_file,
                 cancel,
@@ -394,17 +403,6 @@ impl Transcritor {
             .args(args);
         run_program("ffmpeg", command, cancel, &mut |_, _| {}).map(drop)
     }
-}
-
-/// Os argumentos com o `-t` trocado por `threads`.
-fn com_threads(args: &[String], threads: u32) -> Vec<String> {
-    let mut args = args.to_vec();
-    if let Some(posicao) = args.iter().position(|arg| arg == "-t")
-        && let Some(valor) = args.get_mut(posicao + 1)
-    {
-        *valor = threads.to_string();
-    }
-    args
 }
 
 /// Um whisper-cli com os argumentos num arquivo de resposta, rodando na pasta de trabalho. No

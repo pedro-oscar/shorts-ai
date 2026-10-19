@@ -23,6 +23,7 @@ esac
 const FFMPEG: &str = r#"#!/bin/sh
 dir="$(dirname "$0")"
 echo "$@" >> "$dir/ffmpeg.log"
+echo "ffmpeg $(nice)" >> "$dir/nice.log"
 case "$*" in
 *rawvideo*)
   for i in 1 2 3 4 5 6 7 8 9 10; do cat "$dir/quadro.rgb"; done
@@ -54,6 +55,7 @@ echo dados > "$ultimo"
 const NODE: &str = r#"#!/bin/sh
 dir="$(dirname "$0")"
 echo "$PWD: $@" >> "$dir/node.log"
+echo "node $(nice)" >> "$dir/nice.log"
 [ -f "$dir/node-erro" ] && {
   printf 'node:internal/modules:331\n  throw new ERR_MODULE_NOT_FOUND(x);\n        ^\n\nError [ERR_MODULE_NOT_FOUND]: Cannot find package x\n    at foo (bar)\n  code: 1\n}\n\nNode.js v24.21.0\n' >&2
   exit 1
@@ -763,6 +765,34 @@ fn a_falha_no_preparo_do_reel_seguinte_vira_o_erro_da_producao() {
 
     assert!(matches!(erro, ErroDaProducao::Corte(_)), "{erro}");
     assert!(cenario.renders_de("c02") == 0, "{:?}", cenario.renders());
+}
+
+#[test]
+fn o_render_o_corte_e_o_rosto_rodam_com_prioridade_abaixo_da_do_app() {
+    let cenario = Cenario::novo();
+
+    cenario.produzir(Qualidade::Final).unwrap();
+
+    // Eles rodam junto com a Transcrição de outro projeto, que não pode ficar sem CPU.
+    let do_app: i32 =
+        String::from_utf8(std::process::Command::new("nice").output().unwrap().stdout)
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
+    let registros = fs::read_to_string(cenario.bin().join("nice.log")).unwrap();
+    assert!(
+        registros.lines().any(|linha| linha.starts_with("node ")),
+        "{registros}"
+    );
+    assert!(
+        registros.lines().any(|linha| linha.starts_with("ffmpeg ")),
+        "{registros}"
+    );
+    for linha in registros.lines() {
+        let nice: i32 = linha.rsplit(' ').next().unwrap().parse().unwrap();
+        assert!(nice > do_app, "{linha} (o app roda em {do_app})");
+    }
 }
 
 #[test]

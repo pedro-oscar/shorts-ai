@@ -699,7 +699,7 @@ impl Ffmpeg {
         cancelar: &AtomicBool,
         por_linha: &mut dyn FnMut(&str),
     ) -> Result<Output, ErroDoCorte> {
-        let mut comando = crate::process::comando(&self.ffmpeg);
+        let mut comando = crate::process::comando_em_segundo_plano(&self.ffmpeg);
         comando
             .args(["-hide_banner", "-nostats", "-v", "info"])
             .args(args);

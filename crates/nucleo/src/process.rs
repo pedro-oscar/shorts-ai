@@ -47,6 +47,34 @@ pub(crate) fn comando(programa: impl AsRef<OsStr>) -> Command {
     comando
 }
 
+/// O comando de um processo pesado de mídia (o render, o corte, o rosto), com prioridade abaixo
+/// do normal; os filhos que ele abrir (o Chrome e o ffmpeg do Remotion) herdam a prioridade. Ele
+/// roda junto com a Transcrição de outro projeto, e as fases de CPU do whisper (a carga do modelo
+/// e o VAD) não podem esperar por ele com a GPU parada.
+pub(crate) fn comando_em_segundo_plano(programa: impl AsRef<OsStr>) -> Command {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        const BELOW_NORMAL_PRIORITY_CLASS: u32 = 0x0000_4000;
+        let mut comando = comando(programa);
+        comando.creation_flags(CREATE_NO_WINDOW | BELOW_NORMAL_PRIORITY_CLASS);
+        comando
+    }
+    #[cfg(not(windows))]
+    {
+        // O `nice` troca de programa sem trocar de processo: cancelar ainda mata o programa.
+        let nice = Path::new("/usr/bin/nice");
+        if nice.is_file() {
+            let mut comando = comando(nice);
+            comando.args(["-n", "10"]).arg(programa);
+            comando
+        } else {
+            comando(programa)
+        }
+    }
+}
+
 /// Tira as variáveis do AppImage e, do `XDG_DATA_DIRS`, as pastas de dentro da imagem que ele
 /// pôs na frente das do sistema.
 fn sem_o_ambiente_do_appimage(comando: &mut Command, appdir: &Path, xdg: Option<OsString>) {

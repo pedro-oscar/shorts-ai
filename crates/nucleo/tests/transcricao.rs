@@ -184,6 +184,7 @@ dir="$(dirname "$0")"
 nome="$(basename "$0")"
 args="${1#@}"
 { printf '%s ' "$nome"; tr '\n' ' ' < "$args"; echo; } >> "$dir/whisper.log"
+nice >> "$dir/nice.log"
 case "$PWD" in *sleep-forever*) exec sleep 30 ;; esac
 [ -f "$dir/trava" ] && exec sleep 30
 [ -f "$dir/falha" ] && { echo "falha de teste" >&2; exit 3; }
@@ -501,6 +502,41 @@ echo "whisper_print_progress_callback: progress = 100%" >&2
     }
 
     #[test]
+    fn o_whisper_roda_com_a_prioridade_do_app() {
+        let cenario = Cenario::novo();
+
+        cenario.transcrever(None, &mut Vec::new()).unwrap();
+
+        // O render e o corte, que rodam junto, é que ficam abaixo.
+        let do_app =
+            String::from_utf8(std::process::Command::new("nice").output().unwrap().stdout).unwrap();
+        let registros = fs::read_to_string(cenario.bin().join("nice.log")).unwrap();
+        assert!(!registros.is_empty());
+        assert!(
+            registros.lines().all(|linha| linha == do_app.trim()),
+            "{registros} (o app roda em {do_app})"
+        );
+    }
+
+    #[test]
+    fn quando_o_whisper_cai_para_a_cpu_os_tempos_dizem() {
+        let cenario = Cenario::novo();
+        cenario.marcar("gpu-falha");
+
+        cenario.transcrever(None, &mut Vec::new()).unwrap();
+
+        let passos: Vec<String> = fs::read_to_string(cenario.edit.join("tempos.jsonl"))
+            .unwrap()
+            .lines()
+            .map(|linha| {
+                let linha: serde_json::Value = serde_json::from_str(linha).unwrap();
+                linha["passo"].as_str().unwrap().to_owned()
+            })
+            .collect();
+        assert_eq!(passos, ["audio", "idiomaNaCpu", "whisperNaCpu"]);
+    }
+
+    #[test]
     fn o_trecho_de_deteccao_e_cortado_na_saida_e_recodificado() {
         let cenario = Cenario::novo();
 
@@ -640,28 +676,12 @@ echo "whisper_print_progress_callback: progress = 100%" >&2
             "{}",
             chamadas[1]
         );
-        // O mesmo pedido, só que sem GPU e com as threads da CPU: na GPU, quatro bastam.
-        let threads = |chamada: &str| -> u32 {
-            chamada
-                .split(" -t ")
-                .nth(1)
-                .unwrap()
-                .split(' ')
-                .next()
-                .unwrap()
-                .parse()
-                .unwrap()
-        };
-        let (na_gpu, na_cpu) = (threads(&chamadas[0]), threads(&chamadas[1]));
-        assert!(na_gpu <= 4 && na_gpu <= na_cpu, "{chamadas:?}");
+        // O mesmo pedido, só que sem GPU.
         assert_eq!(
             chamadas[1].trim_end(),
             format!(
                 "whisper-cli-cpu {} -ng",
-                chamadas[0]
-                    .trim_end()
-                    .trim_start_matches("whisper-cli ")
-                    .replacen(&format!(" -t {na_gpu} "), &format!(" -t {na_cpu} "), 1)
+                chamadas[0].trim_end().trim_start_matches("whisper-cli ")
             )
         );
     }

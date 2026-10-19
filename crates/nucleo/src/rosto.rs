@@ -575,7 +575,7 @@ impl Ffmpeg {
         let bytes = quadro_l * quadro_a * 3;
         let duracao = self.duracao(corte, cancelar)?;
 
-        let mut comando = crate::process::comando(self.caminho_do_ffmpeg());
+        let mut comando = crate::process::comando_em_segundo_plano(self.caminho_do_ffmpeg());
         comando
             .args(["-hide_banner", "-nostats", "-v", "error", "-i"])
             .arg(corte)
